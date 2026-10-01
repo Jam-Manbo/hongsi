@@ -1,6 +1,6 @@
 <script lang="ts">
   import { setItemAlert } from '../lib/actions.svelte';
-  import { itemStatus, schoolFinished } from '../lib/colors';
+  import { itemStatus, isFinished } from '../lib/colors';
   import { dateTime, dday, dueDateTime } from '../lib/format';
   import { cleanHtml as clean } from '../lib/html';
   import { leadSummary } from '../lib/settings.svelte';
@@ -56,7 +56,7 @@
       <h3>{item.title}</h3>
       <div class="chips">
         <span class="chip {status.tone}">{status.label}</span>
-        {#if item.due && !schoolFinished(item)}<span class="chip primary">{dday(item.due).label}</span>{/if}
+        {#if item.due && !isFinished(item)}<span class="chip primary">{dday(item.due).label}</span>{/if}
       </div>
     </div>
 

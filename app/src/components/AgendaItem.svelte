@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { itemStatus, schoolFinished } from '../lib/colors';
+  import { itemStatus, isFinished } from '../lib/colors';
   import { dday, dueDate, dueTime } from '../lib/format';
   import type { CalendarItem } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -20,7 +20,7 @@
     ontoggle: (item: CalendarItem) => void;
   } = $props();
 
-  const finished = $derived(schoolFinished(item));
+  const finished = $derived(isFinished(item));
   const status = $derived(itemStatus(item));
   const d = $derived(item.due ? dday(item.due) : null);
 </script>

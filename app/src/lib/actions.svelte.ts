@@ -8,6 +8,19 @@ import { toast, toastOnce } from './ui.svelte';
 import type { CalendarItem, DownloadRecord, FileSource } from './types';
 
 const saving = new Set<string>();
+export const doneConfirmation = $state({ pending: null as { key: string; done: boolean } | null });
+
+export function cancelDoneConfirmation() {
+  doneConfirmation.pending = null;
+}
+
+export async function confirmDone() {
+  const pending = doneConfirmation.pending;
+  cancelDoneConfirmation();
+  if (!pending) return;
+  const item = calendar.data?.items.find((i) => i.key === pending.key);
+  if (item) await saveDone(item, pending.done);
+}
 
 function update(key: string, patch: Partial<CalendarItem>) {
   if (!calendar.data) return;
@@ -15,11 +28,22 @@ function update(key: string, patch: Partial<CalendarItem>) {
 }
 
 export async function toggleDone(item: CalendarItem) {
+  if (writeBlocked() || saving.has(item.key) || doneConfirmation.pending) return;
+  const current = calendar.data?.items.find((i) => i.key === item.key) ?? item;
+  const done = !current.done;
+  if (done !== schoolFinished(current)) {
+    doneConfirmation.pending = { key: item.key, done };
+    return;
+  }
+  await saveDone(current, done);
+}
+
+async function saveDone(item: CalendarItem, done: boolean) {
   if (writeBlocked() || saving.has(item.key)) return;
   const version = sessionVersion();
   const current = calendar.data?.items.find((i) => i.key === item.key) ?? item;
+  if (done === current.done) return;
   const before = { done: current.done, doneOverride: current.doneOverride };
-  const done = !current.done;
   const override = done === schoolFinished(current) ? null : done;
   saving.add(item.key);
   update(item.key, { done, doneOverride: override });
@@ -68,6 +92,7 @@ onSessionChange(() => {
   downloads.list = load();
   downloads.busy = '';
   saving.clear();
+  cancelDoneConfirmation();
 });
 
 export function fileId(src: FileSource): string {

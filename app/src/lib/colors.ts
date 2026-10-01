@@ -51,5 +51,10 @@ export function itemStatus(item: CalendarItem): { label: string; tone: Tone } {
 }
 
 export function isPending(item: CalendarItem, now = Date.now() / 1000): boolean {
-  return !isFinished(item) && (item.due === null || item.due > now) && item.status !== 'upcoming';
+  return !isFinished(item) && (item.due === null || item.due > now)
+    && (item.kind !== 'vod' || item.start === null || item.start <= now);
+}
+
+export function isOverdue(item: CalendarItem, now = Date.now() / 1000): boolean {
+  return !isFinished(item) && item.due !== null && item.due <= now;
 }

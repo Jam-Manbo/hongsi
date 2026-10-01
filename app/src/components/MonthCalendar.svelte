@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isFinished, schoolFinished } from '../lib/colors';
+  import { isFinished } from '../lib/colors';
   import { dueKey, monthCells, todayKey } from '../lib/format';
   import { todoKey } from '../lib/todos.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
@@ -170,7 +170,7 @@
           {#each list.slice(0, maxShow) as item (item.key)}
             <span
               class="ev"
-              class:finished={schoolFinished(item)}
+              class:finished={isFinished(item)}
               class:vod={item.kind === 'vod'}
               style:--c={colors.get(item.courseId) ?? 'var(--text-3)'}
             >

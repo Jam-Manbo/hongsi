@@ -12,7 +12,7 @@ export function homeAgenda(items: CalendarItem[], todos: Todo[], nowMs: number, 
     today: [], overdue: [], upcoming: [], undated: [],
   };
   for (const value of items) {
-    if (value.done || value.status === 'upcoming' || (value.start !== null && value.start > now)) continue;
+    if (value.done || (value.start !== null && value.start > now)) continue;
     const entry: HomeEntry = { key: value.key, kind: 'item', value, due: value.due };
     if (value.due === null) {
       if (value.kind === 'assignment' && showUndatedAssignments) groups.undated.push(entry);

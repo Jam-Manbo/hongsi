@@ -3,7 +3,7 @@
   import { MediaQuery } from 'svelte/reactivity';
   import { isApp } from '../lib/api';
   import { toggleDone } from '../lib/actions.svelte';
-  import { courseColors, schoolFinished, isPending } from '../lib/colors';
+  import { courseColors, isFinished, isOverdue, isPending } from '../lib/colors';
   import { ago, dueKey, dueTime, longDay, time, todayKey } from '../lib/format';
   import { calendar, pref, setPref, todos } from '../lib/store.svelte';
   import { refreshState, refreshTab } from '../lib/refresh.svelte';
@@ -149,7 +149,7 @@
       case 'vod':
         return items.filter((i) => i.kind === 'vod' && isPending(i, now));
       case 'missed':
-        return items.filter((i) => (i.status === 'missed' || i.status === 'overdue') && !i.done);
+        return items.filter((i) => isOverdue(i, now));
       default:
         return [];
     }
@@ -296,7 +296,7 @@
         <strong>{todos.data ? remainingTodos.length : todos.error ? '—' : '…'}</strong><span>남은 할 일</span>
       </button>
       <button class="stat danger" class:on={stat === 'missed'} onclick={() => (stat = stat === 'missed' ? null : 'missed')} aria-expanded={stat === 'missed'}>
-        <strong>{items.filter((i) => (i.status === 'missed' || i.status === 'overdue') && !i.done).length}</strong><span>놓친 항목</span>
+        <strong>{items.filter((i) => isOverdue(i)).length}</strong><span>놓친 항목</span>
       </button>
     </div>
     {#if stat}
@@ -459,7 +459,7 @@
               <li>
                 <button
                   class="pop-row"
-                  class:finished={schoolFinished(item)}
+                  class:finished={isFinished(item)}
                   style:--c={colors.get(item.courseId) ?? 'var(--text-3)'}
                   onclick={() => openFromPop(item.key)}
                 >

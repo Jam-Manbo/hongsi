@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { watchAppUpdates } from './lib/app-update.svelte';
   import AppUpdate from './components/AppUpdate.svelte';
+  import DoneConfirm from './components/DoneConfirm.svelte';
   import DownloadPage from './pages/DownloadPage.svelte';
   import { ApiError, api, isApp, native } from './lib/api';
   import { isPending } from './lib/colors';
@@ -280,6 +281,7 @@
     </nav>
   </div>
   <ProfileSheet bind:open={profileOpen} onlogout={logout} />
+  <DoneConfirm />
 
   {/key}
 {/if}

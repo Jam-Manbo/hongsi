@@ -1,3 +1,7 @@
+<script module lang="ts">
+  const openPanels = new Set<HTMLElement>();
+</script>
+
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
@@ -10,6 +14,7 @@
     title = '',
     titleMeta = '',
     wide = false,
+    layer = 0,
     onclose,
     children,
     footer,
@@ -18,6 +23,7 @@
     title?: string;
     titleMeta?: string;
     wide?: boolean;
+    layer?: number;
     onclose?: () => void;
     children: Snippet;
     footer?: Snippet;
@@ -57,18 +63,24 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') close();
+    if (open && e.key === 'Escape' && !e.defaultPrevented && panel === [...openPanels].at(-1)) {
+      e.preventDefault();
+      close();
+    }
   }
 
   $effect(() => {
-    if (open) {
+    if (open && panel) {
+      const currentPanel = panel;
+      openPanels.add(currentPanel);
       resetDrag();
       const prev = document.activeElement as HTMLElement | null;
-      queueMicrotask(() => panel?.focus());
+      queueMicrotask(() => currentPanel.focus());
       document.body.style.overflow = 'hidden';
       return () => {
-        document.body.style.overflow = '';
-        prev?.focus?.();
+        openPanels.delete(currentPanel);
+        document.body.style.overflow = openPanels.size ? 'hidden' : '';
+        if (prev?.isConnected) prev.focus();
       };
     }
   });
@@ -77,9 +89,10 @@
 <svelte:window {onkeydown} />
 
 {#if open}
-  <div class="backdrop" use:portal transition:fade={{ duration: 160 }} onclick={close} aria-hidden="true"></div>
+  <div class="backdrop" style:z-index={60 + layer * 2} use:portal transition:fade={{ duration: 160 }} onclick={close} aria-hidden="true"></div>
   <div
     class="sheet"
+    style:z-index={61 + layer * 2}
     class:wide
     class:dragging
     style:translate={phone.current ? `0 ${dragY}px` : undefined}
