@@ -17,9 +17,9 @@
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
   const busy = $derived(refreshing || holding);
   const ready = $derived(pull >= THRESHOLD);
-  const visible = $derived(pull > 0 || busy);
+  const visible = $derived(pull > 0 || holding);
   const progress = $derived(Math.min(1, pull / THRESHOLD));
-  const position = $derived(busy ? 14 : -44 + pull);
+  const position = $derived(holding ? 14 : -44 + pull);
 
   function reset() { dragging = false; pull = 0; }
   function canStart(target: HTMLElement) {
