@@ -13,6 +13,7 @@
     open = $bindable(false),
     title = '',
     titleMeta = '',
+    titleIcon = '',
     wide = false,
     layer = 0,
     onclose,
@@ -22,6 +23,7 @@
     open: boolean;
     title?: string;
     titleMeta?: string;
+    titleIcon?: string;
     wide?: boolean;
     layer?: number;
     onclose?: () => void;
@@ -107,7 +109,8 @@
   >
     <div class="grip" aria-hidden="true"></div>
     <header>
-      <h2 class:with-meta={!!titleMeta}>
+      <h2 class:with-meta={!!titleMeta} class:with-icon={!!titleIcon}>
+        {#if titleIcon}<span class="title-icon"><Icon name={titleIcon} size={21} /></span>{/if}
         {#if titleMeta}<span>{title}</span><span class="title-meta">{titleMeta}</span>{:else}{title}{/if}
       </h2>
       <button class="icon-btn" onclick={close} aria-label="닫기"><Icon name="close" /></button>
@@ -173,6 +176,19 @@
     align-items: baseline;
     gap: 8px;
     min-width: 0;
+  }
+
+  h2.with-icon {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .title-icon {
+    display: flex;
+    flex: none;
+    color: var(--primary);
   }
 
   .title-meta {

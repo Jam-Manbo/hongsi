@@ -7,3 +7,5 @@ export const notificationState = $state({
   error: '',
   pending: null as NotificationIntent | null,
 });
+
+export const notificationPermission = $state({ open: false, busy: false });
