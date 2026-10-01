@@ -207,8 +207,8 @@
     border-radius: 8px;
     overflow: hidden;
     text-align: left;
-    background: color-mix(in srgb, var(--c) var(--timetable-tint), var(--surface));
-    color: var(--text);
+    background: color-mix(in srgb, var(--c) var(--timetable-tint), var(--timetable-surface));
+    color: var(--timetable-text);
     transition: transform 0.1s;
   }
 
@@ -233,7 +233,7 @@
     font-size: 11px;
     font-weight: 600;
     line-height: 1.3;
-    color: var(--text-2);
+    color: var(--timetable-text-2);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

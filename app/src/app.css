@@ -49,6 +49,9 @@
   --persimmon: var(--primary);
   --todo-neutral: #111827;
   --timetable-tint: 16%;
+  --timetable-surface: var(--surface);
+  --timetable-text: var(--text);
+  --timetable-text-2: var(--text-2);
 
   --radius-sm: 10px;
   --radius: 18px;
@@ -64,7 +67,10 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
   --todo-neutral: #f3f4f6;
-  --timetable-tint: 30%;
+  --timetable-tint: 24%;
+  --timetable-surface: #aeb8c6;
+  --timetable-text: #1b2433;
+  --timetable-text-2: #293548;
   --bg: #11151b;
   --surface: #1a2028;
   --surface-2: #202730;
@@ -106,7 +112,10 @@
   :root:not([data-theme]) {
     color-scheme: dark;
     --todo-neutral: #f3f4f6;
-    --timetable-tint: 30%;
+    --timetable-tint: 24%;
+    --timetable-surface: #aeb8c6;
+    --timetable-text: #1b2433;
+    --timetable-text-2: #293548;
     --bg: #11151b;
     --surface: #1a2028;
     --surface-2: #202730;
