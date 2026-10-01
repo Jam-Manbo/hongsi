@@ -1,0 +1,24 @@
+[package]
+name = "hongsi-app"
+description = "홍시 · 홍대생의 시간을 효율적으로"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "hongsi_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.0", features = [] }
+dotenvy = "=0.15.7"
+
+[dependencies]
+tauri = { version = "=2.12.0", features = [] }
+tauri-plugin-notifications = { version = "=0.4.6", features = ["push-notifications"] }
+hongsi-direct = { path = "../../crates/direct" }
+serde.workspace = true
+serde_json.workspace = true
+base64 = "=0.22.1"
+keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }

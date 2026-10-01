@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "앱 기본 권한: 기본 코어 기능과 알림",
+  "windows": ["main"],
+  "permissions": ["core:default", "notifications:default"]
+}

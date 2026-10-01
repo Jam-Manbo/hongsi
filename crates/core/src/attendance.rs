@@ -1,0 +1,300 @@
+use regex::Regex;
+use reqwest::header::{ORIGIN, REFERER};
+use scraper::Html;
+
+use crate::models::{
+    ActiveLecture, ActiveLectures, AttendanceCourse, AttendanceMark, AttendanceSummary,
+    AttendanceWeek, MarkKind,
+};
+use crate::util::{form_inputs, looks_like_login, sel, squash, text_of};
+use crate::{CoreError, Result, SchoolSession};
+
+const AT: &str = "https://at.hongik.ac.kr/";
+
+impl SchoolSession {
+    async fn ensure_attendance(&self) -> Result<()> {
+        self.attendance_ready
+            .get_or_try_init(|| async {
+                self.client
+                    .get(format!("{AT}login.jsp"))
+                    .header(REFERER, "https://my.hongik.ac.kr/")
+                    .send()
+                    .await?;
+                self.client
+                    .get(format!("{AT}index.jsp"))
+                    .header(REFERER, format!("{AT}login.jsp"))
+                    .send()
+                    .await?;
+                Ok::<(), CoreError>(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn active_rows(
+        &self,
+    ) -> Result<(Vec<(ActiveLecture, Vec<(String, String)>)>, Option<String>)> {
+        self.ensure_attendance().await?;
+        let body = self
+            .get_text(&format!("{AT}index.jsp"), Some(&format!("{AT}login.jsp")))
+            .await?;
+        if looks_like_login(&body) {
+            return Err(CoreError::SessionExpired);
+        }
+        let doc = Html::parse_document(&body);
+        let table = doc
+            .select(&sel("table"))
+            .next()
+            .ok_or_else(|| CoreError::Parse("출결 목록 표".into()))?;
+        let mut rows = Vec::new();
+        for tr in table.select(&sel("tbody > tr")) {
+            let Some(form) = tr.select(&sel("form[action*='stud02.jsp']")).next() else {
+                continue;
+            };
+            let cells: Vec<String> = tr.select(&sel("td")).map(text_of).collect();
+            let name = cells.get(2).cloned().unwrap_or_default();
+            let time = cells.get(4).cloned().unwrap_or_default();
+            let inputs = form_inputs(form);
+            let code = match (field(&inputs, "haksu"), field(&inputs, "bunban")) {
+                (h, b) if !h.is_empty() && !b.is_empty() => Some(format!("{h}-{b}")),
+                _ => None,
+            };
+            let lecture = ActiveLecture {
+                key: format!("{name}|{time}"),
+                name,
+                time,
+                code,
+            };
+            rows.push((lecture, inputs));
+        }
+        let message = if rows.is_empty() {
+            table
+                .select(&sel("tbody"))
+                .next()
+                .map(text_of)
+                .filter(|m| !m.is_empty())
+        } else {
+            None
+        };
+        Ok((rows, message))
+    }
+
+    pub async fn active_lectures(&self) -> Result<ActiveLectures> {
+        let (rows, message) = self.active_rows().await?;
+        Ok(ActiveLectures {
+            items: rows.into_iter().map(|(l, _)| l).collect(),
+            message,
+        })
+    }
+
+    pub async fn submit_attendance(
+        &self,
+        lecture_key: &str,
+        code: &str,
+        latitude: f64,
+        longitude: f64,
+    ) -> Result<String> {
+        let (rows, _) = self.active_rows().await?;
+        let (_, mut form) = rows
+            .into_iter()
+            .find(|(lecture, _)| lecture.key == lecture_key)
+            .ok_or_else(|| CoreError::NotFound("지금 출석할 수 있는 수업이 아니에요".into()))?;
+        form.push(("key".into(), code.to_string()));
+        form.push(("latitude".into(), latitude.to_string()));
+        form.push(("longitude".into(), longitude.to_string()));
+        let body = self
+            .client
+            .post(format!("{AT}stud02_proc.jsp"))
+            .header(ORIGIN, "https://at.hongik.ac.kr")
+            .header(REFERER, format!("{AT}stud02.jsp"))
+            .form(&form)
+            .send()
+            .await?
+            .text()
+            .await?;
+        if looks_like_login(&body) {
+            return Err(CoreError::SessionExpired);
+        }
+        if let Some(message) = alert_message(&body) {
+            return Ok(message);
+        }
+        let doc = Html::parse_document(&body);
+        doc.select(&sel(".alert.alert-warning"))
+            .next()
+            .map(text_of)
+            .filter(|m| !m.is_empty())
+            .ok_or_else(|| CoreError::Upstream("출결 서버가 알 수 없는 응답을 보냈어요".into()))
+    }
+
+    pub async fn attendance_status(&self) -> Result<Vec<AttendanceCourse>> {
+        self.ensure_attendance().await?;
+        let forms = self.fetch_attendance_forms().await?;
+        let mut courses = Vec::new();
+        for data in forms {
+            let body = self
+                .post_form_text(
+                    &format!("{AT}stud05.jsp"),
+                    &data,
+                    Some(&format!("{AT}stud04.jsp")),
+                )
+                .await?;
+            if looks_like_login(&body) {
+                return Err(CoreError::SessionExpired);
+            }
+            courses.push(parse_course_status(&body, &data));
+        }
+        Ok(courses)
+    }
+
+    pub async fn attendance_course(&self, code: &str) -> Result<AttendanceCourse> {
+        self.ensure_attendance().await?;
+        let forms = self
+            .attendance_forms
+            .get_or_try_init(|| self.fetch_attendance_forms())
+            .await?;
+        let data = forms
+            .iter()
+            .find(|f| format!("{}-{}", field(f, "haksu"), field(f, "bunban")) == code)
+            .ok_or_else(|| CoreError::NotFound("이번 학기 수강 과목이 아니에요".into()))?;
+        let body = self
+            .post_form_text(
+                &format!("{AT}stud05.jsp"),
+                data,
+                Some(&format!("{AT}stud04.jsp")),
+            )
+            .await?;
+        if looks_like_login(&body) {
+            return Err(CoreError::SessionExpired);
+        }
+        Ok(parse_course_status(&body, data))
+    }
+
+    async fn fetch_attendance_forms(&self) -> Result<Vec<Vec<(String, String)>>> {
+        let list = self
+            .get_text(&format!("{AT}stud04.jsp"), Some(&format!("{AT}stud01.jsp")))
+            .await?;
+        if looks_like_login(&list) {
+            return Err(CoreError::SessionExpired);
+        }
+        let doc = Html::parse_document(&list);
+        if doc.select(&sel("table")).next().is_none() {
+            return Err(CoreError::Parse("출결 과목 목록".into()));
+        }
+        Ok(doc
+            .select(&sel("form[action='stud05.jsp']"))
+            .map(form_inputs)
+            .collect())
+    }
+}
+
+fn field<'a>(data: &'a [(String, String)], name: &str) -> &'a str {
+    data.iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("")
+}
+
+fn parse_course_status(body: &str, data: &[(String, String)]) -> AttendanceCourse {
+    let doc = Html::parse_document(body);
+    let heading = doc
+        .select(&sel("h4"))
+        .next()
+        .map(text_of)
+        .unwrap_or_default();
+    let name = heading
+        .split_once(" - ")
+        .map(|(_, rest)| rest.to_string())
+        .unwrap_or(heading);
+    let code = format!("{}-{}", field(data, "haksu"), field(data, "bunban"));
+    if let Some(notice) = doc.select(&sel(".alert-warning")).next() {
+        return AttendanceCourse {
+            code,
+            name,
+            published: false,
+            notice: Some(text_of(notice)),
+            weeks: vec![],
+            summary: AttendanceSummary::default(),
+        };
+    }
+    let mut weeks = Vec::new();
+    let mut summary = AttendanceSummary::default();
+    for tr in doc.select(&sel("table tr")) {
+        let cells: Vec<String> = tr.select(&sel("td")).map(text_of).collect();
+        let Some(week) = cells.first().and_then(|c| c.parse::<u32>().ok()) else {
+            continue;
+        };
+        let sessions: Vec<AttendanceMark> = cells[1..]
+            .chunks(2)
+            .filter(|pair| pair.len() == 2)
+            .map(|pair| {
+                let kind = classify(&pair[0], &pair[1]);
+                match kind {
+                    MarkKind::Present => summary.present += 1,
+                    MarkKind::Late => summary.late += 1,
+                    MarkKind::Absent => summary.absent += 1,
+                    MarkKind::Excused => summary.excused += 1,
+                    MarkKind::None => summary.none += 1,
+                    MarkKind::Planned => summary.planned += 1,
+                    MarkKind::Other => {}
+                }
+                AttendanceMark {
+                    date: short_date(&pair[0]),
+                    mark: pair[1].clone(),
+                    kind,
+                }
+            })
+            .collect();
+        weeks.push(AttendanceWeek { week, sessions });
+    }
+    AttendanceCourse {
+        code,
+        name,
+        published: true,
+        notice: None,
+        weeks,
+        summary,
+    }
+}
+
+fn classify(date: &str, mark: &str) -> MarkKind {
+    if date.contains("미입력") {
+        MarkKind::Planned
+    } else if mark == "-" || mark.is_empty() {
+        MarkKind::None
+    } else if mark.contains("결석") {
+        MarkKind::Absent
+    } else if mark.contains("지각") || mark.contains("조퇴") {
+        MarkKind::Late
+    } else if mark.contains("공결") || mark.contains("인정") {
+        MarkKind::Excused
+    } else if mark.contains("출석") {
+        MarkKind::Present
+    } else {
+        MarkKind::Other
+    }
+}
+
+fn short_date(cell: &str) -> String {
+    let re = Regex::new(r"(\d{4}[-./])?(\d{1,2})[-./](\d{1,2})").expect("정규식");
+    match re.captures(cell) {
+        Some(c) => format!(
+            "{}/{}",
+            c[2].trim_start_matches('0'),
+            c[3].trim_start_matches('0')
+        ),
+        None => squash(cell),
+    }
+}
+
+fn alert_message(body: &str) -> Option<String> {
+    let re = Regex::new(r#"alert\s*\(\s*(?:'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)")\s*\)"#)
+        .expect("정규식");
+    let cap = re.captures(body)?;
+    let raw = cap.get(1).or_else(|| cap.get(2))?.as_str();
+    let message = raw
+        .replace("\\n", "\n")
+        .replace("\\'", "'")
+        .replace("\\\"", "\"");
+    let message = message.trim().to_string();
+    (!message.is_empty()).then_some(message)
+}

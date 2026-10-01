@@ -1,0 +1,65 @@
+name: Ubuntu server
+on:
+  workflow_dispatch:
+  release:
+    types: [released]
+  push:
+    branches: [main, master]
+    paths-ignore: ['**.md']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+          cache: true
+          cache_dependency_path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Release version from tag
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node app/scripts/set-release-version.mjs "$RELEASE_TAG"
+      - name: Build web and Linux server
+        run: |
+          test "$(uname -m)" = aarch64
+          pnpm --dir app install --frozen-lockfile
+          pnpm --dir app build
+          cargo build --locked --release -p hongsi-server
+          mkdir -p "$RUNNER_TEMP/hongsi-server/bin"
+          cp target/release/hongsi-server "$RUNNER_TEMP/hongsi-server/bin/"
+          cp -R app/dist "$RUNNER_TEMP/hongsi-server/"
+          cp .env.example LICENSE "$RUNNER_TEMP/hongsi-server/"
+          tar -czf "$RUNNER_TEMP/hongsi-server-ubuntu26-arm64.tar.gz" -C "$RUNNER_TEMP/hongsi-server" .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hongsi-server-ubuntu26-arm64
+          path: ${{ runner.temp }}/hongsi-server-ubuntu26-arm64.tar.gz
+
+  publish:
+    if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
+    needs: build
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: hongsi-server-ubuntu26-arm64
+          path: release-assets
+      - name: Attach server bundle to the existing stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release.json"
+          jq -e '.draft == false and .prerelease == false and .published_at != null' "$RUNNER_TEMP/release.json"
+          gh release upload "$RELEASE_TAG" release-assets/hongsi-server-ubuntu26-arm64.tar.gz --repo "$GITHUB_REPOSITORY"

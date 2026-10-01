@@ -1,0 +1,12 @@
+include ':app'
+
+apply from: 'tauri.settings.gradle'
+
+def libraries = ['tauri-android', 'tauri-plugin-notifications']
+def arguments = libraries.collectMany { name -> [name, project(":${name}").projectDir.absolutePath] }
+def prepared = providers.exec {
+    commandLine(['node', new File(settingsDir, '../../../scripts/prepare-android-libraries.mjs').absolutePath] + arguments)
+}.standardOutput.asText.get()
+new groovy.json.JsonSlurper().parseText(prepared).each { library ->
+    project(":${library.name}").projectDir = new File(library.directory)
+}

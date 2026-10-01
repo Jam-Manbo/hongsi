@@ -1,0 +1,31 @@
+name: PR checks
+
+on:
+  pull_request:
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+          cache: true
+          cache_dependency_path: app/pnpm-lock.yaml
+      - run: pnpm --dir app install --frozen-lockfile
+      - run: pnpm --dir app check
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --locked -p hongsi-server

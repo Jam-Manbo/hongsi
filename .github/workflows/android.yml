@@ -1,0 +1,121 @@
+name: Android
+
+on:
+  workflow_dispatch:
+  release:
+    types: [released]
+  push:
+    branches: [main, master]
+    paths-ignore: ['**.md']
+
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      HONGSI_API_URL: ${{ vars.HONGSI_API_URL || 'https://hongsi.kyuyoung.dev' }}
+      HAS_SIGNING: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+          cache: true
+          cache_dependency_path: app/pnpm-lock.yaml
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: '15859902'
+          packages: platform-tools
+      - name: SDK and NDK
+        run: |
+          sdkmanager 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;29.0.14206865'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-aarch64
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Release version from tag
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/set-release-version.mjs "$RELEASE_TAG"
+      - name: Restore Firebase and signing files
+        env:
+          FIREBASE_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: node scripts/prepare-android-build.mjs
+      - name: Signed release APK and AAB
+        if: env.HAS_SIGNING == 'true'
+        run: pnpm tauri android build --target aarch64 --aab --apk --ci
+      - name: Debug APK for testing
+        if: env.HAS_SIGNING != 'true'
+        run: pnpm tauri android build --target aarch64 --debug --apk --ci
+      - name: Verify and package GitHub update
+        if: env.HAS_SIGNING == 'true'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          APK=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
+          CODE=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)
+          node scripts/package-android-release.mjs "$APK" "$CODE" "$RUNNER_TEMP/hongsi-release"
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          AABS=(src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
+          test -f "${AABS[0]}"
+          cp "${AABS[0]}" "$RUNNER_TEMP/hongsi-release/android/hongsi-$VERSION.aab"
+      - uses: actions/upload-artifact@v7
+        if: env.HAS_SIGNING == 'true'
+        with:
+          name: hongsi-android
+          path: ${{ runner.temp }}/hongsi-release/android/
+          if-no-files-found: error
+      - name: Remove restored credentials
+        if: always()
+        run: rm -f src-tauri/gen/android/keystore.properties src-tauri/gen/android/app/google-services.json "$RUNNER_TEMP/hongsi-release.jks"
+
+  publish:
+    if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: hongsi-android
+          path: release-assets
+      - name: Attach APK, AAB and metadata to the existing stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node app/scripts/publish-github-release.mjs release-assets
