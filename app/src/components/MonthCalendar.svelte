@@ -140,14 +140,14 @@
     <h2 aria-live="polite">{week ? weekTitle : `${year}년 ${month}월`}</h2>
     <button class="icon-btn" onclick={() => shift(1)} aria-label={week ? '다음 주' : '다음 달'}><Icon name="right" /></button>
     {#if week}
-      <button class="today-btn expand" onclick={() => onexpand?.()} aria-label="달력 펼치기">
-        달력 <Icon name="down" size={16} stroke={2.2} />
+      <button class="today-btn" onclick={() => onexpand?.()} aria-label="캘린더 펼치기">
+        캘린더
       </button>
     {:else}
       <button class="today-btn" onclick={goToday}>오늘</button>
     {/if}
   </div>
-  <div class="grid" role="group" aria-label={week ? weekTitle : `${year}년 ${month}월 달력`}>
+  <div class="grid" role="group" aria-label={week ? weekTitle : `${year}년 ${month}월`}>
     {#each ['일', '월', '화', '수', '목', '금', '토'] as w, i (w)}
       <div class="wd" class:sun={i === 0} class:sat={i === 6} aria-hidden="true">{w}</div>
     {/each}
@@ -222,13 +222,6 @@
     font-size: 13px;
     font-weight: 650;
     color: var(--text-2);
-  }
-
-  .expand {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 8px 0 12px;
   }
 
   .grid {

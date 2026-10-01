@@ -251,10 +251,10 @@
     </div>
     {#if sideable.current}
       <span class="seg layout-seg" role="group" aria-label="캘린더 배치">
-        <button aria-pressed={layout === 'wide'} onclick={() => setLayout('wide')} title="목록을 달력 아래에">
+        <button aria-pressed={layout === 'wide'} onclick={() => setLayout('wide')}>
           <Icon name="layout-below" size={16} stroke={2} />넓게
         </button>
-        <button aria-pressed={layout === 'side'} onclick={() => setLayout('side')} title="목록을 달력 오른쪽에">
+        <button aria-pressed={layout === 'side'} onclick={() => setLayout('side')}>
           <Icon name="layout-side" size={16} stroke={2} />나란히
         </button>
       </span>
