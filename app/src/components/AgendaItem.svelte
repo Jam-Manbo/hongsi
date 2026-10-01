@@ -47,7 +47,7 @@
       {#if item.due}<span>· {showDate ? dueDate(item.due) : ''} {dueTime(item.due)} 마감</span>{/if}
     </span>
   </button>
-  <div class="side">
+  <div class="agenda-side">
     <span class="chip {status.tone}">{status.label}</span>
     {#if d && !finished}<span class="dday {d.tone}">{d.label}</span>{/if}
   </div>
@@ -131,14 +131,6 @@
   .course {
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .side {
-    flex: none;
-    display: grid;
-    justify-items: center;
-    text-align: center;
-    gap: 4px;
   }
 
   .dday {

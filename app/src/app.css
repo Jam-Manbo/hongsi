@@ -327,6 +327,15 @@ a.btn {
   background: var(--surface-3);
 }
 
+.agenda-side {
+  flex: none;
+  width: 96px;
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 4px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

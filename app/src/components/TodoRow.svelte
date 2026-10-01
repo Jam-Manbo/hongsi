@@ -28,7 +28,9 @@
       {#if todo.note}<span>· 메모</span>{/if}
     </span>
   </button>
-  {#if d}<span class="dday {d.tone}">{d.label}</span>{/if}
+  <div class="agenda-side">
+    {#if d}<span class="dday {d.tone}">{d.label}</span>{/if}
+  </div>
 </div>
 
 <style>
@@ -111,7 +113,7 @@
   }
 
   .dday {
-    flex: none;
+    font-variant-numeric: tabular-nums;
     font-size: 12px;
     font-weight: 800;
     color: var(--text-3);
