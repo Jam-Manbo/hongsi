@@ -1,28 +1,40 @@
 mod api;
-mod background;
-mod push;
 mod auth;
+mod background;
 mod calendar;
 mod db;
-mod error;
 mod environment;
+mod error;
+mod login_limit;
+mod push;
 mod seat_watch;
 mod sessions;
-mod login_limit;
 mod state;
 mod todos;
-mod vault;
 mod updates;
+mod vault;
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{FixedOffset, Utc};
 use sqlx::postgres::PgPoolOptions;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
+use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
 use tracing_subscriber::EnvFilter;
 
 use crate::state::{load_secret, AppState, Config};
+
+struct LocalTime;
+
+impl FormatTime for LocalTime {
+    fn format_time(&self, writer: &mut Writer<'_>) -> std::fmt::Result {
+        let offset = FixedOffset::east_opt(9 * 3600).expect("valid UTC+9 offset");
+        let now = Utc::now().with_timezone(&offset);
+        write!(writer, "{}", now.format("%Y-%m-%dT%H:%M:%S%.6f%:z"))
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     environment::load()?;
@@ -32,8 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
+        .with_timer(LocalTime)
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| "hongsi_server=info,hongsi_core=info".into()),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "hongsi_server=info,hongsi_core=info".into()),
         )
         .init();
 
@@ -44,10 +58,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .acquire_timeout(Duration::from_secs(5))
         .connect(&config.database_url)
         .await?;
-    sqlx::raw_sql(include_str!("../schema.sql")).execute(&db).await?;
+    sqlx::raw_sql(include_str!("../schema.sql"))
+        .execute(&db)
+        .await?;
 
     let push = push::Push::from_env()?;
-    tracing::info!(web = push.ready("web"), android = push.ready("fcm"), ios = push.ready("apns"), "알림 발송 설정");
+    tracing::info!(
+        web = push.ready("web"),
+        android = push.ready("fcm"),
+        ios = push.ready("apns"),
+        "알림 발송 설정"
+    );
     let state = Arc::new(AppState {
         push,
         http: hongsi_core::public_client(),
@@ -79,7 +100,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let static_dir = state.config.static_dir.clone();
     let app = api::router()
-        .fallback_service(ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html"))))
+        .fallback_service(
+            ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html"))),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 
