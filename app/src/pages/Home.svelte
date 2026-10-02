@@ -226,7 +226,7 @@
             {#if now}<span class="chip primary">지금</span>{/if}
             <span class="time">{meal.start}~{meal.end}</span>
           </header>
-          <ul class="menu">
+          <ul class="menu" style:--menu-rows={Math.max(7, Math.ceil(meal.items.length / 2))}>
             {#each meal.items as food, j (j)}
               <li>{food}</li>
             {/each}
@@ -513,43 +513,44 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .meal ul {
+  .meal .menu {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 3px;
-  }
-
-  .meal li {
-    font-size: 14.5px;
-    font-weight: 650;
-    color: var(--text);
-  }
-
-  .meal ul.menu {
     gap: 4px;
   }
 
   .meal .menu li {
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-size: 14px;
     font-weight: 500;
+    color: var(--text);
     line-height: 1.45;
     letter-spacing: -0.01em;
   }
 
-  .meals.swipe ul.menu {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: repeat(4, auto);
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-    gap: 5px 10px;
-  }
+  @media (max-width: 767px) {
+    .meals:not(.swipe) {
+      grid-template-columns: minmax(0, 1fr);
+    }
 
-  .meals.swipe .menu li {
-    font-size: 13px;
-    line-height: 1.55;
-    letter-spacing: -0.02em;
+    .meal .menu {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: repeat(var(--menu-rows), minmax(1.55em, auto));
+      grid-auto-flow: column;
+      align-content: start;
+      align-items: start;
+      gap: 5px 12px;
+      font-size: 13px;
+    }
+
+    .meal .menu li {
+      font-size: inherit;
+      line-height: 1.55;
+      letter-spacing: -0.02em;
+    }
   }
 
   .home {
@@ -637,6 +638,5 @@
   .a-context { min-width: 0; }
   .meal-title { flex-wrap: wrap; gap: 5px 8px; }
   .meal header { padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-  .meal .menu li:first-child { font-weight: 700; }
 
 </style>

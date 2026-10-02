@@ -54,7 +54,7 @@
               </div>
               {#if meal.start}<span class="time"><Icon name="clock" size={14} />{meal.start}~{meal.end}</span>{/if}
             </header>
-            <ul>
+            <ul style:--menu-rows={Math.max(7, Math.ceil(meal.items.length / 2))}>
               {#each meal.items as food, i (i)}
                 <li>{food}</li>
               {/each}
@@ -176,13 +176,40 @@
     margin: 0;
     padding: 0;
     display: grid;
+    align-content: start;
     gap: 6px;
     flex: 1;
   }
 
   li {
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-size: 14px;
+    font-weight: 500;
+    line-height: 1.45;
+    letter-spacing: -0.01em;
     color: var(--text);
+  }
+
+  @media (max-width: 767px) {
+    .meals {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    ul {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-rows: repeat(var(--menu-rows), minmax(1.55em, auto));
+      grid-auto-flow: column;
+      align-items: start;
+      gap: 5px 12px;
+      font-size: 13px;
+    }
+
+    li {
+      font-size: inherit;
+      line-height: 1.55;
+      letter-spacing: -0.02em;
+    }
   }
 
 
@@ -194,8 +221,6 @@
   }
 
   .meal header { padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-  li:first-child { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
-  li:not(:first-child) { color: var(--text-2); }
   .day[aria-selected='true'] .dot { background: var(--on-primary); }
 
 </style>
