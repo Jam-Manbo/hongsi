@@ -249,12 +249,12 @@ impl Direct {
             }
             ("GET", "/api/timetable") => self.timetable(refresh).await.map(Reply::ok),
             ("GET", "/api/notifications") => self.notifications().await.map(Reply::ok),
-            ("POST", "/api/push/device" | "/api/push/renew") => {
+            ("POST", "/api/background/session" | "/api/background/renew") => {
                 if !self.base.starts_with("https://") && !self.base.starts_with("http://127.0.0.1:") {
                     return Err(Reply::error(400, "insecure_server", "학교 세션을 보관하려면 HTTPS 서버가 필요해요"));
                 }
-                if route == "/api/push/device" && json_body["consent"] != true {
-                    return Err(Reply::error(400, "bad_request", "백그라운드 알림 동의가 필요해요"));
+                if route == "/api/background/session" && json_body["consent"] != true {
+                    return Err(Reply::error(400, "bad_request", "백그라운드 동기화 동의가 필요해요"));
                 }
                 let school = self.current().await?;
                 let mut payload = json_body.clone();

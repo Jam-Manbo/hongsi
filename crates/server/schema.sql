@@ -93,12 +93,11 @@ create table if not exists todos (
     due_at     timestamptz,
     all_day    boolean not null default true,
     done_at    timestamptz,
+    notify     boolean not null default true,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
 create index if not exists todos_user_due on todos (user_id, due_at);
-
-alter table todos add column if not exists notify boolean not null default true;
 
 create table if not exists item_alerts_off (
     user_id    bigint not null references users (id) on delete cascade,
@@ -123,19 +122,28 @@ create table if not exists background_sessions (
     last_error text,
     snapshot jsonb
 );
-create table if not exists notification_devices (
+create table if not exists background_devices (
     id text primary key,
+    user_id bigint not null references background_sessions(user_id) on delete cascade,
+    session_hash text not null,
+    expires_at timestamptz not null default now() + interval '14 days'
+);
+create index if not exists background_devices_user on background_devices(user_id);
+
+create table if not exists notification_devices (
+    id text primary key references background_devices(id) on delete cascade,
     user_id bigint not null references users(id) on delete cascade,
     session_hash text not null,
     kind text not null check (kind in ('web','fcm','apns')),
     destination jsonb not null,
     leads integer[] not null,
     seat_leads integer[] not null,
-    change_alerts boolean not null default true,
+    classroom_alerts boolean not null default false,
+    classroom_epoch text not null,
+    notice_keys text[],
     expires_at timestamptz not null default now() + interval '90 days',
     last_error text
 );
-alter table notification_devices add column if not exists change_alerts boolean not null default true;
 create index if not exists notification_devices_user on notification_devices(user_id);
 create table if not exists notification_outbox (
     device_id text not null references notification_devices(id) on delete cascade,

@@ -25,12 +25,8 @@ pub struct DeviceInput {
     destination: Value,
     leads: Vec<i32>,
     seat_leads: Vec<i32>,
-    change_alerts: Option<bool>,
-    consent: bool,
-    #[serde(default)]
-    cookies: Option<Vec<(String, String)>>,
-    #[serde(default)]
-    only_this_device: bool,
+    classroom_alerts: bool,
+    classroom_epoch: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,14 +34,15 @@ pub struct Preferences {
     device_id: String,
     leads: Vec<i32>,
     seat_leads: Vec<i32>,
-    change_alerts: Option<bool>,
-    kind: Option<String>,
-    destination: Option<Value>,
+    classroom_alerts: bool,
+    classroom_epoch: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Renewal {
     device_id: String,
+    #[serde(default)]
+    consent: bool,
     #[serde(default)]
     cookies: Option<Vec<(String, String)>>,
 }
@@ -104,16 +101,17 @@ pub async fn status(
     Query(q): Query<DeviceQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let uid = user.session.user_id;
-    let device: Option<(Option<String>, bool)> = sqlx::query_as("select last_error,change_alerts from notification_devices where id=$1 and user_id=$2 and expires_at>now()") .bind(&q.device).bind(uid).fetch_optional(&st.db).await?;
+    let device: Option<(Option<String>, bool)> = sqlx::query_as("select last_error,classroom_alerts from notification_devices where id=$1 and user_id=$2 and expires_at>now()") .bind(&q.device).bind(uid).fetch_optional(&st.db).await?;
     let bg: Option<(DateTime<Utc>, Option<DateTime<Utc>>, Option<String>)> = sqlx::query_as(
-        "select expires_at,last_poll_at,last_error from background_sessions where user_id=$1 and expires_at>now()",
+        "select expires_at,last_poll_at,last_error from background_sessions b where user_id=$1 and expires_at>now() and exists(select 1 from background_devices d where d.id=$2 and d.user_id=b.user_id and d.expires_at>now())",
     )
     .bind(uid)
+    .bind(&q.device)
     .fetch_optional(&st.db)
     .await?;
     let count: (i64, Option<DateTime<Utc>>) = sqlx::query_as("select count(*),min(due_at) from notification_outbox where device_id=$1 and sent_at is null and expires_at>now() and device_id in(select id from notification_devices where user_id=$2)").bind(&q.device).bind(uid).fetch_one(&st.db).await?;
     Ok(Json(
-        json!({"registered":device.is_some(),"changeAlerts":device.as_ref().is_none_or(|d|d.1),"error":device.and_then(|d|d.0),"consented":bg.is_some(),"expiresAt":bg.as_ref().map(|b|b.0.timestamp()),"lastPollAt":bg.as_ref().and_then(|b|b.1).map(|d|d.timestamp()),"schoolError":bg.and_then(|b|b.2),"scheduled":count.0,"nextAt":count.1.map(|d|d.timestamp()),"pollMinutes":POLL_SECS/60,"available":{"web":st.push.ready("web"),"fcm":st.push.ready("fcm"),"apns":st.push.ready("apns")},"publicKey":st.push.public_key}),
+        json!({"registered":device.is_some(),"classroomAlerts":device.as_ref().is_some_and(|d|d.1),"error":device.and_then(|d|d.0),"consented":bg.is_some(),"expiresAt":bg.as_ref().map(|b|b.0.timestamp()),"lastPollAt":bg.as_ref().and_then(|b|b.1).map(|d|d.timestamp()),"schoolError":bg.and_then(|b|b.2),"scheduled":count.0,"nextAt":count.1.map(|d|d.timestamp()),"pollMinutes":POLL_SECS/60,"available":{"web":st.push.ready("web"),"fcm":st.push.ready("fcm"),"apns":st.push.ready("apns")},"publicKey":st.push.public_key}),
     ))
 }
 async fn verified_cookies(st: &Shared, user: &CurrentUser, supplied: Option<Vec<(String, String)>>) -> Result<Vec<(String, String)>, ApiError> {
@@ -132,188 +130,132 @@ async fn verified_cookies(st: &Shared, user: &CurrentUser, supplied: Option<Vec<
     Ok(cookies)
 }
 
+pub async fn enable_sync(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Renewal>) -> Result<Json<Value>, ApiError> {
+    if !b.consent || !valid_id(&b.device_id) {
+        return Err(ApiError::bad_request("백그라운드 동기화 동의와 기기 정보를 확인해 주세요"));
+    }
+    save_sync(&st, &user, b, false).await
+}
+
 pub async fn renew(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Renewal>) -> Result<Json<Value>, ApiError> {
     if !valid_id(&b.device_id) { return Err(ApiError::bad_request("기기 정보를 확인해 주세요")); }
+    save_sync(&st, &user, b, true).await
+}
+
+async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool) -> Result<Json<Value>, ApiError> {
     let uid = user.session.user_id;
-    let (eligible,): (bool,) = sqlx::query_as("select exists(select 1 from background_sessions b join notification_devices d on d.user_id=b.user_id where b.user_id=$1 and d.id=$2 and b.expires_at>now() and d.expires_at>now())")
-        .bind(uid).bind(&b.device_id).fetch_one(&st.db).await?;
-    if !eligible { return Err(ApiError::conflict("백그라운드 알림에 다시 동의하고 연결해 주세요.")); }
-    let cookies = verified_cookies(&st, &user, b.cookies).await?;
+    let cookies = verified_cookies(st, user, b.cookies).await?;
     let sealed = vault::Sealed { name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies };
     let (nonce, ciphertext) = vault::seal(&st.pepper, &format!("background:{uid}"), &sealed)
         .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요"))?;
-    let expires = renew_stored_session(&st.db, uid, &b.device_id, &vault::token_hash(&user.token), &nonce, &ciphertext).await?
-        .ok_or_else(|| ApiError::conflict("백그라운드 알림에 다시 동의하고 연결해 주세요."))?;
+    let mut tx = st.db.begin().await?;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
+    if renew_only {
+        let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.expires_at>now() and b.expires_at>now())")
+            .bind(&b.device_id).bind(uid).fetch_one(&mut *tx).await?;
+        if !eligible { return Err(ApiError::conflict("백그라운드 동기화를 다시 연결해 주세요.")); }
+    }
+    let count: i64 = sqlx::query_scalar("select count(*) from background_devices where user_id=$1 and id<>$2 and expires_at>now()")
+        .bind(uid).bind(&b.device_id).fetch_one(&mut *tx).await?;
+    if count >= 10 { return Err(ApiError::bad_request("동기화할 수 있는 기기는 10개까지예요")); }
+    let expires: DateTime<Utc> = sqlx::query_scalar("insert into background_sessions(user_id,nonce,ciphertext,expires_at) values($1,$2,$3,now()+interval '14 days') on conflict(user_id) do update set nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=excluded.expires_at,next_poll_at=case when background_sessions.last_error is not null then now() else background_sessions.next_poll_at end,last_error=null returning expires_at")
+        .bind(uid).bind(nonce).bind(ciphertext).fetch_one(&mut *tx).await?;
+    let saved = sqlx::query("insert into background_devices(id,user_id,session_hash) values($1,$2,$3) on conflict(id) do update set session_hash=excluded.session_hash,expires_at=now()+interval '14 days' where background_devices.user_id=excluded.user_id")
+        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).execute(&mut *tx).await?;
+    if saved.rows_affected() != 1 { return Err(ApiError::conflict("이 기기의 이전 계정 동기화를 먼저 해제해 주세요")); }
+    tx.commit().await?;
     Ok(Json(json!({"ok":true,"expiresAt":expires.timestamp()})))
 }
 
-async fn renew_stored_session(db: &PgPool, uid: i64, device: &str, session_hash: &str, nonce: &[u8], ciphertext: &[u8]) -> sqlx::Result<Option<DateTime<Utc>>> {
-    let mut tx = db.begin().await?;
-    sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
-    let expires: Option<(DateTime<Utc>,)> = sqlx::query_as("update background_sessions b set nonce=$3,ciphertext=$4,expires_at=now()+interval '14 days',next_poll_at=case when last_error is not null then now() else next_poll_at end,last_error=null where user_id=$1 and expires_at>now() and exists(select 1 from notification_devices d where d.user_id=b.user_id and d.id=$2 and d.expires_at>now()) returning expires_at")
-        .bind(uid).bind(device).bind(nonce).bind(ciphertext).fetch_optional(&mut *tx).await?;
-    if expires.is_some() {
-        sqlx::query("update notification_devices set session_hash=$3,expires_at=now()+interval '90 days' where user_id=$1 and id=$2")
-            .bind(uid).bind(device).bind(session_hash).execute(&mut *tx).await?;
-    }
-    tx.commit().await?;
-    Ok(expires.map(|v| v.0))
+async fn notice_baseline(st: &Shared, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, uid: i64) -> Option<Vec<String>> {
+    let row = sqlx::query_as::<_, Background>("select nonce,ciphertext,snapshot from background_sessions where user_id=$1 and expires_at>now()")
+        .bind(uid).fetch_optional(&mut **tx).await.ok()??;
+    let sealed = vault::open(&st.pepper, &format!("background:{uid}"), &row.nonce, &row.ciphertext)?;
+    let school = hongsi_core::SchoolSession::from_sso_cookies(sealed.cookies).ok()?;
+    let notices = fetch_notices(&school, None).await.ok()?;
+    Some(notices.iter().map(notice_key).collect())
 }
 
-pub async fn register(
-    State(st): State<Shared>,
-    user: CurrentUser,
-    Json(b): Json<DeviceInput>,
-) -> Result<Json<Value>, ApiError> {
-    if !b.consent
-        || !valid_id(&b.device_id)
-        || !valid_leads(&b.leads, &b.seat_leads)
-        || !valid_destination(&b.kind, &b.destination)
-    {
-        return Err(ApiError::bad_request(
-            "알림 동의와 기기 정보를 확인해 주세요",
-        ));
+pub async fn register(State(st): State<Shared>, user: CurrentUser, Json(b): Json<DeviceInput>) -> Result<Json<Value>, ApiError> {
+    if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_leads(&b.leads, &b.seat_leads) || !valid_destination(&b.kind, &b.destination) {
+        return Err(ApiError::bad_request("알림 설정과 기기 정보를 확인해 주세요"));
     }
-    if !st.push.ready(&b.kind) {
-        return Err(ApiError::conflict(
-            "서버 오류입니다. 문제가 지속되면 문의해 주세요.",
-        ));
-    }
-    let cookies = verified_cookies(&st, &user, b.cookies).await?;
+    if !st.push.ready(&b.kind) { return Err(ApiError::conflict("알림 서버에 연결하지 못했어요. 다시 시도해 주세요.")); }
     let uid = user.session.user_id;
-    let sealed = vault::Sealed {
-        name: user.session.name.clone(),
-        student_id: user.session.student_id.clone(),
-        cookies,
-    };
-    let (nonce, ct) = vault::seal(&st.pepper, &format!("background:{uid}"), &sealed)
-        .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요"))?;
     let mut tx = st.db.begin().await?;
-    sqlx::query("select pg_advisory_xact_lock($1)")
-        .bind(-uid)
-        .execute(&mut *tx)
-        .await?;
-    if b.only_this_device {
-        sqlx::query("delete from notification_devices where user_id=$1 and id<>$2")
-            .bind(uid)
-            .bind(&b.device_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-    let (count,): (i64,) =
-        sqlx::query_as("select count(*) from notification_devices where user_id=$1 and id<>$2")
-            .bind(uid)
-            .bind(&b.device_id)
-            .fetch_one(&mut *tx)
-            .await?;
-    if count >= 10 {
-        return Err(ApiError::bad_request("등록할 수 있는 기기는 10개까지예요"));
-    }
-    let saved = sqlx::query("insert into notification_devices(id,user_id,session_hash,kind,destination,leads,seat_leads,change_alerts) values($1,$2,$3,$4,$5,$6,$7,coalesce($8,true)) on conflict(id) do update set session_hash=excluded.session_hash,kind=excluded.kind,destination=excluded.destination,leads=excluded.leads,seat_leads=excluded.seat_leads,change_alerts=coalesce($8,notification_devices.change_alerts),expires_at=now()+interval '90 days',last_error=null where notification_devices.user_id=excluded.user_id")
-        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(&b.kind).bind(&b.destination).bind(&b.leads).bind(&b.seat_leads).bind(b.change_alerts).execute(&mut *tx).await?;
-    if saved.rows_affected() != 1 {
-        return Err(ApiError::conflict(
-            "이 기기의 이전 계정 알림을 먼저 해제해 주세요",
-        ));
-    }
-    if b.change_alerts == Some(false) {
-        clear_change_alerts(&mut tx, &b.device_id).await?;
-    }
-    sqlx::query("insert into background_sessions(user_id,nonce,ciphertext,expires_at) values($1,$2,$3,now()+interval '14 days') on conflict(user_id) do update set nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=excluded.expires_at,next_poll_at=now(),last_error=null")
-        .bind(uid).bind(nonce).bind(ct).execute(&mut *tx).await?;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
+    let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.expires_at>now() and b.expires_at>now())")
+        .bind(&b.device_id).bind(uid).fetch_one(&mut *tx).await?;
+    if !eligible { return Err(ApiError::conflict("백그라운드 동기화를 먼저 켜 주세요.")); }
+    sqlx::query("insert into notification_devices(id,user_id,session_hash,kind,destination,leads,seat_leads,classroom_epoch) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(id) do update set session_hash=excluded.session_hash,kind=excluded.kind,destination=excluded.destination,leads=excluded.leads,seat_leads=excluded.seat_leads,expires_at=now()+interval '90 days',last_error=null where notification_devices.user_id=excluded.user_id")
+        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(&b.kind).bind(&b.destination).bind(&b.leads).bind(&b.seat_leads).bind(&b.classroom_epoch).execute(&mut *tx).await?;
+    apply_classroom(&st, &mut tx, uid, &b.device_id, b.classroom_alerts, &b.classroom_epoch).await?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
-pub async fn preferences(
-    State(st): State<Shared>,
-    user: CurrentUser,
-    Json(b): Json<Preferences>,
-) -> Result<Json<Value>, ApiError> {
-    if !valid_id(&b.device_id) || !valid_leads(&b.leads, &b.seat_leads) {
-        return Err(ApiError::bad_request("알림 시간을 확인해 주세요"));
-    }
-    if let (Some(kind), Some(destination)) = (&b.kind, &b.destination) {
-        if !valid_destination(kind, destination) {
-            return Err(ApiError::bad_request("기기 푸시 주소를 확인해 주세요"));
-        }
+
+pub async fn preferences(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Preferences>) -> Result<Json<Value>, ApiError> {
+    if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_leads(&b.leads, &b.seat_leads) {
+        return Err(ApiError::bad_request("알림 설정을 확인해 주세요"));
     }
     let mut tx = st.db.begin().await?;
-    sqlx::query("select pg_advisory_xact_lock($1)")
-        .bind(-user.session.user_id).execute(&mut *tx).await?;
-    let saved = sqlx::query(
-        "update notification_devices set leads=$3,seat_leads=$4,change_alerts=coalesce($5,change_alerts) where id=$1 and user_id=$2 and expires_at>now()",
-    )
-    .bind(&b.device_id)
-    .bind(user.session.user_id)
-    .bind(&b.leads)
-    .bind(&b.seat_leads)
-    .bind(b.change_alerts)
-    .execute(&mut *tx)
-    .await?;
-    if saved.rows_affected() != 1 {
-        return Err(ApiError::conflict("백그라운드 일정 확인을 다시 연결해 주세요."));
-    }
-    if b.change_alerts == Some(false) {
-        clear_change_alerts(&mut tx, &b.device_id).await?;
-    }
-    if let (Some(kind), Some(destination)) = (&b.kind, &b.destination) {
-        sqlx::query("update notification_devices set destination=$3,session_hash=$4 where id=$1 and user_id=$2 and kind=$5").bind(&b.device_id).bind(user.session.user_id).bind(destination).bind(vault::token_hash(&user.token)).bind(kind).execute(&mut *tx).await?;
-    }
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
+    let saved = sqlx::query("update notification_devices set leads=$3,seat_leads=$4 where id=$1 and user_id=$2 and expires_at>now()")
+        .bind(&b.device_id).bind(user.session.user_id).bind(&b.leads).bind(&b.seat_leads).execute(&mut *tx).await?;
+    if saved.rows_affected() != 1 { return Err(ApiError::conflict("알림을 다시 연결해 주세요.")); }
+    apply_classroom(&st, &mut tx, user.session.user_id, &b.device_id, b.classroom_alerts, &b.classroom_epoch).await?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
-async fn clear_change_alerts(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, device: &str) -> sqlx::Result<()> {
-    sqlx::query("delete from notification_outbox where device_id=$1 and sent_at is null and event_key like 'change:%'")
+
+async fn apply_classroom(st: &Shared, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, uid: i64, device: &str, enabled: bool, epoch: &str) -> Result<(), ApiError> {
+    let current: Option<(bool, String)> = sqlx::query_as("select classroom_alerts,classroom_epoch from notification_devices where id=$1 and user_id=$2")
+        .bind(device).bind(uid).fetch_optional(&mut **tx).await?;
+    let changed = current.as_ref().is_some_and(|(was_enabled, was_epoch)| *was_enabled != enabled || was_epoch != epoch);
+    if !changed { return Ok(()); }
+    sqlx::query("delete from notification_outbox where device_id=$1 and sent_at is null and event_key like 'notice:%'")
         .bind(device).execute(&mut **tx).await?;
+    let keys = if enabled { notice_baseline(st, tx, uid).await } else { None };
+    sqlx::query("update notification_devices set classroom_alerts=$2,classroom_epoch=$3,notice_keys=$4 where id=$1")
+        .bind(device).bind(enabled).bind(epoch).bind(keys).execute(&mut **tx).await?;
+    if enabled {
+        sqlx::query("update background_sessions set next_poll_at=now() where user_id=$1").bind(uid).execute(&mut **tx).await?;
+    }
     Ok(())
 }
 
-pub async fn disable(
-    State(st): State<Shared>,
-    user: CurrentUser,
-    Query(q): Query<DeviceQuery>,
-) -> Result<Json<Value>, ApiError> {
+pub async fn disable(State(st): State<Shared>, user: CurrentUser, Query(q): Query<DeviceQuery>) -> Result<Json<Value>, ApiError> {
     let mut tx = st.db.begin().await?;
-    sqlx::query("select pg_advisory_xact_lock($1)")
-        .bind(-user.session.user_id)
-        .execute(&mut *tx)
-        .await?;
-    if q.device == "all" {
-        sqlx::query("delete from notification_devices where user_id=$1")
-            .bind(user.session.user_id)
-            .execute(&mut *tx)
-            .await?;
-    } else {
-        sqlx::query("delete from notification_devices where user_id=$1 and id=$2")
-            .bind(user.session.user_id)
-            .bind(q.device)
-            .execute(&mut *tx)
-            .await?;
-    }
-    sqlx::query("delete from background_sessions b where user_id=$1 and not exists(select 1 from notification_devices d where d.user_id=b.user_id)").bind(user.session.user_id).execute(&mut *tx).await?;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
+    sqlx::query("delete from notification_devices where user_id=$1 and id=$2")
+        .bind(user.session.user_id).bind(&q.device).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
+
+pub async fn disable_sync(State(st): State<Shared>, user: CurrentUser, Query(q): Query<DeviceQuery>) -> Result<Json<Value>, ApiError> {
+    let mut tx = st.db.begin().await?;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
+    if q.device == "all" {
+        sqlx::query("delete from background_sessions where user_id=$1").bind(user.session.user_id).execute(&mut *tx).await?;
+    } else {
+        sqlx::query("delete from background_devices where user_id=$1 and id=$2").bind(user.session.user_id).bind(&q.device).execute(&mut *tx).await?;
+        sqlx::query("delete from background_sessions b where user_id=$1 and not exists(select 1 from background_devices d where d.user_id=b.user_id)").bind(user.session.user_id).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(Json(json!({"ok":true})))
+}
+
 pub async fn revoke_login(db: &PgPool, token: &str) -> sqlx::Result<()> {
     let hash = vault::token_hash(token);
-    let users: Vec<(i64,)> = sqlx::query_as(
-        "select distinct user_id from notification_devices where session_hash=$1 order by user_id",
-    )
-    .bind(&hash)
-    .fetch_all(db)
-    .await?;
+    let users: Vec<(i64,)> = sqlx::query_as("select distinct user_id from background_devices where session_hash=$1 order by user_id")
+        .bind(&hash).fetch_all(db).await?;
     let mut tx = db.begin().await?;
+    for (uid,) in &users { sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?; }
+    sqlx::query("delete from background_devices where session_hash=$1").bind(&hash).execute(&mut *tx).await?;
     for (uid,) in users {
-        sqlx::query("select pg_advisory_xact_lock($1)")
-            .bind(-uid)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("delete from background_sessions b where user_id=$1 and not exists(select 1 from background_devices d where d.user_id=b.user_id)").bind(uid).execute(&mut *tx).await?;
     }
-    sqlx::query("delete from notification_devices where session_hash=$1")
-        .bind(&hash)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("delete from background_sessions b where not exists(select 1 from notification_devices d where d.user_id=b.user_id)").execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -329,10 +271,11 @@ pub async fn run(st: Shared) {
     }
 }
 async fn cycle(st: &Shared) -> sqlx::Result<()> {
+    sqlx::query("delete from background_devices where expires_at<now()").execute(&st.db).await?;
     sqlx::query("delete from notification_devices where expires_at<now()")
         .execute(&st.db)
         .await?;
-    sqlx::query("delete from background_sessions b where expires_at<now() or not exists(select 1 from notification_devices d where d.user_id=b.user_id)").execute(&st.db).await?;
+    sqlx::query("delete from background_sessions b where expires_at<now() or not exists(select 1 from background_devices d where d.user_id=b.user_id)").execute(&st.db).await?;
     sqlx::query("delete from notification_outbox where expires_at < now()-interval '7 days'")
         .execute(&st.db)
         .await?;
@@ -374,16 +317,14 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
     if poll_due(&st.db, uid).await? {
         match fetch_calendar(st, uid, sealed.cookies, bg.snapshot.as_ref()).await {
             Ok(snapshot) => {
-                if let Some(previous) = &bg.snapshot {
-                    queue_changes(st, uid, &sealed.student_id, previous, &snapshot).await?;
-                }
+                queue_notices(st, uid, &sealed.student_id, &snapshot).await?;
                 sqlx::query("update background_sessions set snapshot=$2,last_poll_at=now(),next_poll_at=now()+make_interval(secs=>$3),last_error=null where user_id=$1") .bind(uid).bind(&snapshot).bind(POLL_SECS as f64).execute(&st.db).await?;
                 bg.snapshot = Some(snapshot);
             }
             Err(e) => {
                 let expired = e.code == "session_expired" || e.code == "login_rejected";
                 let error = if expired {
-                    "학교 로그인이 만료됐어요. 백그라운드 알림을 다시 연결해 주세요.".to_owned()
+                    "학교 로그인이 만료됐어요. 백그라운드 동기화를 다시 연결해 주세요.".to_owned()
                 } else {
                     format!("학교의 최신 일정을 확인하지 못했어요. {}분 뒤 다시 확인해요.", POLL_SECS / 60)
                 };
@@ -538,93 +479,34 @@ fn event(
         json!({"title":title,"body":body,"intent":{"version":1,"account":account,"target":target,"at":at*1000}}),
     )
 }
-async fn queue_changes(
-    st: &Shared,
-    uid: i64,
-    account: &str,
-    old: &Value,
-    new: &Value,
-) -> sqlx::Result<()> {
-    let devices: Vec<(String,)> =
-        sqlx::query_as("select id from notification_devices where user_id=$1 and change_alerts and expires_at>now()")
-            .bind(uid)
-            .fetch_all(&st.db)
-            .await?;
-    let item_changes = changes(old, new);
-    for (key, title, item) in &item_changes {
-        let (_, at, payload) = event(
-            key.clone(),
-            Utc::now().timestamp(),
-            title,
-            item["title"].as_str().unwrap_or("과제·강의"),
-            account,
-            json!({"kind":"item","key":item["key"]}),
-        );
-        for (id,) in &devices {
-            enqueue(&st.db, id, &key, at, &payload, 3600).await?;
-        }
-    }
-    if let (Some(before), Some(after)) = (old["notices"].as_array(), new["notices"].as_array()) {
-        for notice in after {
-            let fingerprint = notice_key(notice);
-            if before.iter().any(|n| notice_key(n) == fingerprint) { continue; }
-            if let Some(key) = notice_item_key(notice) {
-                if item_changes.iter().any(|(_, _, item)| item["key"] == key)
-                    || new["items"].as_array().is_some_and(|items| items.iter().any(|item|
-                        item["key"] == key && (item["done"] == true || item["alert"] == false))) { continue; }
+async fn queue_notices(st: &Shared, uid: i64, account: &str, snapshot: &Value) -> sqlx::Result<()> {
+    let Some(notices) = snapshot["notices"].as_array() else { return Ok(()); };
+    let devices: Vec<(String, String, Option<Vec<String>>)> = sqlx::query_as("select id,classroom_epoch,notice_keys from notification_devices where user_id=$1 and classroom_alerts and expires_at>now()")
+        .bind(uid).fetch_all(&st.db).await?;
+    for (id, epoch, baseline) in devices {
+        let mut known = baseline.clone().unwrap_or_default();
+        if let Some(baseline) = baseline {
+            for notice in notices {
+                let fingerprint = notice_key(notice);
+                if baseline.contains(&fingerprint) { break; }
+                let (key, at, payload) = event(
+                    format!("notice:{epoch}:{fingerprint}"), Utc::now().timestamp(), "새 클래스룸 알림이 있어요",
+                    &format!("{} · {}", notice["course"].as_str().unwrap_or("클래스룸"), notice["message"].as_str().unwrap_or("새 알림")),
+                    account, json!({"kind":"notices"}),
+                );
+                enqueue(&st.db, &id, &key, at, &payload, 3600).await?;
             }
-            let (key, at, payload) = event(
-                format!("change:notice:{fingerprint}"), Utc::now().timestamp(), "새 클래스룸 알림이 있어요",
-                &format!("{} · {}", notice["course"].as_str().unwrap_or("클래스룸"), notice["message"].as_str().unwrap_or("새 알림")),
-                account, json!({"kind":"notices"}),
-            );
-            for (id,) in &devices { enqueue(&st.db, id, &key, at, &payload, 3600).await?; }
         }
+        let mut keys: Vec<String> = notices.iter().map(notice_key).collect();
+        known.retain(|key| !keys.contains(key));
+        keys.extend(known);
+        keys.truncate(500);
+        sqlx::query("update notification_devices set notice_keys=$2 where id=$1")
+            .bind(id).bind(keys).execute(&st.db).await?;
     }
     Ok(())
 }
 
-fn notice_item_key(notice: &Value) -> Option<String> {
-    let url = reqwest::Url::parse(notice["url"].as_str()?).ok()?;
-    let kind = match url.path() { "/mod/assign/view.php" => "assign", "/mod/vod/view.php" => "vod", _ => return None };
-    let (_, id) = url.query_pairs().find(|(key, _)| key == "id")?;
-    let id: i64 = id.parse().ok()?;
-    Some(format!("{kind}:{id}"))
-}
-
-fn item_revision(item: &Value) -> String {
-    vault::token_hash(&json!([
-        item["title"], item["start"], item["due"], item["lateUntil"], item["modified"],
-        item["introHtml"], item["attachments"], item["submit"], item["watch"]["required"]
-    ]).to_string())
-}
-
-fn changes<'a>(old: &Value, new: &'a Value) -> Vec<(String, &'static str, &'a Value)> {
-    let mut result = Vec::new();
-    for item in new["items"].as_array().into_iter().flatten() {
-        if item["done"] == true || item["alert"] == false {
-            continue;
-        }
-        let prior = old["items"]
-            .as_array()
-            .and_then(|a| a.iter().find(|o| o["key"] == item["key"]));
-        let label = match prior {
-            None => "새 과제·강의가 등록됐어요",
-            Some(p) if p["due"] != item["due"] => "마감 시간이 바뀌었어요",
-            Some(p) if item_revision(p) != item_revision(item) => "과제·강의 정보가 수정됐어요",
-            _ => continue,
-        };
-        result.push((
-            format!(
-                "change:{}:{}",
-                item["key"], item_revision(item)
-            ),
-            label,
-            item,
-        ));
-    }
-    result
-}
 async fn enqueue(
     db: &PgPool,
     device: &str,

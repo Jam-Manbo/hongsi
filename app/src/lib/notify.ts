@@ -1,6 +1,6 @@
 import { isApp } from './api';
 import { toast } from './ui.svelte';
-import { isCurrentSession, onSessionChange, readUserData, sessionUser, sessionVersion, writeUserData } from './session';
+import { onSessionChange, readUserData, sessionUser, writeUserData } from './session';
 import { ReminderScheduler, type NotificationDriver } from './notification-engine';
 import { parseIntent, type NotificationIntent, type Permission } from './notification-model';
 import { notificationPermission, notificationState as state } from './notification-state.svelte';
@@ -11,6 +11,10 @@ export const mobileNotifications = isApp && (/Android|iPhone|iPad/i.test(navigat
 const ios = /iPhone|iPad/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const plugin = () => import('@choochmeque/tauri-plugin-notifications-api');
 const PENDING = 'hc:notification-intent';
+const PERMISSION_ASKED = 'hc:pref:notification-permission-asked-v2';
+const PERMISSION_INTRO = 'hc:pref:notification-permission-intro-v2';
+const deviceFlag = (key: string) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
+const setDeviceFlag = (key: string) => { try { localStorage.setItem(key, '1'); } catch { } };
 
 export function queueNotificationIntent(raw: unknown) {
   const intent = parseIntent(raw);
@@ -36,7 +40,8 @@ const driver: NotificationDriver = {
     if (isApp) {
       const n = await plugin();
       if (await n.isPermissionGranted()) return 'granted';
-      if (!ask) return 'denied';
+      if (!ask) return deviceFlag(PERMISSION_ASKED) ? 'denied' : 'default';
+      setDeviceFlag(PERMISSION_ASKED);
       const p = await n.requestPermission();
       return p === 'granted' ? 'granted' : p === 'denied' ? 'denied' : 'default';
     }
@@ -66,8 +71,10 @@ export const scheduleReminders = scheduler.set.bind(scheduler);
 export const clearReminders = (channel: 'seat' | 'due') => scheduler.set(channel, []);
 export const notificationsAllowed = (ask = false) => scheduler.allow(ask).catch(() => { state.error = '알림 권한을 확인하지 못했어요.'; return false; });
 let permissionPrompt: Promise<boolean> | null = null;
+let permissionRevision = 0;
 let resolvePermission: ((allowed: boolean) => void) | null = null;
 export function cancelNotificationPermission() {
+  permissionRevision++;
   const resolve = resolvePermission;
   resolvePermission = null;
   permissionPrompt = null;
@@ -77,30 +84,39 @@ export function cancelNotificationPermission() {
 }
 export function requestNotificationPermission(): Promise<boolean> {
   if (permissionPrompt) return permissionPrompt;
-  if (isApp || !('Notification' in window) || Notification.permission === 'granted' || navigator.userActivation?.isActive) return notificationsAllowed(true);
-  notificationPermission.open = true;
-  permissionPrompt = new Promise((resolve) => { resolvePermission = resolve; });
-  return permissionPrompt;
+  const revision = permissionRevision;
+  const prompt = (async () => {
+    const allowed = await notificationsAllowed();
+    if (revision !== permissionRevision) return false;
+    if (allowed || state.permission === 'unsupported') return allowed;
+    notificationPermission.open = true;
+    return new Promise<boolean>((resolve) => { resolvePermission = resolve; });
+  })();
+  permissionPrompt = prompt;
+  void prompt.finally(() => { if (permissionPrompt === prompt) permissionPrompt = null; });
+  return prompt;
+}
+export async function showFirstNotificationPermission() {
+  if (deviceFlag(PERMISSION_INTRO)) return;
+  setDeviceFlag(PERMISSION_INTRO);
+  await requestNotificationPermission();
 }
 export async function acceptNotificationPermission() {
   if (notificationPermission.busy) return;
-  const version = sessionVersion(), resolve = resolvePermission;
+  const resolve = resolvePermission;
   notificationPermission.busy = true;
   const allowed = await notificationsAllowed(true);
-  if (!isCurrentSession(version) || resolve !== resolvePermission) return;
+  if (resolve !== resolvePermission) return;
+  notificationPermission.busy = false;
+  if (!allowed) return;
   resolvePermission = null; permissionPrompt = null;
-  notificationPermission.open = false; notificationPermission.busy = false;
-  resolve?.(allowed);
+  notificationPermission.open = false;
+  resolve?.(true);
 }
 export const refreshNotifications = () => scheduler.refresh(true);
-export async function setNotificationsEnabled(enabled: boolean) {
-  state.enabled = scheduler.enabled = enabled;
-  writeUserData('notifications-enabled', enabled);
-  await scheduler.refresh(true);
-}
 export async function setRemoteNotifications(remote: boolean) {
   state.remote = scheduler.remote = remote;
-  writeUserData('remote-active', remote);
+  writeUserData('remote-active-v2', remote);
   await scheduler.refresh(true);
 }
 export async function initNotifications() {
@@ -126,8 +142,7 @@ export async function initNotifications() {
 
 onSessionChange(() => {
   cancelNotificationPermission();
-  state.enabled = scheduler.enabled = readUserData('notifications-enabled', true);
-  state.remote = scheduler.remote = readUserData('remote-active', false);
+  state.remote = scheduler.remote = readUserData('remote-active-v2', false);
   state.error = '';
   void scheduler.reset(sessionUser());
 });

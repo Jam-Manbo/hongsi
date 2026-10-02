@@ -3,8 +3,7 @@
   import { api, isApp } from '../lib/api';
   import { ago, time } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
-  import { notificationsAllowed } from '../lib/notify';
-  import { PERIODS, seatLabel, seatPrefs, setPeriod, syncSeatReminders } from '../lib/seat.svelte';
+    import { PERIODS, seatLabel, seatPrefs, setPeriod, syncSeatReminders } from '../lib/seat.svelte';
   import { handleAuthError, seatSession, seats } from '../lib/store.svelte';
   import { isCurrentSession, sessionVersion } from '../lib/session';
   import { focus, toast, toastOnce } from '../lib/ui.svelte';
@@ -82,7 +81,6 @@
       const res = await api.checkIn(current.id, room.no, picked.no, seatPrefs.period);
       seatSession.set({ session: res.session });
       sheetOpen = false;
-      await notificationsAllowed(true);
       if (!isCurrentSession(version)) return;
       syncSeatReminders(res.session);
       toast(

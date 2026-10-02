@@ -1,6 +1,5 @@
 import { ApiError, api, isApp, native } from './api';
 import { errorText, reportServer, writeBlocked } from './net.svelte';
-import { notificationsAllowed } from './notify';
 import { schoolFinished } from './colors';
 import { calendar, handleAuthError } from './store.svelte';
 import { inSession, isCurrentSession, isStaleSession, onSessionChange, readUserData, sessionVersion, writeUserData } from './session';
@@ -61,7 +60,6 @@ async function saveDone(item: CalendarItem, done: boolean) {
 
 export async function setItemAlert(item: CalendarItem, on: boolean) {
   if (writeBlocked()) return;
-  if (on) void notificationsAllowed(true);
   update(item.key, { alert: on });
   try {
     await api.setAlert(item.key, on);

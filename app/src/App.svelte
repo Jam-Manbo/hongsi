@@ -11,7 +11,7 @@
   import { errorText } from './lib/net.svelte';
   import { syncSeatReminders } from './lib/seat.svelte';
   import { syncDueReminders } from './lib/reminders';
-  import { initNotifications, notificationState, refreshNotifications, takeNotificationIntent } from './lib/notify';
+  import { initNotifications, notificationState, refreshNotifications, showFirstNotificationPermission, takeNotificationIntent } from './lib/notify';
   import { enableBackgroundByDefault, refreshBackground, syncBackgroundPreferences } from './lib/background.svelte';
   import { openNotification } from './lib/notification-navigation';
   import { seatPrefs } from './lib/seat.svelte';
@@ -89,8 +89,14 @@
     const stopUpdates = watchAppUpdates();
     let disposed = false;
     let cleanup = () => {};
-    void initNotifications().then((fn) => { if (disposed) fn(); else cleanup = fn; });
-    void boot();
+    const notificationReady = initNotifications().then((fn) => { if (disposed) fn(); else cleanup = fn; });
+    void boot().then(async () => {
+      await notificationReady;
+      if (!disposed) {
+        await showFirstNotificationPermission();
+        if (!disposed && app.profile) await refreshBackground();
+      }
+    });
     return () => { disposed = true; cleanup(); stopUpdates(); };
   });
 

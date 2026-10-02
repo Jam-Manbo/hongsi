@@ -1,7 +1,6 @@
 <script lang="ts">
   import { isApp } from '../lib/api';
-  import { notificationsAllowed } from '../lib/notify';
-  import { leadSummary } from '../lib/settings.svelte';
+    import { leadSummary } from '../lib/settings.svelte';
   import { removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
   import TimeWheel from './TimeWheel.svelte';
   import DateField from './DateField.svelte';
@@ -55,7 +54,6 @@
     e.preventDefault();
     if (!title.trim()) return;
     busy = true;
-    if (date && notify) void notificationsAllowed(true);
     const ok = await saveTodo(todo?.id ?? null, {
       title: title.trim(),
       note: note.trim(),

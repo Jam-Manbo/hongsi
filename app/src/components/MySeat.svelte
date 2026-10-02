@@ -3,6 +3,7 @@
   import { duration, time } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
   import { notificationsAllowed } from '../lib/notify';
+  import { configureNotificationPermission } from '../lib/background.svelte';
   import { ALERT_CHOICES, PERIODS, seatLabel, seatPrefs, syncSeatReminders, toggleAlert } from '../lib/seat.svelte';
   import { handleAuthError, seatSession } from '../lib/store.svelte';
   import { isCurrentSession, sessionVersion } from '../lib/session';
@@ -87,7 +88,7 @@
   async function onToggle(min: number) {
     const version = sessionVersion();
     toggleAlert(min);
-    if (!notifyOk) notifyOk = await notificationsAllowed(true);
+    notifyOk = await notificationsAllowed();
     if (!isCurrentSession(version)) return;
     syncSeatReminders(session);
   }
@@ -138,7 +139,7 @@
     <div class="alerts">
       <div class="alerts-head">
         <span><Icon name="bell" size={16} /> 퇴실 알림</span>
-        {#if !notifyOk}<button class="link" onclick={async () => (notifyOk = await notificationsAllowed(true))}>알림 허용하기</button>{/if}
+        {#if !notifyOk}<button class="link" onclick={async () => { await configureNotificationPermission(); notifyOk = await notificationsAllowed(); }}>알림 허용하기</button>{/if}
       </div>
       <div class="filters">
         {#each ALERT_CHOICES as min (min)}
