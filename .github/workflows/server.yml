@@ -63,3 +63,39 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release.json"
           jq -e '.draft == false and .prerelease == false and .published_at != null' "$RUNNER_TEMP/release.json"
           gh release upload "$RELEASE_TAG" release-assets/hongsi-server-ubuntu26-arm64.tar.gz --repo "$GITHUB_REPOSITORY"
+
+  deploy:
+    if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
+    needs: publish
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 10
+    concurrency:
+      group: hongsi-production-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: hongsi-server-ubuntu26-arm64
+          path: release-assets
+      - name: Upload and restart Hongsi
+        env:
+          DEPLOY_HOST: ${{ secrets.HONGSI_DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.HONGSI_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.HONGSI_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          : "${DEPLOY_HOST:?}" "${DEPLOY_SSH_KEY:?}" "${DEPLOY_KNOWN_HOSTS:?}"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/hongsi_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/hongsi_key
+          trap 'rm -f ~/.ssh/hongsi_key' EXIT
+          ssh_options=(-i "$HOME/.ssh/hongsi_key" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          scp "${ssh_options[@]}" release-assets/hongsi-server-ubuntu26-arm64.tar.gz "ubuntu@$DEPLOY_HOST:/home/ubuntu/hongsi/.deploy.tar.gz"
+          ssh "${ssh_options[@]}" "ubuntu@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
+          cd /home/ubuntu/hongsi
+          tar -tzf .deploy.tar.gz > /dev/null
+          rm -rf -- bin dist LICENSE
+          tar -xzf .deploy.tar.gz ./bin ./dist ./LICENSE
+          rm -f .deploy.tar.gz
+          sudo -n systemctl restart hongsi.service
+          REMOTE
