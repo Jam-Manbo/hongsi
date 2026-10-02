@@ -41,7 +41,8 @@
 
   function resetDrag() { dragging = false; dragY = 0; }
   function canDrag(target: HTMLElement) {
-    if (!phone.current || target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="slider"]')) return false;
+    if (!phone.current || panel !== [...openPanels].at(-1)) return false;
+    if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="listbox"]')) return false;
     for (let node: HTMLElement | null = target; node && node !== panel; node = node.parentElement) {
       if (node.scrollTop > 0) return false;
     }
