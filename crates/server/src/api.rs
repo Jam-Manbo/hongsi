@@ -76,7 +76,7 @@ pub fn router() -> Router<Shared> {
 
 async fn api_not_found() -> (axum::http::StatusCode, Json<Value>) {
     (axum::http::StatusCode::NOT_FOUND, Json(json!({ "error": {
-        "code": "api_not_found", "message": "서버에서 이 기능을 찾지 못했어요. 서버 버전을 확인해 주세요."
+        "code": "api_not_found", "message": "현재 서버에서는 이 기능을 사용할 수 없어요."
     } })))
 }
 
@@ -681,7 +681,7 @@ async fn submission_post(State(st): State<Shared>, user: CurrentUser, Path(cmid)
             "acceptStatement" => accept_statement = field.text().await.unwrap_or_default() == "1",
             "file" => {
                 let name = field.file_name().unwrap_or("file").to_string();
-                let bytes = field.bytes().await.map_err(|_| ApiError::bad_request("파일이 너무 크거나 끊겼어요"))?;
+                let bytes = field.bytes().await.map_err(|_| ApiError::bad_request("파일 용량이 너무 크거나 업로드가 중단됐어요"))?;
                 new_files.push((name, bytes.to_vec()));
             }
             _ => {}
@@ -708,7 +708,7 @@ async fn submission_post(State(st): State<Shared>, user: CurrentUser, Path(cmid)
 
     let mut files = Vec::with_capacity(total);
     for name in &keep {
-        let existing = info.files.iter().find(|f| &f.name == name).ok_or_else(|| ApiError::bad_request(format!("'{name}' 파일이 이미 없어요")))?;
+        let existing = info.files.iter().find(|f| &f.name == name).ok_or_else(|| ApiError::bad_request(format!("'{name}' 파일을 찾을 수 없어요")))?;
         let (_, bytes) = user.session.school()?.download(&existing.url, 110 * 1024 * 1024).await?;
         files.push((existing.name.clone(), bytes));
     }
@@ -932,12 +932,12 @@ struct StartBody {
 async fn seat_start(State(st): State<Shared>, user: CurrentUser, Json(b): Json<StartBody>) -> ApiResult<Value> {
     let user_id = user.session.user_id;
     if db::active_seat_session(&st.db, user_id).await?.is_some() {
-        return Err(ApiError::conflict("이미 입실 중인 좌석이 있어요. 퇴실한 뒤 다시 입실해 주세요"));
+        return Err(ApiError::conflict("이미 사용 중인 좌석이 있어요. 퇴실한 뒤 다시 입실해 주세요"));
     }
     ensure_snapshot(&st).await?;
     let (room_name, _) = seat_info(&st, &b.building, b.room_no, b.seat_no)
         .await
-        .ok_or_else(|| ApiError::not_found("그 좌석을 찾지 못했어요"))?;
+        .ok_or_else(|| ApiError::not_found("선택한 좌석을 찾지 못했어요"))?;
     let period = normalize_period(b.period.as_deref());
     let now = Utc::now();
     let (started_at, source) = match db::seat_state(&st.db, &b.building, b.room_no, b.seat_no).await? {
@@ -964,10 +964,10 @@ async fn seat_start(State(st): State<Shared>, user: CurrentUser, Json(b): Json<S
 
 async fn seat_extend(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Value> {
     let user_id = user.session.user_id;
-    let current = db::active_seat_session(&st.db, user_id).await?.ok_or_else(|| ApiError::not_found("입실 중인 좌석이 없어요"))?;
+    let current = db::active_seat_session(&st.db, user_id).await?.ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
     let session = db::extend_seat_session(&st.db, user_id, validity_hours(&current.period) as i32)
         .await?
-        .ok_or_else(|| ApiError::not_found("입실 중인 좌석이 없어요"))?;
+        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
     Ok(Json(json!({ "session": view(&st, session).await })))
 }
 
@@ -984,17 +984,17 @@ async fn seat_adjust(State(st): State<Shared>, user: CurrentUser, Json(b): Json<
         .timestamp_opt(b.started_at, 0)
         .single()
         .filter(|t| *t <= now + Span::minutes(5) && *t >= now - Span::hours(12))
-        .ok_or_else(|| ApiError::bad_request("입실 시각은 최근 12시간 안이어야 해요"))?;
+        .ok_or_else(|| ApiError::bad_request("입실 시각은 최근 12시간 이내로 설정해 주세요"))?;
     let period = normalize_period(b.period.as_deref());
     let session = db::adjust_seat_session(&st.db, user.session.user_id, started_at, validity_hours(period) as i32, period)
         .await?
-        .ok_or_else(|| ApiError::not_found("입실 중인 좌석이 없어요"))?;
+        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
     Ok(Json(json!({ "session": view(&st, session).await })))
 }
 
 async fn seat_end(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Value> {
     let ended = db::end_seat_session(&st.db, user.session.user_id, "manual")
         .await?
-        .ok_or_else(|| ApiError::not_found("입실 중인 좌석이 없어요"))?;
+        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
     Ok(Json(json!({ "session": null, "ended": ended })))
 }

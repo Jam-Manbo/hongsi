@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { isApp } from '../lib/api';
   import { toggleDone } from '../lib/actions.svelte';
@@ -205,6 +205,19 @@
   let dayTitle: HTMLHeadingElement | undefined = $state();
   let stripOn = $state(false);
   let stripH = $state(0);
+
+  $effect.pre(() => {
+    year;
+    month;
+    if (!stripOn || !calWrap) return;
+    const wrap = calWrap;
+    const scroller = wrap.closest('.scroller');
+    if (!scroller) return;
+    const bottom = wrap.getBoundingClientRect().bottom;
+    void tick().then(() => {
+      if (stripOn && wrap.isConnected) scroller.scrollTop += wrap.getBoundingClientRect().bottom - bottom;
+    });
+  });
 
   $effect(() => {
     if (!narrow.current || !calWrap) {

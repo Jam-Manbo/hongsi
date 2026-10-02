@@ -153,7 +153,7 @@ async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool
     if renew_only {
         let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.expires_at>now())")
             .bind(&b.device_id).bind(uid).fetch_one(&mut *tx).await?;
-        if !eligible { return Err(ApiError::conflict("백그라운드 동기화를 다시 연결해 주세요.")); }
+        if !eligible { return Err(ApiError::conflict("백그라운드 동기화 설정을 다시 적용해 주세요.")); }
     }
     let count: i64 = sqlx::query_scalar("select count(*) from background_devices where user_id=$1 and id<>$2 and expires_at>now()")
         .bind(uid).bind(&b.device_id).fetch_one(&mut *tx).await?;
@@ -162,7 +162,7 @@ async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool
         .bind(uid).execute(&mut *tx).await?;
     let expires: Option<DateTime<Utc>> = sqlx::query_scalar("insert into background_devices(id,user_id,session_hash,nonce,ciphertext) values($1,$2,$3,$4,$5) on conflict(id) do update set session_hash=excluded.session_hash,nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=now()+interval '14 days' where background_devices.user_id=excluded.user_id returning expires_at")
         .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(nonce).bind(ciphertext).fetch_optional(&mut *tx).await?;
-    let expires = expires.ok_or_else(|| ApiError::conflict("이 기기의 이전 계정 동기화를 먼저 해제해 주세요"))?;
+    let expires = expires.ok_or_else(|| ApiError::conflict("이 기기에서 이전에 로그인한 계정의 동기화를 먼저 해제해 주세요"))?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true,"expiresAt":expires.timestamp()})))
 }
@@ -202,7 +202,7 @@ pub async fn preferences(State(st): State<Shared>, user: CurrentUser, Json(b): J
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
     let saved = sqlx::query("update notification_devices set leads=$3,seat_leads=$4 where id=$1 and user_id=$2 and expires_at>now()")
         .bind(&b.device_id).bind(user.session.user_id).bind(&b.leads).bind(&b.seat_leads).execute(&mut *tx).await?;
-    if saved.rows_affected() != 1 { return Err(ApiError::conflict("알림을 다시 연결해 주세요.")); }
+    if saved.rows_affected() != 1 { return Err(ApiError::conflict("알림 설정을 다시 적용해 주세요.")); }
     apply_classroom(&st, &mut tx, user.session.user_id, &b.device_id, b.classroom_alerts, &b.classroom_epoch).await?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true})))
@@ -340,9 +340,9 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
             Err(e) => {
                 let expired = e.code == "session_expired" || e.code == "classroom_token_expired" || e.code == "login_rejected";
                 let error = if expired {
-                    "학교 로그인이 만료됐어요. 백그라운드 동기화를 다시 연결해 주세요.".to_owned()
+                    "학교 로그인이 만료됐어요. 백그라운드 동기화 설정을 다시 적용해 주세요.".to_owned()
                 } else {
-                    format!("학교의 최신 일정을 확인하지 못했어요. {}분 뒤 다시 확인해요.", POLL_SECS / 60)
+                    format!("학교의 최신 일정을 확인하지 못했어요. {}분 뒤 다시 확인할게요.", POLL_SECS / 60)
                 };
                 sqlx::query("update background_sessions set last_error=$2,next_poll_at=case when $3 then coalesce((select max(expires_at) from background_devices where user_id=$1),now()) else now()+make_interval(secs=>$4) end where user_id=$1").bind(uid).bind(error).bind(expired).bind(POLL_SECS as f64).execute(&st.db).await?;
             }
@@ -409,7 +409,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
                 reminders.push(event(
                     format!("due:seat:{}:{}:{lead}", s.id, s.expires_at.timestamp()),
                     s.expires_at.timestamp() - i64::from(*lead) * 60,
-                    &format!("좌석 만료 {lead}분 전이에요"),
+                    &format!("좌석 이용 종료까지 {lead}분 남았어요"),
                     &format!("{} {}번", s.room_name, s.seat_no),
                     &sealed.student_id,
                     json!({"kind":"seat","id":s.id}),
@@ -574,7 +574,7 @@ async fn deliver(st: &Shared, device: &Device) -> sqlx::Result<()> {
                 let error = if matches!(e, PushError::Configuration) {
                     "서버 오류입니다. 문제가 지속되면 문의해 주세요."
                 } else {
-                    "푸시 전달에 실패해 다시 시도하고 있어요"
+                    "알림을 보내지 못해 다시 시도하고 있어요"
                 };
                 sqlx::query("update notification_devices set last_error=$2 where id=$1")
                     .bind(&device.id)

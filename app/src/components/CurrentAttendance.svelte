@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { ApiError, api } from '../lib/api';
   import { POLL_MS, afterSubmit, checkNow, classWatch, isAttended, lectureMark, markFor, markTitle, nextClass, sessionState, useClassWatch } from '../lib/classwatch.svelte';
-  import { ago } from '../lib/format';
+  import { ago, sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
   import { attendance, attendanceReceipts, handleAuthError, lectures, timetable } from '../lib/store.svelte';
   import { toast } from '../lib/ui.svelte';
@@ -44,7 +44,7 @@
     if (lectures.error && !openCount && !currentMark) return '출석 정보를 확인해 주세요';
     if (openCount) return '출석할 수 있어요';
     if (watching) return sessionState(watching).label === '확인 불가'
-      ? `${watching.name} · 출석 확인 불가` : `${watching.name} 출석을 기다리는 중`;
+      ? `${watching.name} · 출석 확인 불가` : `${watching.name} · 출석 가능 여부 확인 중`;
     if (current && currentMark) return `${current.name} · ${markTitle(currentMark)}`;
     return openList.length ? '출석 완료' : '출석할 수업이 없어요';
   });
@@ -76,7 +76,7 @@
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (!target || busy || submitted || geo.state !== 'ok' || !code.trim()) return;
-    if (writeBlocked('school', '출석을 보낼')) return;
+    if (writeBlocked('school', '출결번호를 전송할')) return;
     result = '';
     busy = true;
     try {
@@ -87,7 +87,7 @@
       if (confirmed) {
         open = false;
         code = '';
-        toast('출석확인이 완료되었습니다.', 'success', 5000);
+        toast('출석 확인이 완료되었습니다.', 'success', 5000);
       } else {
         result = wrongCode ? '출결번호가 일치하지 않습니다.' : rejected ? res.message : '학교 응답을 처리하지 못했습니다.';
       }
@@ -121,9 +121,9 @@
         </button>
       {/if}
     </div>
-    {#if lectures.error}<p class="muted small" role="status">{lectures.error}</p>{/if}
+    {#if lectures.error}<p class="muted small sentence-message" role="status">{sentenceLines(lectures.error)}</p>{/if}
     <LoadError resource={attendanceReceipts} what="공유된 출석 기록을" />
-    {#if classWatch.shareError}<p class="muted small" role="status">{classWatch.shareError}</p>{/if}
+    {#if classWatch.shareError}<p class="muted small sentence-message" role="status">{sentenceLines(classWatch.shareError)}</p>{/if}
     {#if openList.length}
       <div class="lectures">
         {#each openList as l (l.key)}
@@ -184,7 +184,7 @@
       </span>
       {#if geo.state === 'error'}<button type="button" class="link" onclick={locate}>다시 시도</button>{/if}
     </div>
-    {#if result}<p class="result" role="status">{result}</p>{/if}
+    {#if result}<p class="result sentence-message" role="status">{sentenceLines(result)}</p>{/if}
   </form>
   {#snippet footer()}
     <button class="btn btn-ghost w1" onclick={() => (open = false)}>닫기</button>

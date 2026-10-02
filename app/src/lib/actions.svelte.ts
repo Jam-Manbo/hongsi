@@ -164,7 +164,7 @@ export async function downloadFile(src: FileSource, name: string, course: string
       path,
     };
     remember(record);
-    toast(isApp ? '다운로드 폴더/홍시에 저장했어요' : '다운로드했어요', 'success');
+    toast(isApp ? '다운로드 폴더 안의 ‘홍시’ 폴더에 저장했어요' : '다운로드했어요', 'success');
     return record;
   } catch (e) {
     if (!handleAuthError(e)) toastOnce(errorText(e, '파일을 받지 못했어요'), 'error');

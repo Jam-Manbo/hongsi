@@ -153,7 +153,7 @@
   });
 </script>
 
-<button class="bell" onclick={show} aria-label={unread ? `알림 ${unread}개 새로 옴` : '알림'}>
+<button class="bell" onclick={show} aria-label={unread ? `새 알림 ${unread}개` : '알림'}>
   <Icon name="bell" size={22} />
   {#if unread}<span class="badge">{unread > 9 ? '9+' : unread}</span>{/if}
 </button>

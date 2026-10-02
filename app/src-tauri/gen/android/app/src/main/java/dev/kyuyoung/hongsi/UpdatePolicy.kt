@@ -32,7 +32,7 @@ internal object UpdatePolicy {
         require(file.length() == release.size && sha256(file).equals(release.sha256, true)) { "업데이트 파일 검증에 실패했어요. 다시 다운로드해 주세요." }
     }
     fun verifyPackage(installedCode: Long, expectedCode: Long, archiveCode: Long, expectedPackage: String, archivePackage: String, installedSigners: Set<String>, archiveSigners: Set<String>) {
-        require(expectedCode > installedCode && archiveCode == expectedCode) { "APK 버전이 맞지 않습니다." }
+        require(expectedCode > installedCode && archiveCode == expectedCode) { "업데이트 파일의 버전 정보가 맞지 않아요." }
         require(expectedPackage == archivePackage) { "홍시 앱의 업데이트 파일이 아니에요." }
         require(installedSigners.isNotEmpty() && installedSigners == archiveSigners) { "설치된 홍시와 서명키가 달라 업데이트할 수 없어요." }
     }

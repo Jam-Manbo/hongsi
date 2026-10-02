@@ -161,7 +161,7 @@ impl Direct {
     }
 
     fn revoked_reply() -> Reply {
-        Reply::error(401, "session_revoked", "로그인 정보가 해제됐어요. 다시 로그인해 주세요")
+        Reply::error(401, "session_revoked", "로그아웃됐어요. 다시 로그인해 주세요.")
     }
 
     async fn current(&self) -> R<Arc<School>> {
@@ -815,7 +815,7 @@ impl Direct {
                 .files
                 .iter()
                 .find(|f| &f.name == name)
-                .ok_or_else(|| Reply::error(400, "bad_request", format!("'{name}' 파일이 이미 없어요")))?;
+                .ok_or_else(|| Reply::error(400, "bad_request", format!("'{name}' 파일을 찾을 수 없어요")))?;
             let (_, bytes) = s.session.download(&existing.url, 1024 * MB).await?;
             all.push((existing.name.clone(), bytes));
         }

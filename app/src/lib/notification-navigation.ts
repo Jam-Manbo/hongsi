@@ -9,11 +9,11 @@ export async function openNotification(intent: NotificationIntent) {
   const resource = target.kind === 'item' ? calendar : target.kind === 'todo' ? todos : seatSession;
   await resource.load(true);
   if (!isCurrentSession(version)) return;
-  if (resource.error || !resource.data) { toast('알림의 최신 상태를 불러오지 못했어요.', 'error'); return; }
+  if (resource.error || !resource.data) { toast('알림에 해당하는 정보를 불러오지 못했어요.', 'error'); return; }
   if (target.kind === 'seat') {
     go('seats');
     const seat = seatSession.data?.session;
-    if (!seat || seat.id !== target.id || seat.endedAt !== null) toast('만료된 좌석 이용입니다.', 'info');
+    if (!seat || seat.id !== target.id || seat.endedAt !== null) toast('현재 이용 중인 좌석이 아니에요.', 'info');
   } else {
     if (target.kind === 'item') {
       const item = calendar.data?.items.find((i) => i.key === target.key);

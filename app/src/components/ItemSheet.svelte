@@ -61,11 +61,11 @@
 
     <dl class="facts">
       {#if item.kind === 'vod'}
-        {#if item.start}<div><dt>인정 시작</dt><dd>{dateTime(item.start)}</dd></div>{/if}
+        {#if item.start}<div><dt>출석 인정 시작</dt><dd>{dateTime(item.start)}</dd></div>{/if}
         {#if item.due}<div><dt>출석 인정 마감</dt><dd class="strong">{dueDateTime(item.due)}</dd></div>{/if}
         {#if item.lateUntil}<div><dt>기간 외 시청</dt><dd>{dueDateTime(item.lateUntil)}까지</dd></div>{/if}
         {#if item.watch}
-          <div><dt>요구 시간</dt><dd>{item.watch.required ?? '-'}</dd></div>
+          <div><dt>필수 시청 시간</dt><dd>{item.watch.required ?? '-'}</dd></div>
           <div><dt>내 시청 시간</dt><dd>{item.watch.watched ?? '기록 없음'}</dd></div>
           {#if item.watch.mark}<div><dt>출석부 표시</dt><dd>{item.watch.mark}</dd></div>{/if}
         {/if}
@@ -79,7 +79,7 @@
             </dd>
           </div>
         {/if}
-        {#if item.lateUntil && item.lateUntil !== item.due}<div><dt>늦은 제출 마감</dt><dd>{dueDateTime(item.lateUntil)}</dd></div>{/if}
+        {#if item.lateUntil && item.lateUntil !== item.due}<div><dt>지각 제출 마감</dt><dd>{dueDateTime(item.lateUntil)}</dd></div>{/if}
       {/if}
     </dl>
     {#if alertable}
@@ -136,7 +136,7 @@
       </button>
       {#if canSubmit}
         <button class="btn btn-primary w1" onclick={() => (submitOpen = true)}>
-          <Icon name="check" size={18} />{submitted ? '과제 수정하기' : '제출하기'}
+          <Icon name="check" size={18} />{submitted ? '제출 파일 수정' : '제출하기'}
         </button>
       {:else}
         <a class="btn btn-primary w1" href={item.url} target="_blank" rel="noopener noreferrer">

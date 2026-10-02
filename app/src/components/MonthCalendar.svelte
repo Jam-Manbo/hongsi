@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { MediaQuery } from 'svelte/reactivity';
   import { isFinished } from '../lib/colors';
   import { dueKey, monthCells, todayKey } from '../lib/format';
+  import { horizontalSwipe } from '../lib/horizontal-swipe';
   import { todoKey } from '../lib/todos.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -30,6 +32,7 @@
   } = $props();
 
   const maxShow = 3;
+  const narrow = new MediaQuery('max-width: 767px');
 
   const todosByDay = $derived.by(() => {
     const map = new Map<string, Todo[]>();
@@ -134,7 +137,7 @@
   });
 </script>
 
-<div class="cal card" class:week>
+<div class="cal card" class:week use:horizontalSwipe={{ enabled: () => narrow.current, shift }}>
   <div class="head">
     <button class="icon-btn" onclick={() => shift(-1)} aria-label={week ? '이전 주' : '이전 달'}><Icon name="left" /></button>
     <h2 aria-live="polite">{week ? weekTitle : `${year}년 ${month}월`}</h2>
@@ -196,6 +199,7 @@
 <style>
   .cal {
     padding: 14px 10px 12px;
+    overflow-anchor: none;
   }
 
   .head {
@@ -357,6 +361,12 @@
     min-height: 46px;
     padding: 3px 2px;
     gap: 3px;
+  }
+
+  @media (max-width: 767px) {
+    .cal {
+      touch-action: pan-y pinch-zoom;
+    }
   }
 
   @media (min-width: 768px) {

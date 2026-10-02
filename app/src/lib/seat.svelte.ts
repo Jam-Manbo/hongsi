@@ -5,7 +5,7 @@ import type { SeatPeriod, SeatSession } from './types';
 
 export const PERIODS: { id: SeatPeriod; label: string; hours: number }[] = [
   { id: 'semester', label: '학기 중', hours: 6 },
-  { id: 'exam', label: '시험기간', hours: 4 },
+  { id: 'exam', label: '시험 기간', hours: 4 },
   { id: 'vacation', label: '방학', hours: 8 },
 ];
 
@@ -44,7 +44,7 @@ export function syncSeatReminders(session: SeatSession | null) {
       key: `seat:${session.id}:${end}:${min}`,
       target: { kind: 'seat' as const, id: session.id },
       at: end - min * 60_000,
-      title: min === 0 ? '좌석 유효시간이 끝났어요' : `좌석 만료 ${min}분 전이에요`,
+      title: min === 0 ? '좌석 이용 시간이 끝났어요' : `좌석 이용 종료까지 ${min}분 남았어요`,
       body:
         min === 0
           ? `${seatLabel(session)} · 좌석배정기에서 연장하지 않으면 자동 반납돼요`

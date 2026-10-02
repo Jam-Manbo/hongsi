@@ -106,27 +106,30 @@
           onclick={() => rememberInfoOpen = true}
         ><Icon name="info" size={18} /></button>
       </div>
-      {#if error}<p class="error-box" role="alert"><Icon name="alert" size={18} />{error}</p>{/if}
+      {#if error}<p class="error-box" role="alert"><Icon name="alert" size={18} /><span class="sentence-message">{sentenceLines(error)}</span></p>{/if}
       <button class="btn btn-primary btn-block big" disabled={busy}>
         {#if busy}<span class="spin"><Icon name="refresh" size={18} /></span> 학교 서버에 로그인하는 중…{:else}로그인{/if}
       </button>
     </form>
 
     <footer class="about">
-      <button class="caution-link" onclick={() => cautionOpen = true} aria-label="이용 전 주의사항"><Icon name="info" size={18} />주의사항</button>
-      <span class="sep" aria-hidden="true"></span>
-      {#if REPO_URL}
-        <a class="gh" href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub에서 홍시 소스 코드 보기">
-          {@render githubMark()}
-        </a>
-      {:else}
-        <span class="gh" role="img" aria-label="GitHub 저장소 (곧 공개)" title="오픈소스 저장소는 곧 공개돼요">
-          {@render githubMark()}
-        </span>
-      {/if}
-      <span class="sep" aria-hidden="true"></span>
-      <span>{isApp ? '앱' : '웹'} v{APP_VERSION}</span>
-      {#if !isApp}<span class="sep" aria-hidden="true"></span><a href="/download">앱 다운로드</a>{/if}
+      <div class="about-group">
+        <button class="caution-link" onclick={() => cautionOpen = true} aria-label="이용 전 주의사항"><Icon name="info" size={18} />주의사항</button>
+        <span class="sep" aria-hidden="true"></span>
+        {#if REPO_URL}
+          <a class="gh" href={REPO_URL} target="_blank" rel="noopener noreferrer" aria-label="GitHub에서 홍시 소스 코드 보기">
+            {@render githubMark()}<span>소스코드</span>
+          </a>
+        {:else}
+          <span class="gh" role="img" aria-label="GitHub 저장소 (곧 공개)" title="오픈소스 저장소는 곧 공개돼요">
+            {@render githubMark()}<span>소스코드</span>
+          </span>
+        {/if}
+      </div>
+      <div class="about-group">
+        <span>{isApp ? '앱' : '웹'} v{APP_VERSION}</span>
+        {#if !isApp}<span class="sep" aria-hidden="true"></span><a href="/download">앱 다운로드</a>{/if}
+      </div>
     </footer>
   </section>
 </main>
@@ -135,29 +138,22 @@
   <div class="cautions">
     {#if isApp}
       <section>
-        <h3>기기에 자동 로그인 정보를 보관해요</h3>
-        <p>자동 로그인을 켜면 학번·비밀번호, 학교 로그인 세션, 클래스룸 토큰, 홍시 로그인 토큰을 기기의 보안 저장소에 보관합니다. 다음 실행에서는 저장한 로그인 정보를 재사용하고, 학교 로그인이 만료되면 저장한 학번과 비밀번호로 다시 로그인합니다. 앱의 비밀번호는 홍시 서버에 보내거나 저장하지 않습니다.</p>
-        <p>자동 로그인을 끄고 로그인하면 기기에 저장된 자동 로그인 정보를 삭제합니다. 이후 로그인 정보는 앱이 실행되는 동안 메모리에서만 사용합니다.</p>
-        <p>모든 기기에서 로그아웃했거나 오랫동안 접속하지 않아 기존 홍시 인증을 확인할 수 없으면 직접 다시 로그인해야 합니다.</p>
+        <h3>로그인 정보를 기기에 보관해요</h3>
+        <p>자동 로그인을 켜면 학번, 비밀번호와 로그인 정보를 기기 보안 저장소에 보관합니다. 비밀번호는 홍시 서버에 보내지 않습니다.</p>
       </section>
     {:else}
       <section>
-        <h3>비밀번호는 서버에 저장하지 않아요</h3>
-        <p>웹은 입력한 학번과 비밀번호를 홍시 서버로 보내 학교 로그인을 처리합니다. 비밀번호는 로그인 처리에만 사용하며 저장하지 않습니다. 로그인 상태 유지를 켜면 학교 로그인 세션을 홍시 서버에 암호화해 최대 14일 보관하고, 브라우저에는 로그인 쿠키를 저장합니다.</p>
+        <h3>비밀번호는 저장하지 않아요</h3>
+        <p>비밀번호는 로그인에만 사용하며 저장하지 않습니다. 로그인 상태 유지를 켜면 로그인 정보를 서버에 암호화해 최대 14일 보관합니다.</p>
       </section>
     {/if}
     <section>
-      <h3>백그라운드 동기화도 함께 켜져요</h3>
-      <p>처음 자동 로그인·로그인 상태 유지를 선택하면 ‘백그라운드 동기화’가 켜집니다. 알림 권한 없이도 서버에서 5분마다 일정과 클래스룸 알림을 확인합니다. 이를 위해 학번과 학교 로그인 세션을 기기별로 암호화해 최대 14일 보관하며, 비밀번호는 서버에 저장하지 않습니다.</p>
-      <p>‘클래스룸 알림’은 기본으로 꺼져 있습니다. 설정에서 켜면 그 이후 새로 생긴 클래스룸 알림을 받습니다. 알림 권한을 허용해도 이 설정이 자동으로 켜지지는 않습니다.</p>
-      <p>유효한 로그인 상태로 앱·웹을 이용하면 백그라운드용 정보의 보관 기한을 14일로 갱신합니다. 이 기간은 홍시 서버의 보관 기한이며 학교 세션의 유효기간을 연장하지 않습니다. 학교 세션이 먼저 만료되면 다시 로그인이 필요할 수 있습니다.</p>
+      <h3>백그라운드 동기화도 켜져요</h3>
+      <p>처음 켜면 백그라운드 동기화도 함께 켜집니다. 동기화에 필요한 로그인 정보는 서버에 암호화해 최대 14일 보관하며, 이용 중 보관 기한이 갱신됩니다.</p>
     </section>
     <section>
-      <h3>설정에서 중단할 수 있어요</h3>
-      <p>‘내 정보 · 설정 → 알림 → 백그라운드 동기화’를 끄면 이 계정에 연결된 모든 기기의 동기화·푸시 등록과 서버의 백그라운드용 로그인 세션을 삭제합니다. 이 기기에서 직접 끈 설정은 재로그인해도 자동으로 다시 켜지지 않습니다.</p>
-      <p>‘내 정보 · 설정 → 로그아웃’을 누르면 해당 홍시 서버 세션과 이 기기의 백그라운드용 정보·동기화·푸시 등록을 삭제합니다. {#if isApp}기기 보안 저장소에 보관한 학번·비밀번호와 학교·클래스룸·홍시 로그인 정보도 삭제합니다.{:else}브라우저의 로그인 쿠키도 삭제합니다.{/if} 다른 기기의 로그인과 백그라운드 등록은 유지됩니다. 삭제를 완료하지 못하면 오류를 표시하므로 연결을 확인한 뒤 다시 로그아웃해 주세요.</p>
-      <p>‘내 정보 · 설정 → 계정 → 모든 기기에서 로그아웃’은 서버의 모든 로그인 세션과 백그라운드 인증정보·동기화·푸시 등록을 삭제합니다. 이 기기의 인증정보도 삭제하며, 오프라인인 다른 기기에 저장된 인증정보는 해당 기기가 다음에 서버에 연결할 때 삭제합니다.</p>
-      <p>다른 사람과 함께 쓰는 기기에서는 {isApp ? '자동 로그인을' : '로그인 상태 유지를'} 켜지 않는 것을 권장합니다.</p>
+      <h3>설정에서 끌 수 있어요</h3>
+      <p>설정에서 백그라운드 동기화를 끌 수 있습니다. 로그아웃하면 이 기기의 로그인 정보를 삭제합니다. 공용 기기에서는 사용하지 않는 것을 권장합니다.</p>
     </section>
   </div>
   {#snippet footer()}<button class="btn btn-primary btn-block" onclick={() => rememberInfoOpen = false}>확인했어요</button>{/snippet}
@@ -165,14 +161,21 @@
 
 <Sheet bind:open={cautionOpen} title="이용 전 주의사항">
   <div class="cautions">
-    <section><h3>홍익대학교의 공식 서비스가 아니에요</h3><p>홍시는 개인이 개발한 비공식 캠퍼스 도우미입니다. 홍익대학교가 제작·운영하거나 보증하는 서비스가 아닙니다.</p></section>
-    <section><h3>비밀번호는 홍시 서버에 저장하지 않아요</h3><p>앱은 학교에 직접 로그인합니다. 자동 로그인을 켜면 학번·비밀번호와 학교 세션·클래스룸 토큰·홍시 토큰을 기기 보안 저장소에 보관합니다. 학교 로그인이 유효하면 재사용하고, 만료되면 저장한 비밀번호로 다시 로그인합니다. 로그아웃하거나 자동 로그인을 끄고 로그인하면 저장된 정보를 삭제합니다. 자동 로그인이 꺼져 있을 때는 로그인 정보를 실행 중인 앱의 메모리에서만 사용합니다.</p><p>웹에서는 홍시 서버가 입력한 비밀번호를 받아 학교 로그인을 처리하지만 비밀번호를 저장하지 않습니다.</p></section>
-    <section><h3>서버에 보관하는 정보가 있어요</h3><p>할 일·완료 표시·좌석 기록 등 동기화에 필요한 정보와 홍시 로그인 식별정보는 서버에 저장합니다. 웹의 로그인 상태 유지를 선택하면 학교 로그인 세션을 최대 14일 암호화해 보관합니다.</p><p>처음 자동 로그인·로그인 상태 유지를 켜면 ‘백그라운드 동기화’가 켜지며, 서버에 학번과 학교 세션을 기기별로 암호화해 최대 14일 보관합니다. 알림 권한 없이도 5분마다 일정과 클래스룸 알림을 확인합니다. ‘클래스룸 알림’은 기본으로 꺼져 있고, 설정에서 켠 뒤 새로 생긴 알림만 보냅니다. 알림 권한을 거절하거나 연결에 실패해도 사용자가 선택한 설정은 유지됩니다.</p><p>유효한 세션으로 앱·웹을 이용하면 백그라운드용 정보의 보관 기한을 갱신합니다. 학교 세션이 14일 동안 유효하다는 뜻은 아닙니다. 로그아웃하면 해당 기기의 로그인·백그라운드 정보를 삭제하고 다른 기기는 유지합니다. ‘내 정보 · 설정 → 알림 → 백그라운드 동기화’를 끄면 이 계정의 모든 기기에 대한 백그라운드용 세션과 동기화·푸시 등록을 삭제합니다.</p></section>
-    <section><h3>최종 결과는 학교에서 확인해 주세요</h3><p>학교 시스템 변경이나 네트워크·기기 상태에 따라 정보와 알림이 누락되거나 늦어질 수 있습니다. 출석, 과제 제출, 수강 및 좌석 배정 결과는 학교의 공식 서비스에서 직접 확인해 주세요.</p><p>앱 이용 여부와 그에 따른 행동은 사용자 본인의 판단과 책임으로 결정해 주세요. 홍시의 표시와 알림은 학교의 확정 기록이나 처리 결과를 보장하지 않습니다.</p></section>
+    <section>
+      <h3>비공식 서비스예요</h3>
+      <p>홍시는 개인이 개발한 서비스로, 홍익대학교가 운영하지 않습니다.</p>
+    </section>
+    <section>
+      <h3>정보를 저장해요</h3>
+      <p>자동 로그인 시 앱은 비밀번호를 기기 보안 저장소에 보관하며, 홍시 서버는 비밀번호를 저장하지 않습니다. 로그인 유지와 동기화에 필요한 로그인 정보는 서버에 암호화해 보관합니다. 할 일과 완료 표시 등도 서버에 저장합니다.</p>
+    </section>
+    <section>
+      <h3>최종 결과는 학교에서 확인해 주세요</h3>
+      <p>정보나 알림이 누락되거나 늦어질 수 있습니다. 출결, 과제 제출과 좌석 배정 결과는 학교 공식 서비스에서 확인해 주세요.</p>
+    </section>
   </div>
   {#snippet footer()}<button class="btn btn-primary btn-block" onclick={() => cautionOpen = false}>확인했어요</button>{/snippet}
 </Sheet>
-
 
 
 {#snippet githubMark()}
@@ -184,11 +187,9 @@
 {/snippet}
 
 <style>
-  @media (max-width: 639px) { .sentence-message { white-space: pre-line; } }
   .cautions { display: grid; gap: 22px; padding-top: 8px; }
   .cautions h3 { font-size: 15px; margin-bottom: 8px; }
   .cautions p { font-size: 13px; line-height: 1.75; color: var(--text-2); }
-  .cautions p + p { margin-top: 8px; }
 
   .login {
     position: relative;
@@ -242,7 +243,7 @@
 
   .tagline b {
     color: var(--persimmon);
-    font-size: 1em;
+    font-size: 1.15em;
     font-weight: 800;
     line-height: 1;
   }
@@ -385,9 +386,10 @@
 
   .about {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 4px 16px;
     margin-top: -4px;
     font-size: 12.5px;
     font-weight: 600;
@@ -395,13 +397,21 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .about-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+  }
+
   .gh {
-    display: inline-grid;
-    place-items: center;
-    width: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     height: 34px;
     border-radius: 10px;
     color: var(--text-2);
+    text-decoration: none;
     transition:
       background 0.15s,
       color 0.15s;

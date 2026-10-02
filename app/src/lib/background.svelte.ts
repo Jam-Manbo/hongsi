@@ -120,7 +120,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
     check();
     status = await readStatus();
     check();
-    if (!status.consented) throw new Error('동기화를 시작하지 못했어요. 자동으로 다시 시도해요.');
+    if (!status.consented) throw new Error('동기화를 시작하지 못했어요. 자동으로 다시 시도할게요.');
     renewedAt = Date.now();
     prefSignature = '';
   }
@@ -142,7 +142,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
   if (!status.available[kind]) {
     await setRemoteNotifications(false);
     check();
-    throw new Error('동기화는 유지되고 있어요. 알림 서버 연결은 다시 시도해요.');
+    throw new Error('백그라운드 동기화는 계속돼요. 알림 서버에는 자동으로 다시 연결할게요.');
   }
   const values = prefs(), signature = JSON.stringify(values);
   if (!status.registered || renewToken) {
@@ -152,7 +152,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
     check();
     status = await readStatus();
     check();
-    if (!status.registered) throw new Error('알림 등록을 완료하지 못했어요. 자동으로 다시 시도해요.');
+    if (!status.registered) throw new Error('알림 수신 설정을 완료하지 못했어요. 자동으로 다시 시도할게요.');
   } else if (signature !== prefSignature || status.classroomAlerts !== values.classroomAlerts) {
     await request('PUT', '/api/push/preferences', values);
     check();
@@ -186,7 +186,7 @@ function synchronize(renewToken = false): Promise<boolean> {
         ok = true;
       } catch (e) {
         ok = false;
-        if (current()) background.error = background.choice ? problem(e) : `해제를 완료하지 못했어요. 다시 시도해요. ${problem(e)}`;
+        if (current()) background.error = background.choice ? problem(e) : `백그라운드 동기화를 끄지 못했어요. 자동으로 다시 시도할게요. ${problem(e)}`;
       }
     }
     return ok;

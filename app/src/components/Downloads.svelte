@@ -29,7 +29,7 @@
       {/each}
     </ul>
   {:else}
-    <EmptyState message="아직 받은 파일이 없어요" detail="과제 상세에서 첨부파일을 다운받으면 여기에 모여요" />
+    <EmptyState message="아직 받은 파일이 없어요" detail="과제 상세에서 첨부 파일을 다운로드하면 여기에 모여요" />
   {/if}
 
 </Sheet>

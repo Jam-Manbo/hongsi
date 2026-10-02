@@ -72,7 +72,7 @@ class UpdatePlugin(private val host: Activity) : Plugin(host) {
                 value = URL(URL(value), next).toString()
             } else return conn
         }
-        error("업데이트 서버가 너무 많이 이동해요.")
+        error("업데이트 주소가 반복해서 변경되어 다운로드할 수 없어요.")
     }
     private fun latest(): AppRelease? {
         val conn = connection(BuildConfig.HONGSI_UPDATE_URL)
@@ -138,7 +138,7 @@ class UpdatePlugin(private val host: Activity) : Plugin(host) {
                 while (true) {
                     val count = input.read(buffer); if (count < 0) break
                     received += count
-                    require(received <= release.size && System.nanoTime() < deadline) { "업데이트 다운로드 크기 또는 시간을 초과했어요." }
+                    require(received <= release.size && System.nanoTime() < deadline) { "다운로드 용량이나 대기 시간이 제한을 초과했어요." }
                     output.write(buffer, 0, count)
                 }
             } }

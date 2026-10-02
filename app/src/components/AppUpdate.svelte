@@ -14,7 +14,7 @@
       {:else if update.release}
         <h3>홍시 {update.release.version}</h3>
         <p class="muted">{(update.release.size / 1024 / 1024).toFixed(1)} MB</p>
-        {#if update.release.notes}<p class="notes">{sentenceLines(update.release.notes)}</p>{/if}
+        {#if update.release.notes}<p class="notes">{update.release.notes}</p>{/if}
       {:else if update.checked}
         <p>{update.configured ? '최신 버전을 사용하고 있어요.' : '아직 공개된 업데이트가 없어요.'}</p>
       {/if}

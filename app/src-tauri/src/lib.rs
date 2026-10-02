@@ -149,7 +149,7 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
         return Err(Reply::error(
             401,
             "session_revoked",
-            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            "로그아웃됐어요. 다시 로그인해 주세요.",
         ));
     }
     if shell.direct.generation() != seen && shell.direct.logged_in().await {
@@ -186,7 +186,7 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
         return Err(Reply::error(
             401,
             "session_revoked",
-            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            "로그아웃됐어요. 다시 로그인해 주세요.",
         ));
     }
     if shell.direct.logged_in().await {
@@ -198,7 +198,7 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
             return Err(Reply::error(
                 401,
                 "session_revoked",
-                "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+                "로그아웃됐어요. 다시 로그인해 주세요.",
             ));
         }
         if shell.direct.logged_in().await {
@@ -228,7 +228,7 @@ async fn refresh_classroom(shell: &Shell, seen: u64) -> Result<(), Reply> {
             return Err(Reply::error(
                 401,
                 "session_revoked",
-                "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+                "로그아웃됐어요. 다시 로그인해 주세요.",
             ));
         }
         if shell.direct.generation() != seen && shell.direct.logged_in().await {
@@ -280,7 +280,7 @@ where
         return Reply::error(
             401,
             "session_revoked",
-            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            "로그아웃됐어요. 다시 로그인해 주세요.",
         );
     } else {
         persist_auth(shell).await;

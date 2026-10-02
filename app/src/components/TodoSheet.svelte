@@ -79,7 +79,7 @@
 <Sheet bind:open title={todo ? '할 일' : '할 일 추가'}>
   <form id="todo-form" class="form" onsubmit={submit}>
     {#if parentKey && draft.parentTitle && !todo}
-      <p class="linked"><Icon name="file" size={15} />{draft.parentTitle}에 딸린 할 일</p>
+      <p class="linked"><Icon name="file" size={15} />{draft.parentTitle} 관련 할 일</p>
     {/if}
     <input
       class="title"

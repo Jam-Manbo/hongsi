@@ -61,7 +61,7 @@
       <Skeleton rows={3} height={64} />
     {:else if article}
       {#if article.attachments.length}
-        <h4 class="sub">첨부파일 {article.attachments.length}개</h4>
+        <h4 class="sub">첨부 파일 {article.attachments.length}개</h4>
         <FileList files={article.attachments} source={(index) => ({ kind: 'board', cmid, bwid, index })} course={notice.course} />
       {/if}
       <div class="body">
@@ -84,7 +84,7 @@
         <h4 class="sub">파일 {module.files.length}개</h4>
         <FileList files={module.files} source={(index) => ({ kind: 'module', cmid, index })} course={notice.course} />
       {:else if !module.link}
-        <p class="muted">이 활동에는 받을 파일이 없어요.</p>
+        <p class="muted">다운로드할 파일이 없어요.</p>
       {/if}
     {/if}
   {/if}
