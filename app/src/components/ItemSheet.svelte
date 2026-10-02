@@ -1,13 +1,12 @@
 <script lang="ts">
-  import { setItemAlert } from '../lib/actions.svelte';
+  import { setItemAlert, setItemAlertLeads } from '../lib/actions.svelte';
   import { itemStatus, isFinished } from '../lib/colors';
   import { dateTime, dday, dueDateTime } from '../lib/format';
   import { cleanHtml as clean } from '../lib/html';
-  import { leadSummary } from '../lib/settings.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
   import FileList from './FileList.svelte';
   import SubmitSheet from './SubmitSheet.svelte';
-  import Switch from './Switch.svelte';
+  import DeadlineAlerts from './DeadlineAlerts.svelte';
   import TodoRow from './TodoRow.svelte';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
@@ -82,16 +81,17 @@
         {/if}
         {#if item.lateUntil && item.lateUntil !== item.due}<div><dt>늦은 제출 마감</dt><dd>{dueDateTime(item.lateUntil)}</dd></div>{/if}
       {/if}
-      {#if alertable}
-        <div class="alert-row">
-          <dt>마감 알림</dt>
-          <dd>
-            {#if item.alert !== false}<span class="lead">{leadSummary() || '알림 시간 없음'}</span>{/if}
-            <Switch checked={item.alert !== false} label="이 {item.kind === 'vod' ? '강의' : '과제'} 마감 알림" onchange={(on) => item && setItemAlert(item, on)} />
-          </dd>
-        </div>
-      {/if}
     </dl>
+    {#if alertable}
+      {#key item.key}
+        <div class="alert-settings">
+          <DeadlineAlerts enabled={item.alert !== false} leads={item.alertLeads ?? null}
+            label="이 {item.kind === 'vod' ? '강의' : '과제'} 마감 알림"
+            ontoggle={(on) => item ? setItemAlert(item, on) : undefined}
+            onchange={(leads) => item ? setItemAlertLeads(item, leads) : undefined} />
+        </div>
+      {/key}
+    {/if}
 
     {#if canSubmit}
       <a class="cn2-link" href={item.url} target="_blank" rel="noopener noreferrer">클래스룸에서 열기 <Icon name="external" size={14} /></a>
@@ -217,6 +217,8 @@
     font-weight: 750;
   }
 
+  .alert-settings { margin-bottom: 16px; }
+
   .cn2-link {
     display: inline-flex;
     align-items: center;
@@ -286,23 +288,5 @@
 
   .files {
     margin-top: 14px;
-  }
-
-  .facts .alert-row {
-    align-items: center;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
-  }
-
-  .alert-row dd {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .lead {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-3);
   }
 </style>

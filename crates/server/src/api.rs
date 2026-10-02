@@ -64,6 +64,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/calendar/state", post(calendar_state))
         .route("/api/calendar/items/{key}/done", put(set_done))
         .route("/api/calendar/items/{key}/alert", put(set_alert))
+        .route("/api/calendar/items/{key}/alert-leads", put(set_alert_leads))
         .route("/api/meals", get(meals))
         .route("/api/seats", get(seats))
         .route("/api/seats/recent", get(seats_recent))
@@ -448,9 +449,10 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
     let snapshots = db::sync_assignments(&st.db, s.user_id, &assignments).await?;
     let checks = db::item_checks(&st.db, s.user_id).await?;
     let alerts_off = db::item_alerts_off(&st.db, s.user_id).await?;
+    let alert_leads = db::item_alert_leads(&st.db, s.user_id).await?;
     let now = Utc::now().timestamp();
     let data = CalendarData {
-        items: calendar::build(&assignments, &vods, &calendar::snapshot_infos(snapshots), &checks, &alerts_off, now),
+        items: calendar::build(&assignments, &vods, &calendar::snapshot_infos(snapshots), &checks, &alerts_off, &alert_leads, now),
         courses,
         fetched_at: now,
     };
@@ -472,7 +474,8 @@ async fn calendar_state(State(st): State<Shared>, user: CurrentUser, Json(b): Js
     let snapshots = db::sync_assignments(&st.db, user.session.user_id, &b.assignments).await?;
     let checks = db::item_checks(&st.db, user.session.user_id).await?;
     let alerts_off = db::item_alerts_off(&st.db, user.session.user_id).await?;
-    Ok(Json(json!({ "snapshots": calendar::snapshot_infos(snapshots), "checks": checks, "alertsOff": alerts_off })))
+    let alert_leads = db::item_alert_leads(&st.db, user.session.user_id).await?;
+    Ok(Json(json!({ "snapshots": calendar::snapshot_infos(snapshots), "checks": checks, "alertsOff": alerts_off, "alertLeads": alert_leads })))
 }
 
 #[derive(Deserialize)]
@@ -521,6 +524,27 @@ async fn set_alert(State(st): State<Shared>, user: CurrentUser, Path(key): Path<
     Ok(Json(json!({ "key": key, "on": b.on })))
 }
 
+
+#[derive(Deserialize)]
+struct AlertLeadsBody {
+    leads: Option<Vec<i32>>,
+}
+
+async fn set_alert_leads(State(st): State<Shared>, user: CurrentUser, Path(key): Path<String>, Json(b): Json<AlertLeadsBody>) -> ApiResult<Value> {
+    if key.len() > 300 || !(key.starts_with("assign:") || key.starts_with("vod:")) {
+        return Err(ApiError::bad_request("잘못된 항목이에요"));
+    }
+    if b.leads.as_deref().is_some_and(|leads| !calendar::valid_alert_leads(leads)) {
+        return Err(ApiError::bad_request("알림 시간이 올바르지 않아요"));
+    }
+    db::set_item_alert_leads(&st.db, user.session.user_id, &key, b.leads.as_deref()).await?;
+    if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
+        for item in data.items.iter_mut().filter(|i| i.key == key) {
+            item.alert_leads = b.leads.clone();
+        }
+    }
+    Ok(Json(json!({ "key": key, "leads": b.leads })))
+}
 
 async fn notices_seen_get(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Value> {
     let urls = db::notices_seen(&st.db, user.session.user_id).await?;
@@ -666,6 +690,9 @@ async fn notifications(user: CurrentUser, Query(q): Query<PageQuery>) -> ApiResu
 
 
 async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<Option<chrono::DateTime<Utc>>, ApiError> {
+    if t.alert_leads.as_deref().is_some_and(|leads| !calendar::valid_alert_leads(leads)) {
+        return Err(ApiError::bad_request("알림 시간이 올바르지 않아요"));
+    }
     let title = t.title.trim();
     if title.is_empty() || title.chars().count() > 200 || t.note.chars().count() > 2000 {
         return Err(ApiError::bad_request("할 일 제목은 1~200자, 메모는 2000자까지예요"));

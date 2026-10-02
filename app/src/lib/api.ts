@@ -139,6 +139,8 @@ export const api = {
   calendar: (refresh = false) => request<CalendarData>('GET', `/api/calendar${refresh ? '?refresh=1' : ''}`),
   setDone: (key: string, done: boolean | null) =>
     request<{ key: string; done: boolean }>('PUT', `/api/calendar/items/${encodeURIComponent(key)}/done`, { done }),
+  setAlertLeads: (key: string, leads: number[] | null) =>
+    request<{ key: string; leads: number[] | null }>('PUT', `/api/calendar/items/${encodeURIComponent(key)}/alert-leads`, { leads }),
   setAlert: (key: string, on: boolean) =>
     request<{ key: string; on: boolean }>('PUT', `/api/calendar/items/${encodeURIComponent(key)}/alert`, { on }),
 

@@ -43,6 +43,7 @@ pub struct CalendarItem {
     pub done: bool,
     pub done_override: Option<bool>,
     pub alert: bool,
+    pub alert_leads: Option<Vec<i32>>,
     pub url: String,
     pub intro_html: Option<String>,
     pub attachments: Vec<Attachment>,
@@ -75,12 +76,18 @@ pub fn vod_status(s: Option<VodState>) -> &'static str {
     }
 }
 
+pub fn valid_alert_leads(leads: &[i32]) -> bool {
+    leads.len() <= 5
+        && leads.iter().enumerate().all(|(i, lead)| [1440, 180, 60, 10, 0].contains(lead) && !leads[..i].contains(lead))
+}
+
 pub fn build(
     assignments: &[Assignment],
     vods: &[Vod],
     snapshots: &HashMap<i64, SnapshotInfo>,
     checks: &HashMap<String, bool>,
     alerts_off: &HashSet<String>,
+    alert_leads: &HashMap<String, Vec<i32>>,
     now: i64,
 ) -> Vec<CalendarItem> {
     let mut items = Vec::with_capacity(assignments.len() + vods.len());
@@ -102,6 +109,7 @@ pub fn build(
             done: checks.get(&key).copied().unwrap_or(status == "submitted"),
             done_override: checks.get(&key).copied(),
             alert: !alerts_off.contains(&key),
+            alert_leads: alert_leads.get(&key).cloned(),
             key,
             kind: "assignment",
             course_id: a.course_id,
@@ -135,6 +143,7 @@ pub fn build(
             done: checks.get(&key).copied().unwrap_or(status == "done"),
             done_override: checks.get(&key).copied(),
             alert: !alerts_off.contains(&key),
+            alert_leads: alert_leads.get(&key).cloned(),
             key,
             kind: "vod",
             course_id: v.course_id,

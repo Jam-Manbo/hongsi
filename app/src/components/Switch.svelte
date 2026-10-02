@@ -3,11 +3,12 @@
     checked,
     label,
     disabled = false,
+    busy = false,
     onchange,
-  }: { checked: boolean; label: string; disabled?: boolean; onchange: (next: boolean) => void } = $props();
+  }: { checked: boolean; label: string; disabled?: boolean; busy?: boolean; onchange: (next: boolean) => void } = $props();
 </script>
 
-<button type="button" class="sw" role="switch" aria-checked={checked} aria-label={label} {disabled} onclick={() => onchange(!checked)}>
+<button type="button" class="sw" role="switch" aria-checked={checked} aria-label={label} aria-disabled={disabled || busy} aria-busy={busy} {disabled} onclick={() => { if (!disabled && !busy) onchange(!checked); }}>
   <span class="knob" aria-hidden="true"></span>
 </button>
 
@@ -29,6 +30,10 @@
   .sw:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .sw[aria-busy='true']:not(:disabled) {
+    cursor: wait;
   }
 
   .knob {

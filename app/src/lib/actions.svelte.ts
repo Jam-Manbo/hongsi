@@ -7,6 +7,7 @@ import { toast, toastOnce } from './ui.svelte';
 import type { CalendarItem, DownloadRecord, FileSource } from './types';
 
 const saving = new Set<string>();
+const savingAlerts = new Set<string>();
 export const doneConfirmation = $state({ pending: null as { key: string; done: boolean } | null });
 
 export function cancelDoneConfirmation() {
@@ -58,16 +59,30 @@ async function saveDone(item: CalendarItem, done: boolean) {
 }
 
 
-export async function setItemAlert(item: CalendarItem, on: boolean) {
-  if (writeBlocked()) return;
-  update(item.key, { alert: on });
+async function saveItemAlert(item: CalendarItem, patch: Partial<CalendarItem>, save: () => Promise<unknown>) {
+  if (writeBlocked() || savingAlerts.has(item.key)) return;
+  const version = sessionVersion();
+  const current = calendar.data?.items.find((i) => i.key === item.key) ?? item;
+  const before = { alert: current.alert, alertLeads: current.alertLeads ?? null };
+  savingAlerts.add(item.key);
+  update(item.key, patch);
   try {
-    await api.setAlert(item.key, on);
+    await save();
   } catch (e) {
-    if (isStaleSession(e)) return;
-    update(item.key, { alert: !on });
+    if (!isCurrentSession(version) || isStaleSession(e)) return;
+    update(item.key, before);
     if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요'), 'error');
+  } finally {
+    if (isCurrentSession(version)) savingAlerts.delete(item.key);
   }
+}
+
+export async function setItemAlert(item: CalendarItem, on: boolean) {
+  await saveItemAlert(item, { alert: on }, () => api.setAlert(item.key, on));
+}
+
+export async function setItemAlertLeads(item: CalendarItem, leads: number[] | null) {
+  await saveItemAlert(item, { alertLeads: leads }, () => api.setAlertLeads(item.key, leads));
 }
 
 
@@ -90,6 +105,7 @@ onSessionChange(() => {
   downloads.list = load();
   downloads.busy = '';
   saving.clear();
+  savingAlerts.clear();
   cancelDoneConfirmation();
 });
 

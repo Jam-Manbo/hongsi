@@ -29,6 +29,7 @@
   <div class="leads" role="group" aria-label="마감 알림 시간">
     {#each ALERT_LEADS as l (l.min)}<button class="filter" aria-pressed={settings.alertLeads.includes(l.min)} onclick={() => toggleAlertLead(l.min)}>{l.label}</button>{/each}
   </div>
+  <p class="hint">과제·강의·할 일에 기본으로 적용해요. 각 항목에서 따로 바꿀 수 있어요.</p>
   <div class="background">
     <div class="setting-head">
       <strong>백그라운드 동기화</strong>
@@ -59,7 +60,7 @@
   .setting-head strong,.label {font-size:14px;}
   .hint {font-size:13px;color:var(--text-2);line-height:1.6;}
   .setting-head .hint { margin-top:4px; }
-  .leads {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}
+  .leads {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;}
   .leads .filter {padding:0 4px;}
   .error {font-size:13px;color:var(--danger);line-height:1.6;}
   .background-status {display:flex;align-items:flex-start;gap:8px;}

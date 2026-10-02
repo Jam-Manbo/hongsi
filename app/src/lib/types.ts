@@ -60,6 +60,7 @@ export type CalendarItem = {
   done: boolean;
   doneOverride: boolean | null;
   alert: boolean;
+  alertLeads: number[] | null;
   url: string;
   introHtml: string | null;
   attachments: Attachment[];
@@ -139,6 +140,7 @@ export type Todo = {
   allDay: boolean;
   doneAt: number | null;
   notify: boolean;
+  alertLeads: number[] | null;
 };
 export type TodoInput = Omit<Todo, 'id' | 'doneAt'>;
 

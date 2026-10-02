@@ -9,6 +9,7 @@ export const ALERT_LEADS: { min: number; label: string }[] = [
   { min: 180, label: '3시간 전' },
   { min: 60, label: '1시간 전' },
   { min: 10, label: '10분 전' },
+  { min: 0, label: '마감' },
 ];
 
 export const settings = $state({
@@ -25,12 +26,6 @@ export function toggleAlertLead(min: number) {
     : [...settings.alertLeads, min];
   settings.alertLeads = next.sort((a, b) => b - a);
   setPref('alert-leads', settings.alertLeads);
-}
-
-export function leadSummary(leads: number[] = settings.alertLeads): string {
-  return ALERT_LEADS.filter((l) => leads.includes(l.min))
-    .map((l) => l.label)
-    .join(' · ');
 }
 
 export function setMealPlace(value: MealPlace) {

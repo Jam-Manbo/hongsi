@@ -9,7 +9,7 @@ export function normalizeCalendar(data: CalendarData): CalendarData {
       if (keys.has(item.key)) return false;
       keys.add(item.key);
       return true;
-    }),
+    }).map((item) => ({ ...item, alertLeads: item.alertLeads ?? null })),
     courses: data.courses.filter((course) => {
       if (ids.has(course.id)) return false;
       ids.add(course.id);

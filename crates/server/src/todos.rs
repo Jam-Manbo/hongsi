@@ -16,6 +16,7 @@ pub struct Todo {
     #[serde(with = "chrono::serde::ts_seconds_option")]
     pub done_at: Option<DateTime<Utc>>,
     pub notify: bool,
+    pub alert_leads: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,13 +32,14 @@ pub struct TodoInput {
     pub all_day: bool,
     #[serde(default = "yes")]
     pub notify: bool,
+    pub alert_leads: Option<Vec<i32>>,
 }
 
 fn yes() -> bool {
     true
 }
 
-const COLUMNS: &str = "id, course_id, parent_key, title, note, due_at, all_day, done_at, notify";
+const COLUMNS: &str = "id, course_id, parent_key, title, note, due_at, all_day, done_at, notify, alert_leads";
 
 pub async fn list(db: &PgPool, user_id: i64) -> sqlx::Result<Vec<Todo>> {
     sqlx::query_as(&format!(
@@ -52,8 +54,8 @@ pub async fn list(db: &PgPool, user_id: i64) -> sqlx::Result<Vec<Todo>> {
 
 pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: Option<DateTime<Utc>>) -> sqlx::Result<Todo> {
     sqlx::query_as(&format!(
-        "insert into todos (user_id, course_id, parent_key, title, note, due_at, all_day, notify)
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning {COLUMNS}"
+        "insert into todos (user_id, course_id, parent_key, title, note, due_at, all_day, notify, alert_leads)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning {COLUMNS}"
     ))
     .bind(user_id)
     .bind(t.course_id)
@@ -63,13 +65,14 @@ pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: Option<DateTi
     .bind(due)
     .bind(t.all_day)
     .bind(t.notify)
+    .bind(&t.alert_leads)
     .fetch_one(db)
     .await
 }
 
 pub async fn update(db: &PgPool, user_id: i64, id: i64, t: &TodoInput, due: Option<DateTime<Utc>>) -> sqlx::Result<Option<Todo>> {
     sqlx::query_as(&format!(
-        "update todos set course_id = $3, parent_key = $4, title = $5, note = $6, due_at = $7, all_day = $8, notify = $9,
+        "update todos set course_id = $3, parent_key = $4, title = $5, note = $6, due_at = $7, all_day = $8, notify = $9, alert_leads = $10,
                 updated_at = now()
          where user_id = $1 and id = $2 returning {COLUMNS}"
     ))
@@ -82,6 +85,7 @@ pub async fn update(db: &PgPool, user_id: i64, id: i64, t: &TodoInput, due: Opti
     .bind(due)
     .bind(t.all_day)
     .bind(t.notify)
+    .bind(&t.alert_leads)
     .fetch_optional(db)
     .await
 }

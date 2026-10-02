@@ -107,6 +107,7 @@ create table if not exists todos (
     all_day    boolean not null default true,
     done_at    timestamptz,
     notify     boolean not null default true,
+    alert_leads integer[] check (cardinality(alert_leads) <= 5 and alert_leads <@ array[1440, 180, 60, 10, 0]),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
@@ -116,6 +117,13 @@ create table if not exists item_alerts_off (
     user_id    bigint not null references users (id) on delete cascade,
     item_key   text not null,
     created_at timestamptz not null default now(),
+    primary key (user_id, item_key)
+);
+
+create table if not exists item_alert_leads (
+    user_id    bigint not null references users (id) on delete cascade,
+    item_key   text not null,
+    leads      integer[] not null check (cardinality(leads) <= 5 and leads <@ array[1440, 180, 60, 10, 0]),
     primary key (user_id, item_key)
 );
 

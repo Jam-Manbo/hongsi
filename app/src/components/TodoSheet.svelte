@@ -1,13 +1,12 @@
 <script lang="ts">
   import { isApp } from '../lib/api';
-    import { leadSummary } from '../lib/settings.svelte';
   import { removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
   import TimeWheel from './TimeWheel.svelte';
   import DateField from './DateField.svelte';
   import type { Course, Todo } from '../lib/types';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
-  import Switch from './Switch.svelte';
+  import DeadlineAlerts from './DeadlineAlerts.svelte';
 
   let {
     open = $bindable(false),
@@ -30,6 +29,7 @@
   let time = $state('');
   let parentKey = $state<string | null>(null);
   let notify = $state(true);
+  let alertLeads = $state<number[] | null>(null);
   let busy = $state(false);
   let titleEl: HTMLInputElement | undefined = $state();
 
@@ -43,6 +43,7 @@
     time = todo && !todo.allDay && due ? due.time : '';
     parentKey = todo ? todo.parentKey : (draft.parentKey ?? null);
     notify = todo?.notify ?? true;
+    alertLeads = todo?.alertLeads ? [...todo.alertLeads] : null;
     if (!todo) queueMicrotask(() => titleEl?.focus());
   });
 
@@ -62,6 +63,7 @@
       dueAt: date ? toUnix(date, time) : null,
       allDay: !time,
       notify,
+      alertLeads,
     });
     busy = false;
     if (ok) open = false;
@@ -132,11 +134,8 @@
     {/if}
 
     {#if date}
-      <div class="alert-field">
-        <span class="label">마감 알림</span>
-        {#if notify}<span class="lead">{leadSummary() || '알림 시간 없음'}</span>{/if}
-        <Switch checked={notify} label="이 할 일 마감 알림" onchange={(v) => (notify = v)} />
-      </div>
+      <DeadlineAlerts enabled={notify} leads={alertLeads} label="이 할 일 마감 알림" disabled={busy}
+        ontoggle={(on) => { notify = on; }} onchange={(leads) => { alertLeads = leads; }} />
     {/if}
 
     <label class="field">
@@ -257,29 +256,6 @@
     background: color-mix(in srgb, var(--c) 14%, var(--surface));
     color: var(--text);
     box-shadow: inset 0 0 0 1px var(--c);
-  }
-
-  .alert-field {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    padding: 6px 4px 6px 14px;
-    border-radius: 12px;
-    background: var(--surface-2);
-    font-size: 13.5px;
-    font-weight: 650;
-    color: var(--text-2);
-  }
-
-  .alert-field .label {
-    margin-right: auto;
-  }
-
-  .alert-field .lead {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-3);
   }
 
   .seg {

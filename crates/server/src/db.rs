@@ -155,6 +155,23 @@ pub async fn set_item_alert(db: &PgPool, user_id: i64, key: &str, on: bool) -> s
 }
 
 
+pub async fn item_alert_leads(db: &PgPool, user_id: i64) -> sqlx::Result<HashMap<String, Vec<i32>>> {
+    let rows: Vec<(String, Vec<i32>)> = sqlx::query_as("select item_key, leads from item_alert_leads where user_id = $1")
+        .bind(user_id).fetch_all(db).await?;
+    Ok(rows.into_iter().collect())
+}
+
+pub async fn set_item_alert_leads(db: &PgPool, user_id: i64, key: &str, leads: Option<&[i32]>) -> sqlx::Result<()> {
+    if let Some(leads) = leads {
+        sqlx::query("insert into item_alert_leads (user_id, item_key, leads) values ($1, $2, $3) on conflict (user_id, item_key) do update set leads = excluded.leads")
+            .bind(user_id).bind(key).bind(leads).execute(db).await?;
+    } else {
+        sqlx::query("delete from item_alert_leads where user_id = $1 and item_key = $2")
+            .bind(user_id).bind(key).execute(db).await?;
+    }
+    Ok(())
+}
+
 pub async fn notices_seen(db: &PgPool, user_id: i64) -> sqlx::Result<Vec<String>> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "select url from notices_seen where user_id = $1 and seen_at > now() - interval '30 days' order by seen_at desc limit 500",

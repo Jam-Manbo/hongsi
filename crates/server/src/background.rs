@@ -76,8 +76,7 @@ fn valid_id(id: &str) -> bool {
     (20..=80).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 fn valid_leads(leads: &[i32], seats: &[i32]) -> bool {
-    leads.len() <= 4
-        && leads.iter().all(|l| [1440, 180, 60, 10].contains(l))
+    calendar::valid_alert_leads(leads)
         && seats.len() <= 4
         && seats.iter().all(|l| [60, 30, 10, 0].contains(l))
 }
@@ -343,6 +342,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
     let seat = db::active_seat_session(&st.db, uid).await?;
     let checks = db::item_checks(&st.db, uid).await?;
     let off = db::item_alerts_off(&st.db, uid).await?;
+    let alert_leads = db::item_alert_leads(&st.db, uid).await?;
     for device in devices {
         let now = Utc::now().timestamp();
         let mut reminders = Vec::new();
@@ -357,11 +357,11 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
                 continue;
             }
             if let Some(due) = item["due"].as_i64() {
-                for lead in &device.leads {
+                for lead in alert_leads.get(key).unwrap_or(&device.leads) {
                     reminders.push(event(
                         format!("due:{key}:{due}:{lead}"),
                         due - i64::from(*lead) * 60,
-                        &format!("마감 {lead}분 전이에요"),
+                        &deadline_title(if item["kind"] == "vod" { "온라인 강의" } else { "과제" }, *lead),
                         item["title"].as_str().unwrap_or("과제·강의"),
                         &sealed.student_id,
                         json!({"kind":"item","key":key}),
@@ -375,11 +375,11 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
             }
             if let Some(due) = todo.due_at {
                 let due = due.timestamp() + if todo.all_day { 86400 } else { 0 };
-                for lead in &device.leads {
+                for lead in todo.alert_leads.as_ref().unwrap_or(&device.leads) {
                     reminders.push(event(
                         format!("due:todo:{}:{due}:{lead}", todo.id),
                         due - i64::from(*lead) * 60,
-                        &format!("할 일 마감 {lead}분 전이에요"),
+                        &deadline_title("할 일", *lead),
                         &todo.title,
                         &sealed.student_id,
                         json!({"kind":"todo","id":todo.id}),
@@ -427,6 +427,7 @@ async fn fetch_calendar(
     let snapshots = db::sync_assignments(&st.db, uid, &assignments).await?;
     let checks = db::item_checks(&st.db, uid).await?;
     let off = db::item_alerts_off(&st.db, uid).await?;
+    let alert_leads = db::item_alert_leads(&st.db, uid).await?;
     let mut snapshot = json!(calendar::CalendarData {
         items: calendar::build(
             &assignments,
@@ -434,6 +435,7 @@ async fn fetch_calendar(
             &calendar::snapshot_infos(snapshots),
             &checks,
             &off,
+            &alert_leads,
             Utc::now().timestamp()
         ),
         courses,
@@ -463,6 +465,16 @@ async fn fetch_notices(school: &hongsi_core::SchoolSession, previous: Option<&Va
 
 fn notice_key(notice: &Value) -> String {
     vault::token_hash(&json!([notice["url"], notice["course"], notice["section"], notice["message"], notice["kind"]]).to_string())
+}
+
+fn deadline_title(kind: &str, lead: i32) -> String {
+    match lead {
+        0 => format!("{kind} 마감 시간이에요"),
+        1440 => format!("{kind} 마감 하루 전이에요"),
+        180 => format!("{kind} 마감 3시간 전이에요"),
+        60 => format!("{kind} 마감 1시간 전이에요"),
+        _ => format!("{kind} 마감 {lead}분 전이에요"),
+    }
 }
 
 fn event(
