@@ -6,6 +6,7 @@ use reqwest::cookie::Jar;
 use reqwest::header::{ACCEPT_LANGUAGE, ORIGIN, REFERER};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Url};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::OnceCell;
 
@@ -40,6 +41,7 @@ pub fn public_client() -> Client {
         .expect("HTTP 클라이언트 생성")
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct MoodleAuth {
     pub token: String,
     pub private_token: Option<String>,
@@ -49,11 +51,19 @@ pub(crate) struct MoodleAuth {
     pub department: Option<String>,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct SchoolSessionSnapshot {
+    version: u8,
+    sso_cookies: Vec<(String, String)>,
+    moodle: Option<MoodleAuth>,
+}
+
 pub struct SchoolSession {
     pub(crate) client: Client,
     pub(crate) no_redirect: Client,
     pub(crate) attendance_ready: OnceCell<()>,
     pub(crate) attendance_forms: OnceCell<Vec<Vec<(String, String)>>>,
+    pub(crate) moodle_web_ready: OnceCell<()>,
     pub(crate) moodle: OnceCell<MoodleAuth>,
     sso_cookies: Vec<(String, String)>,
 }
@@ -108,6 +118,7 @@ impl SchoolSession {
             no_redirect,
             attendance_ready: OnceCell::new(),
             attendance_forms: OnceCell::new(),
+            moodle_web_ready: OnceCell::new(),
             moodle: OnceCell::new(),
             sso_cookies,
         }
@@ -121,6 +132,29 @@ impl SchoolSession {
 
     pub fn sso_cookies(&self) -> &[(String, String)] {
         &self.sso_cookies
+    }
+
+    pub fn snapshot(&self) -> SchoolSessionSnapshot {
+        SchoolSessionSnapshot { version: 1, sso_cookies: self.sso_cookies.clone(), moodle: self.moodle.get().cloned() }
+    }
+
+    pub fn from_snapshot(snapshot: SchoolSessionSnapshot) -> Result<Self> {
+        let valid_token = |token: &str| !token.is_empty() && token.len() <= 128 && token.bytes().all(|b| b.is_ascii_alphanumeric());
+        if snapshot.version != 1 || snapshot.sso_cookies.is_empty() || snapshot.sso_cookies.len() > 30
+            || snapshot.sso_cookies.iter().any(|(name, value)| {
+                name.is_empty() || name.len() > 100 || value.len() > 8000
+                    || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+                    || value.bytes().any(|b| b.is_ascii_control() || b == b';')
+            })
+            || snapshot.moodle.as_ref().is_some_and(|auth| {
+                !valid_token(&auth.token) || auth.private_token.as_deref().is_some_and(|token| !valid_token(token)) || auth.user_id <= 0
+            })
+        {
+            return Err(CoreError::Parse("저장된 학교 세션".into()));
+        }
+        let mut session = Self::from_sso_cookies(snapshot.sso_cookies)?;
+        session.moodle = OnceCell::new_with(snapshot.moodle);
+        Ok(session)
     }
 
     pub(crate) async fn get_text(&self, url: &str, referer: Option<&str>) -> Result<String> {

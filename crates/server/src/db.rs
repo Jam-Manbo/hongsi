@@ -21,27 +21,49 @@ pub async fn upsert_user(db: &PgPool, user_key: &str) -> sqlx::Result<i64> {
 }
 
 
-pub async fn save_remembered(
+pub async fn save_login(
     db: &PgPool,
     token_hash: &str,
     user_id: i64,
-    nonce: &[u8],
-    ciphertext: &[u8],
+    sealed: Option<(&[u8], &[u8])>,
     expires_at: DateTime<Utc>,
+    previous_hash: Option<&str>,
 ) -> sqlx::Result<()> {
-    sqlx::query(
-        "insert into remembered_sessions (token_hash, user_id, nonce, ciphertext, expires_at)
-         values ($1, $2, $3, $4, $5)
-         on conflict (token_hash) do update set nonce = excluded.nonce, ciphertext = excluded.ciphertext",
-    )
-    .bind(token_hash)
-    .bind(user_id)
-    .bind(nonce)
-    .bind(ciphertext)
-    .bind(expires_at)
-    .execute(db)
-    .await?;
-    Ok(())
+    let mut tx = db.begin().await?;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-user_id).execute(&mut *tx).await?;
+    let family_hash = if let Some(previous) = previous_hash {
+        sqlx::query_scalar::<_, String>("select family_hash from auth_sessions where token_hash=$1 and user_id=$2 and revoked_at is null")
+            .bind(previous).bind(user_id).fetch_optional(&mut *tx).await?.ok_or(sqlx::Error::RowNotFound)?
+    } else { token_hash.to_string() };
+    sqlx::query("insert into auth_sessions(token_hash,family_hash,user_id,expires_at) values($1,$2,$3,$4)")
+        .bind(token_hash).bind(family_hash).bind(user_id).bind(expires_at).execute(&mut *tx).await?;
+    if let Some((nonce, ciphertext)) = sealed {
+        sqlx::query("insert into remembered_sessions(token_hash,user_id,nonce,ciphertext,expires_at) values($1,$2,$3,$4,$5)")
+            .bind(token_hash).bind(user_id).bind(nonce).bind(ciphertext).bind(expires_at).execute(&mut *tx).await?;
+    }
+    if let Some(previous) = previous_hash {
+        sqlx::query("update background_devices set session_hash=$2 where session_hash=$1 and user_id=$3")
+            .bind(previous).bind(token_hash).bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("delete from remembered_sessions where token_hash=$1 and user_id=$2")
+            .bind(previous).bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("update auth_sessions set expires_at=least(expires_at,now()) where token_hash=$1 and user_id=$2")
+            .bind(previous).bind(user_id).execute(&mut *tx).await?;
+    }
+    tx.commit().await
+}
+
+#[derive(FromRow)]
+pub struct LoginRecord {
+    pub user_id: i64,
+    pub family_hash: String,
+    pub expires_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub logout_all_at: Option<DateTime<Utc>>,
+}
+
+pub async fn login_record(db: &PgPool, token_hash: &str) -> sqlx::Result<Option<LoginRecord>> {
+    sqlx::query_as("select user_id,family_hash,expires_at,revoked_at,logout_all_at from auth_sessions where token_hash=$1")
+        .bind(token_hash).fetch_optional(db).await
 }
 
 pub async fn load_remembered(db: &PgPool, token_hash: &str) -> sqlx::Result<Option<(i64, Vec<u8>, Vec<u8>, DateTime<Utc>)>> {
@@ -52,10 +74,17 @@ pub async fn load_remembered(db: &PgPool, token_hash: &str) -> sqlx::Result<Opti
 }
 
 pub async fn delete_remembered(db: &PgPool, token_hash: &str) -> sqlx::Result<()> {
-    sqlx::query("delete from remembered_sessions where token_hash = $1 or expires_at <= now()")
+    sqlx::query("delete from remembered_sessions where token_hash = $1")
         .bind(token_hash)
         .execute(db)
         .await?;
+    Ok(())
+}
+
+
+pub async fn clean_remembered(db: &PgPool) -> sqlx::Result<()> {
+    sqlx::query("delete from remembered_sessions where expires_at <= now()").execute(db).await?;
+    sqlx::query("delete from auth_sessions a where coalesce(revoked_at,expires_at) < now()-interval '14 days' and not exists(select 1 from background_devices d join auth_sessions linked on linked.token_hash=d.session_hash where linked.family_hash=a.family_hash) and not exists(select 1 from auth_sessions sibling where sibling.family_hash=a.family_hash and sibling.revoked_at is null and sibling.expires_at>now())").execute(db).await?;
     Ok(())
 }
 

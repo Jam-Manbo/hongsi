@@ -18,7 +18,10 @@
   import Sheet from './Sheet.svelte';
   import Switch from './Switch.svelte';
 
-  let { open = $bindable(false), onlogout }: { open: boolean; onlogout: () => void } = $props();
+  let { open = $bindable(false), onlogout, onlogoutall }: { open: boolean; onlogout: () => Promise<void>; onlogoutall: () => Promise<void> } = $props();
+  let confirmLogoutAll = $state(false);
+
+  $effect(() => { if (!open) confirmLogoutAll = false; });
 
   const THEMES: { id: Theme; label: string }[] = [
     { id: 'system', label: '시스템' },
@@ -51,6 +54,8 @@
       </span>
     </div>
   </div>
+
+  <p class="auth-hint muted">{#if isApp}{app.remembered ? '학번·비밀번호와 학교·클래스룸·홍시 로그인 정보를 이 기기의 보안 저장소에 보관해요.' : '자동 로그인 정보는 기기에 저장하지 않고, 현재 로그인 정보는 앱이 실행되는 동안만 사용해요.'}{:else}{app.remembered ? '학교 로그인 세션을 서버에 암호화해 보관하고, 브라우저 쿠키로 로그인 상태를 유지해요.' : '이번 브라우저 세션 동안 로그인 상태를 유지해요.'}{/if}</p>
 
   <h4 class="section-title">설정</h4>
   <div class="settings card">
@@ -97,9 +102,31 @@
     </div>
   {/if}
 
+  <h4 class="section-title">계정</h4>
+  <div class="settings card">
+    <div class="set">
+      <button class="btn btn-danger btn-block" disabled={app.loggingOut} onclick={() => confirmLogoutAll = true}><Icon name="logout" size={18} />모든 기기에서 로그아웃</button>
+      <p class="set-hint muted">모든 기기에서 로그아웃하고 저장된 모든 인증값을 삭제합니다.</p>
+    </div>
+  </div>
+
 
   {#snippet footer()}
-    <button class="btn btn-danger btn-block" onclick={onlogout}><Icon name="logout" size={18} />로그아웃</button>
+    <div class="logout-actions">
+      <p class="muted">로그아웃하면 이 기기의 저장된 로그인 정보와 해당 서버 세션·동기화 등록을 삭제해요. 다른 기기의 로그인은 유지돼요.</p>
+      <button class="btn btn-danger btn-block" disabled={app.loggingOut} onclick={onlogout}><Icon name="logout" size={18} />{app.loggingOut ? '로그아웃하는 중…' : '로그아웃'}</button>
+    </div>
+  {/snippet}
+</Sheet>
+
+<Sheet bind:open={confirmLogoutAll} title="모든 기기에서 로그아웃할까요?" layer={1}>
+  <div class="logout-confirm">
+    <p>모든 기기에서 로그아웃하고 저장된 모든 인증값을 삭제합니다.</p>
+    <p>서버의 모든 로그인 세션과 백그라운드 인증정보·동기화·푸시 등록을 삭제합니다. 오프라인인 다른 기기에 저장된 인증정보는 해당 기기가 다음에 서버에 연결할 때 삭제합니다.</p>
+  </div>
+  {#snippet footer()}
+    <button class="btn btn-ghost w1" disabled={app.loggingOut} onclick={() => confirmLogoutAll = false}>취소</button>
+    <button class="btn btn-danger w2" disabled={app.loggingOut} onclick={onlogoutall}>{app.loggingOut ? '로그아웃하는 중…' : '모든 기기에서 로그아웃'}</button>
   {/snippet}
 </Sheet>
 
@@ -129,6 +156,12 @@
     font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
+
+  .auth-hint { margin-top: 12px; font-size: 12px; line-height: 1.65; }
+  .logout-actions { display: grid; gap: 10px; width: 100%; }
+  .logout-actions p { font-size: 12px; line-height: 1.65; }
+  .logout-confirm { display: grid; gap: 12px; }
+  .logout-confirm p { font-size: 14px; line-height: 1.7; color: var(--text-2); }
 
   h4.section-title {
     margin-top: 22px;

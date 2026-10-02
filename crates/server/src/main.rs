@@ -92,6 +92,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 tick.tick().await;
                 let removed = st.sessions.sweep(Duration::from_secs(6 * 3600));
                 st.login_attempts.sweep();
+                if let Err(e) = db::clean_remembered(&st.db).await {
+                    tracing::warn!(code=?e.as_database_error().and_then(|e|e.code()), "만료된 로그인 정보 정리 실패");
+                }
                 if let Err(e) = attendance::clean(&st.db).await {
                     tracing::warn!(code=?e.as_database_error().and_then(|e|e.code()), "지난 출석 확인 기록 정리 실패");
                 }

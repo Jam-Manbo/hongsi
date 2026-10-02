@@ -36,6 +36,12 @@ export class ApiError extends Error {
 export { isApp };
 
 type Envelope = { status: number; body: unknown; server?: boolean | null };
+const sessionRevokedListeners = new Set<() => void>();
+
+export function onSessionRevoked(listener: () => void) {
+  sessionRevokedListeners.add(listener);
+  return () => sessionRevokedListeners.delete(listener);
+}
 
 const SCHOOL_PATH = /^\/api\/(calendar(\?|$)|calendar\/items\/[^/]+\/verify|attendance\/|timetable|notifications|assign\/|modules\/|board\/)/;
 
@@ -56,7 +62,14 @@ function note(path: string, status: number, data: unknown, server?: boolean | nu
 }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  return inSession((check) => sendRequest<T>(method, path, body, check));
+  try {
+    return await inSession((check) => sendRequest<T>(method, path, body, check));
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401 && e.code === 'session_revoked') {
+      sessionRevokedListeners.forEach((listener) => listener());
+    }
+    throw e;
+  }
 }
 
 async function sendRequest<T>(method: string, path: string, body: unknown, check: () => void): Promise<T> {
@@ -108,6 +121,7 @@ export const api = {
   login: (id: string, password: string, remember: boolean) =>
     request<{ profile: Profile }>('POST', '/api/auth/login', { id, password, remember }),
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),
+  logoutAll: () => request<{ ok: boolean }>('POST', '/api/auth/logout-all'),
   me: () => request<{ profile: Profile; remembered: boolean }>('GET', '/api/me'),
   verifyItem: (key: string, courseId: number) =>
     request<{ key: string; status: string; finished: boolean }>(

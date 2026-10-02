@@ -30,7 +30,7 @@
     { id: 'vod', label: '강의' },
     { id: 'todo', label: '할 일' },
   ];
-  const COMMON = -1;  
+  const COMMON = -1;
 
   const [y0, m0] = todayKey().split('-').map(Number);
   let year = $state(y0);
@@ -337,7 +337,7 @@
         onclick={() => toggleCourse(COMMON)}
         aria-pressed={!hidden.has(COMMON)}
       >
-        <span class="dot sq"></span>공통 할 일
+        <span class="dot sq"></span>공통
       </button>
       {#each data.courses as c (c.id)}
         <button

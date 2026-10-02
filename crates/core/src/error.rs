@@ -8,6 +8,8 @@ pub enum CoreError {
     LoginRejected(String),
     #[error("학교 로그인 세션이 만료됐어요")]
     SessionExpired,
+    #[error("클래스룸 로그인 토큰이 만료됐어요")]
+    ClassroomTokenExpired,
     #[error("학교 페이지 형식을 읽지 못했어요 ({0})")]
     Parse(String),
     #[error("{0}")]

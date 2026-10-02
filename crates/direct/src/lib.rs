@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use hongsi_core::calendar::{self, CalendarData, SnapshotInfo, SubmitRejection};
 use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SubmissionInfo, Timetable};
-use hongsi_core::{CoreError, SchoolSession};
+use hongsi_core::{CoreError, SchoolSession, SchoolSessionSnapshot};
 use reqwest::Method;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, RwLock};
 
@@ -44,6 +45,7 @@ impl From<CoreError> for Reply {
         let message = err.to_string();
         match err {
             CoreError::SessionExpired => Reply::error(401, "session_expired", message),
+            CoreError::ClassroomTokenExpired => Reply::error(401, "classroom_token_expired", message),
             CoreError::LoginRejected(_) => Reply::error(401, "login_rejected", message),
             CoreError::Network(e) => {
                 tracing::warn!("학교 서버 연결 실패: {e}");
@@ -82,10 +84,41 @@ struct School {
     autologin_at: std::sync::Mutex<Option<Instant>>,
 }
 
+impl School {
+    fn new(session: SchoolSession, student_id: String) -> Self {
+        Self {
+            session,
+            student_id,
+            calendar: Mutex::new(None),
+            lectures: Mutex::new(None),
+            timetable: Mutex::new(None),
+            courses: Mutex::new(HashMap::new()),
+            autologin_at: std::sync::Mutex::new(None),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct ServerAuth {
+    token: String,
+    expires_at: Option<i64>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct AuthSnapshot {
+    student_id: String,
+    school: SchoolSessionSnapshot,
+    server_base: String,
+    server: Option<ServerAuth>,
+}
+
 pub struct Direct {
     http: reqwest::Client,
     base: String,
-    server_token: std::sync::Mutex<Option<String>>,
+    server_auth: std::sync::Mutex<Option<ServerAuth>>,
+    server_login_lock: Mutex<()>,
+    revoked: AtomicBool,
+    remember: AtomicBool,
     server_ok: AtomicU8,
     school: RwLock<Option<Arc<School>>>,
     generation: AtomicU64,
@@ -97,7 +130,10 @@ impl Direct {
         Self {
             http,
             base,
-            server_token: Default::default(),
+            server_auth: Default::default(),
+            server_login_lock: Mutex::new(()),
+            revoked: AtomicBool::new(false),
+            remember: AtomicBool::new(false),
             server_ok: AtomicU8::new(0),
             school: RwLock::new(None),
             generation: AtomicU64::new(0),
@@ -120,11 +156,56 @@ impl Direct {
         self.generation.load(Ordering::SeqCst)
     }
 
+    pub fn session_revoked(&self) -> bool {
+        self.revoked.load(Ordering::SeqCst)
+    }
+
+    fn revoked_reply() -> Reply {
+        Reply::error(401, "session_revoked", "로그인 정보가 해제됐어요. 다시 로그인해 주세요")
+    }
+
     async fn current(&self) -> R<Arc<School>> {
+        if self.session_revoked() {
+            return Err(Self::revoked_reply());
+        }
         self.school.read().await.clone().ok_or_else(|| Reply::error(401, "unauthorized", "로그인이 필요해요"))
     }
 
-    pub async fn login(&self, id: &str, password: &str) -> Reply {
+    pub async fn snapshot(&self) -> Option<AuthSnapshot> {
+        if self.session_revoked() {
+            return None;
+        }
+        let school = self.school.read().await;
+        let school = school.as_ref()?;
+        Some(AuthSnapshot {
+            student_id: school.student_id.clone(),
+            school: school.session.snapshot(),
+            server_base: self.base.clone(),
+            server: self.server_auth.lock().ok()?.clone(),
+        })
+    }
+
+    pub async fn restore(&self, id: &str, snapshot: AuthSnapshot) -> bool {
+        if snapshot.student_id != id.trim().to_uppercase() {
+            return false;
+        }
+        let Ok(session) = SchoolSession::from_snapshot(snapshot.school) else { return false };
+        let Some(server) = snapshot.server.filter(|auth| {
+            snapshot.server_base == self.base && auth.token.len() == 64 && auth.token.bytes().all(|b| b.is_ascii_hexdigit())
+        }) else { return false };
+        let _guard = self.server_login_lock.lock().await;
+        self.set_server_auth(Some(server));
+        self.revoked.store(false, Ordering::SeqCst);
+        self.remember.store(true, Ordering::SeqCst);
+        *self.school.write().await = Some(Arc::new(School::new(session, snapshot.student_id)));
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        true
+    }
+
+    pub async fn login(&self, id: &str, password: &str, remember: bool) -> Reply {
+        if self.session_revoked() {
+            return Self::revoked_reply();
+        }
         let id = id.trim().to_uppercase();
         if id.is_empty() || password.is_empty() || id.len() > 32 {
             return Reply::error(400, "bad_request", "학번과 비밀번호를 입력해 주세요");
@@ -134,58 +215,157 @@ impl Direct {
             Err(e) => return e.into(),
         };
         let profile = session.profile().await.ok();
-        let school = Arc::new(School {
-            session,
-            student_id: id,
-            calendar: Mutex::new(None),
-            lectures: Mutex::new(None),
-            timetable: Mutex::new(None),
-            courses: Mutex::new(HashMap::new()),
-            autologin_at: std::sync::Mutex::new(None),
-        });
-        *self.school.write().await = Some(school.clone());
-        self.generation.fetch_add(1, Ordering::SeqCst);
-        if let Err(e) = self.server_login(&school).await {
-            tracing::warn!(status = e.status, "홍시 서버 기기 로그인 실패 — 학교 기능만 먼저 쓴다");
+        let school = Arc::new(School::new(session, id));
+        {
+            let _guard = self.server_login_lock.lock().await;
+            if self.session_revoked() {
+                return Self::revoked_reply();
+            }
+            let same_account = self.school.read().await.as_ref().is_some_and(|current| current.student_id == school.student_id);
+            if !same_account || self.remember.load(Ordering::SeqCst) != remember {
+                let reply = self.revoke_server_login().await;
+                if reply.status != 200 {
+                    return reply;
+                }
+                self.set_server_auth(None);
+            }
+            self.remember.store(remember, Ordering::SeqCst);
+            *self.school.write().await = Some(school.clone());
+            self.generation.fetch_add(1, Ordering::SeqCst);
+        }
+        if !self.server_auth_valid() {
+            let previous = self.token();
+            if let Err(e) = self.server_login(&school, previous.as_deref()).await {
+                if e.code() == Some("session_revoked") {
+                    return e;
+                }
+                tracing::warn!(status = e.status, "홍시 서버 기기 로그인 실패 — 학교 기능만 먼저 쓴다");
+            }
+        }
+        if self.session_revoked() {
+            return Self::revoked_reply();
         }
         let name = profile.map(|p| p.name).unwrap_or_default();
         Reply::ok(json!({ "profile": { "name": name } }))
     }
 
-    pub async fn logout(&self) -> Reply {
-        if self.token().is_some() {
-            let _ = self.send_server(&Method::POST, "/api/auth/logout", None).await;
+    pub async fn refresh_classroom(&self) -> Reply {
+        let school = match self.current().await {
+            Ok(school) => school,
+            Err(reply) => return reply,
+        };
+        let session = match school.session.refresh_moodle().await {
+            Ok(session) => session,
+            Err(error) => return error.into(),
+        };
+        let _guard = self.server_login_lock.lock().await;
+        if self.session_revoked() {
+            return Self::revoked_reply();
         }
-        self.set_token(None);
-        *self.school.write().await = None;
+        let mut current = self.school.write().await;
+        if !current.as_ref().is_some_and(|value| Arc::ptr_eq(value, &school)) {
+            return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+        }
+        *current = Some(Arc::new(School::new(session, school.student_id.clone())));
         self.generation.fetch_add(1, Ordering::SeqCst);
         Reply::ok(json!({ "ok": true }))
     }
 
-
-    fn token(&self) -> Option<String> {
-        self.server_token.lock().ok().and_then(|t| t.clone())
+    pub async fn revoke_login(&self) -> Reply {
+        let _guard = self.server_login_lock.lock().await;
+        self.revoke_server_login().await
     }
 
-    fn set_token(&self, token: Option<String>) {
-        if let Ok(mut t) = self.server_token.lock() {
-            *t = token;
+    async fn revoke_server_login(&self) -> Reply {
+        if self.token().is_some() {
+            let reply = self.send_server(&Method::POST, "/api/auth/logout", None).await;
+            if reply.code() == Some("session_revoked") {
+                return reply;
+            }
+            if reply.status != 200 || reply.body["ok"] != true {
+                return Reply::error(503, "logout_cleanup_failed", "서버의 로그인 정보를 삭제하지 못했어요. 연결을 확인한 뒤 로그아웃을 다시 시도해 주세요.");
+            }
+        }
+        Reply::ok(json!({ "ok": true }))
+    }
+
+    pub async fn revoke_all_logins(&self) -> Reply {
+        let reply = self.server(&Method::POST, "/api/auth/logout-all", None).await;
+        if reply.code() == Some("session_revoked") {
+            return reply;
+        }
+        if reply.status != 200 || reply.body["ok"] != true {
+            return Reply::error(503, "logout_cleanup_failed", "모든 기기의 로그인 정보를 삭제하지 못했어요. 연결을 확인한 뒤 다시 시도해 주세요.");
+        }
+        reply
+    }
+
+    pub async fn clear_login(&self) {
+        let _guard = self.server_login_lock.lock().await;
+        self.set_server_auth(None);
+        self.revoked.store(false, Ordering::SeqCst);
+        self.remember.store(false, Ordering::SeqCst);
+        *self.school.write().await = None;
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+
+    fn token(&self) -> Option<String> {
+        self.server_auth.lock().ok().and_then(|auth| auth.as_ref().map(|auth| auth.token.clone()))
+    }
+
+    fn set_server_auth(&self, auth: Option<ServerAuth>) {
+        if let Ok(mut value) = self.server_auth.lock() {
+            *value = auth;
         }
     }
 
-    async fn server_login(&self, school: &School) -> R<()> {
+    fn server_auth_valid(&self) -> bool {
+        self.server_auth.lock().ok().is_some_and(|auth| {
+            auth.as_ref().is_some_and(|auth| auth.expires_at.is_none_or(|at| at > Utc::now().timestamp()))
+        })
+    }
+
+    async fn server_login(&self, school: &Arc<School>, previous: Option<&str>) -> R<()> {
+        let _guard = self.server_login_lock.lock().await;
+        if self.session_revoked() {
+            return Err(Self::revoked_reply());
+        }
+        if !self.school.read().await.as_ref().is_some_and(|current| Arc::ptr_eq(current, school)) {
+            return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요"));
+        }
+        if self.token().as_deref() != previous && self.server_auth_valid() {
+            return Ok(());
+        }
         let token = school.session.moodle_token().await?;
-        let r = self.send_server(&Method::POST, "/api/auth/device", Some(&json!({ "token": token }))).await;
+        let r = self.send_server(&Method::POST, "/api/auth/device", Some(&json!({ "token": token, "remember": self.remember.load(Ordering::SeqCst) }))).await;
+        if r.status == 401 && r.code() == Some("login_rejected") {
+            return Err(CoreError::ClassroomTokenExpired.into());
+        }
         if r.status != 200 {
             return Err(r);
         }
-        self.set_token(r.body["token"].as_str().map(str::to_string));
+        if self.session_revoked() {
+            return Err(Self::revoked_reply());
+        }
+        let token = r.body["token"].as_str().filter(|token| token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+            .ok_or_else(|| Reply::error(502, "server_error", "서버의 로그인 응답을 확인하지 못했어요"))?;
+        if !self.school.read().await.as_ref().is_some_and(|current| Arc::ptr_eq(current, school)) {
+            let _ = self.http.post(format!("{}/api/auth/logout", self.base)).bearer_auth(token).header("X-Client", "tauri").send().await;
+            return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요"));
+        }
+        self.set_server_auth(Some(ServerAuth { token: token.to_string(), expires_at: r.body["expiresAt"].as_i64() }));
         Ok(())
     }
 
     async fn send_server(&self, method: &Method, path: &str, body: Option<&Value>) -> Reply {
+        let token = self.token();
+        self.send_server_as(method, path, body, token.as_deref()).await
+    }
+
+    async fn send_server_as(&self, method: &Method, path: &str, body: Option<&Value>, token: Option<&str>) -> Reply {
         let mut request = self.http.request(method.clone(), format!("{}{path}", self.base)).header("X-Client", "tauri");
-        if let Some(token) = self.token() {
+        if let Some(token) = token {
             request = request.bearer_auth(token);
         }
         if let Some(body) = body {
@@ -195,7 +375,15 @@ impl Direct {
             Ok(response) => {
                 self.server_ok.store(1, Ordering::Relaxed);
                 let status = response.status().as_u16();
-                Reply { status, body: response.json().await.unwrap_or(Value::Null) }
+                let reply = Reply { status, body: response.json().await.unwrap_or(Value::Null) };
+                if reply.status == 401 && reply.code() == Some("session_revoked") {
+                    let auth = self.server_auth.lock().ok();
+                    if token.is_none() || auth.as_ref().and_then(|auth| auth.as_ref().map(|auth| auth.token.as_str())) != token {
+                        return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+                    }
+                    self.revoked.store(true, Ordering::SeqCst);
+                }
+                reply
             }
             Err(e) => {
                 self.server_ok.store(2, Ordering::Relaxed);
@@ -206,23 +394,54 @@ impl Direct {
     }
 
     async fn server(&self, method: &Method, path: &str, body: Option<&Value>) -> Reply {
-        let first = self.send_server(method, path, body).await;
-        if first.status != 401 {
+        let school = match self.current().await {
+            Ok(school) => school,
+            Err(reply) => return reply,
+        };
+        let previous = self.token();
+        if previous.is_none() {
+            if let Err(reply) = self.server_login(&school, previous.as_deref()).await {
+                return reply;
+            }
+        }
+        let previous = {
+            let current = self.school.read().await;
+            if !current.as_ref().is_some_and(|value| Arc::ptr_eq(value, &school)) {
+                return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+            }
+            self.token()
+        };
+        let first = self.send_server_as(method, path, body, previous.as_deref()).await;
+        if first.status != 401 || first.code() != Some("unauthorized") {
             return first;
         }
-        let Ok(school) = self.current().await else { return first };
-        match self.server_login(&school).await {
-            Ok(()) => self.send_server(method, path, body).await,
-            Err(_) => first,
+        match self.server_login(&school, previous.as_deref()).await {
+            Ok(()) => {
+                let current = self.school.read().await;
+                if !current.as_ref().is_some_and(|value| Arc::ptr_eq(value, &school)) {
+                    return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+                }
+                let token = self.token();
+                drop(current);
+                self.send_server_as(method, path, body, token.as_deref()).await
+            }
+            Err(reply) => reply,
         }
     }
 
 
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> Reply {
-        match self.route(method, path, body).await {
+        if self.session_revoked() {
+            return Self::revoked_reply();
+        }
+        let reply = match self.route(method, path, body).await {
             Ok(reply) => reply,
             Err(reply) => reply,
+        };
+        if self.session_revoked() {
+            return Self::revoked_reply();
         }
+        reply
     }
 
     async fn route(&self, method: &str, path: &str, body: Option<Value>) -> R<Reply> {

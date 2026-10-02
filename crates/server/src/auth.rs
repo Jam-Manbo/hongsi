@@ -16,6 +16,18 @@ pub const COOKIE: &str = "hsid";
 pub struct CurrentUser {
     pub session: Arc<UserSession>,
     pub token: String,
+    _access: tokio::sync::OwnedRwLockReadGuard<()>,
+    _account_access: tokio::sync::OwnedRwLockReadGuard<()>,
+}
+
+pub struct LoginToken(pub String);
+
+impl FromRequestParts<Shared> for LoginToken {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &Shared) -> Result<Self, Self::Rejection> {
+        token_from(parts).map(Self).ok_or_else(ApiError::unauthorized)
+    }
 }
 
 impl FromRequestParts<Shared> for CurrentUser {
@@ -23,11 +35,27 @@ impl FromRequestParts<Shared> for CurrentUser {
 
     async fn from_request_parts(parts: &mut Parts, state: &Shared) -> Result<Self, Self::Rejection> {
         let token = token_from(parts).ok_or_else(ApiError::unauthorized)?;
-        if let Some(session) = state.sessions.get(&token) {
-            return Ok(Self { session, token });
+        let access = state.sessions.access(&token).read_owned().await;
+        let hash = vault::token_hash(&token);
+        let uid = match state.sessions.get(&token) {
+            Some(session) => session.user_id,
+            None => db::login_record(&state.db, &hash).await?.ok_or_else(ApiError::session_revoked)?.user_id,
+        };
+        let account_access = state.sessions.account_access(uid).read_owned().await;
+        let record = db::login_record(&state.db, &hash).await?.ok_or_else(ApiError::session_revoked)?;
+        if record.revoked_at.is_some() {
+            state.sessions.remove(&token);
+            return Err(ApiError::session_revoked());
         }
-        let session = restore(state, &token).await?.ok_or_else(ApiError::unauthorized)?;
-        Ok(Self { session, token })
+        if record.user_id != uid || record.expires_at <= chrono::Utc::now() {
+            state.sessions.remove(&token);
+            return Err(ApiError::unauthorized());
+        }
+        let session = match state.sessions.get(&token) {
+            Some(session) => session,
+            None => restore(state, &token).await?.ok_or_else(ApiError::unauthorized)?,
+        };
+        Ok(Self { session, token, _access: access, _account_access: account_access })
     }
 }
 
@@ -38,9 +66,9 @@ async fn restore(state: &Shared, token: &str) -> Result<Option<Arc<UserSession>>
         db::delete_remembered(&state.db, &hash).await?;
         return Ok(None);
     };
-    let school = hongsi_core::SchoolSession::from_sso_cookies(sealed.cookies)?;
+    let school = if sealed.device { None } else { Some(hongsi_core::SchoolSession::from_sso_cookies(sealed.cookies)?) };
     tracing::info!("보관된 로그인 세션 복원");
-    let mut session = UserSession::new(Some(school), user_id, sealed.name, sealed.student_id, true);
+    let mut session = UserSession::new(school, user_id, sealed.name, sealed.student_id, true);
     session.expires_at = expires_at;
     if session.expires_at <= chrono::Utc::now() {
         return Ok(None);
@@ -49,18 +77,25 @@ async fn restore(state: &Shared, token: &str) -> Result<Option<Arc<UserSession>>
 }
 
 fn token_from(parts: &Parts) -> Option<String> {
-    if let Some(value) = parts.headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
+    token_from_headers(&parts.headers)
+}
+
+pub fn token_from_headers(headers: &axum::http::HeaderMap) -> Option<String> {
+    if let Some(value) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if let Some(token) = value.strip_prefix("Bearer ") {
-            return Some(token.trim().to_string());
+            return valid_token(token.trim());
         }
     }
-    parts
-        .headers
+    headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
-        .find_map(|pair| pair.trim().strip_prefix(&format!("{COOKIE}=")).map(str::to_string))
+        .find_map(|pair| pair.trim().strip_prefix(&format!("{COOKIE}=")).and_then(valid_token))
+}
+
+fn valid_token(token: &str) -> Option<String> {
+    (token.len() == 64 && token.bytes().all(|c| c.is_ascii_hexdigit())).then(|| token.to_string())
 }
 
 pub fn user_key(pepper: &[u8], student_id: &str) -> String {

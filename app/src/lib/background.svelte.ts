@@ -3,7 +3,7 @@ import { mobileNotifications, notificationsAllowed, requestNotificationPermissio
 import { isCurrentSession, onSessionChange, readUserData, sessionUser, sessionVersion, writeUserData } from './session';
 import { settings } from './settings.svelte';
 import { seatPrefs } from './seat.svelte';
-import { pref, setPref } from './store.svelte';
+import { app, onBeforeLogout, pref, setPref } from './store.svelte';
 
 type Status = { registered: boolean; classroomAlerts: boolean; consented: boolean; available: { web: boolean; fcm: boolean; apns: boolean }; publicKey: string | null; expiresAt: number | null; lastPollAt: number | null; scheduled: number; nextAt: number | null; error: string | null; schoolError: string | null; pollMinutes: number };
 type Removal = 'all' | 'device' | null;
@@ -58,7 +58,7 @@ const problem = (e: unknown) => e instanceof Error ? e.message : '동기화 서�
 function clearRetry() { clearTimeout(retryTimer); retryTimer = undefined; }
 function scheduleRetry() {
   clearRetry();
-  if (!sessionUser() || (!background.choice && !removal)) return;
+  if (!sessionUser() || app.loggingOut || (!background.choice && !removal)) return;
   const delay = [10_000, 30_000, 60_000, 300_000][Math.min(retries++, 3)];
   retryTimer = setTimeout(() => { retryTimer = undefined; void refreshBackground(); }, delay);
 }
@@ -163,7 +163,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
   check();
 }
 function synchronize(renewToken = false): Promise<boolean> {
-  if (!sessionUser() || background.choice === null) return Promise.resolve(false);
+  if (!sessionUser() || app.loggingOut || background.choice === null) return Promise.resolve(false);
   clearRetry();
   syncRequested = true;
   tokenRequested ||= renewToken;
@@ -172,11 +172,11 @@ function synchronize(renewToken = false): Promise<boolean> {
   background.busy = true;
   const task = (async () => {
     let ok = false;
-    while (syncRequested && isCurrentSession(version)) {
+    while (syncRequested && isCurrentSession(version) && !app.loggingOut) {
       syncRequested = false;
       const attempt = revision, renew = tokenRequested;
       tokenRequested = false;
-      const current = () => isCurrentSession(version) && revision === attempt;
+      const current = () => isCurrentSession(version) && revision === attempt && !app.loggingOut;
       const check = () => { if (!current()) throw new Error('설정이 변경됐어요.'); };
       try {
         await reconcile(renew, check);
@@ -201,7 +201,16 @@ function synchronize(renewToken = false): Promise<boolean> {
   return task;
 }
 export const refreshBackground = (renewToken = false) => synchronize(renewToken);
+async function pauseBackgroundForLogout() {
+  clearRetry();
+  revision++;
+  syncRequested = false;
+  tokenRequested = false;
+  await syncTask;
+}
+onBeforeLogout(pauseBackgroundForLogout);
 export async function setBackgroundEnabled(enabled: boolean) {
+  if (app.loggingOut) return false;
   revision++; retries = 0;
   rememberChoice(enabled);
   background.error = '';
@@ -213,7 +222,7 @@ export async function setBackgroundEnabled(enabled: boolean) {
   return synchronize();
 }
 export async function enableBackgroundByDefault(remembered: boolean) {
-  if (!sessionUser() || initialized) return false;
+  if (!sessionUser() || app.loggingOut || initialized) return false;
   initialized = true;
   if (background.choice === null) {
     if (remembered) rememberChoice(true);
@@ -223,7 +232,7 @@ export async function enableBackgroundByDefault(remembered: boolean) {
 }
 export const syncBackgroundPreferences = () => synchronize();
 export async function setClassroomAlerts(enabled: boolean) {
-  if (!background.choice || background.classroomAlerts === enabled) return;
+  if (app.loggingOut || !background.choice || background.classroomAlerts === enabled) return;
   revision++;
   rememberAlerts(enabled);
   const version = sessionVersion();
@@ -234,6 +243,7 @@ export async function setClassroomAlerts(enabled: boolean) {
   }
 }
 export async function configureNotificationPermission() {
+  if (app.loggingOut) return;
   const version = sessionVersion();
   await requestNotificationPermission();
   if (isCurrentSession(version)) await refreshBackground(true);

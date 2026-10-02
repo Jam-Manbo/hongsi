@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 
 #[derive(Serialize, Deserialize)]
 pub struct Sealed {
+    #[serde(default)]
+    pub device: bool,
     pub name: String,
     #[serde(default)]
     pub student_id: String,

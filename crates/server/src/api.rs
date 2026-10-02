@@ -12,7 +12,7 @@ use hongsi_core::SchoolSession;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::auth::{self, CurrentUser};
+use crate::auth::{self, CurrentUser, LoginToken};
 use crate::calendar::{self, CalendarData};
 use crate::db::{self, NewSeatSession, RecentSeat, SeatSession};
 use crate::error::ApiError;
@@ -36,6 +36,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/app-update", get(crate::updates::latest))
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
+        .route("/api/auth/logout-all", post(logout_all))
         .route("/api/auth/device", post(device_login))
         .route("/api/me", get(me))
         .route("/api/me/avatar", get(avatar))
@@ -103,17 +104,22 @@ async fn login(State(st): State<Shared>, headers: HeaderMap, Json(body): Json<Lo
         }
     };
     let user_id = db::upsert_user(&st.db, &auth::user_key(&st.pepper, &id)).await?;
-    let sealed = vault::Sealed { name: name.clone(), student_id: id.clone(), cookies: school.sso_cookies().to_vec() };
+    let _account_access = st.sessions.account_access(user_id).read_owned().await;
+    let sealed = vault::Sealed { device: false, name: name.clone(), student_id: id.clone(), cookies: school.sso_cookies().to_vec() };
     let session = UserSession::new(Some(school), user_id, name.clone(), id.clone(), body.remember);
     let expires_at = session.expires_at;
     let token = st.sessions.insert(session);
-    if body.remember {
-        let (nonce, ciphertext) = vault::seal(&st.pepper, &token, &sealed)
-            .ok_or_else(|| ApiError::bad_request("로그인 상태를 저장하지 못했어요"))?;
-        if let Err(error) = db::save_remembered(&st.db, &vault::token_hash(&token), user_id, &nonce, &ciphertext, expires_at).await {
+    let encrypted = if body.remember {
+        let Some(encrypted) = vault::seal(&st.pepper, &token, &sealed) else {
             st.sessions.remove(&token);
-            return Err(error.into());
-        }
+            return Err(ApiError::conflict("로그인 상태를 저장하지 못했어요"));
+        };
+        Some(encrypted)
+    } else { None };
+    if let Err(error) = db::save_login(&st.db, &vault::token_hash(&token), user_id,
+        encrypted.as_ref().map(|(nonce, data)| (nonce.as_slice(), data.as_slice())), expires_at, None).await {
+        st.sessions.remove(&token);
+        return Err(error.into());
     }
 
     let mut payload = json!({ "profile": { "name": name } });
@@ -126,23 +132,55 @@ async fn login(State(st): State<Shared>, headers: HeaderMap, Json(body): Json<Lo
     Ok(([(header::SET_COOKIE, cookie)], Json(payload)).into_response())
 }
 
-async fn logout(State(st): State<Shared>, user: CurrentUser) -> Response {
-    if crate::background::revoke_login(&st.db, &user.token).await.is_err() {
-        tracing::warn!("로그아웃 알림 해제 실패");
+async fn logout(State(st): State<Shared>, LoginToken(token): LoginToken) -> Result<Response, ApiError> {
+    let _access = st.sessions.access(&token).write_owned().await;
+    let record = db::login_record(&st.db, &vault::token_hash(&token)).await?;
+    let _account_access = match record {
+        Some(record) => Some(st.sessions.account_access(record.user_id).write_owned().await),
+        None => None,
+    };
+    let hashes = match crate::background::revoke_login(&st.db, &token).await {
+        Ok(hashes) => hashes,
+        Err(error) => {
+            tracing::error!(code=?error.as_database_error().and_then(|e|e.code()), "로그아웃 인증정보 정리 실패");
+            return Err(ApiError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "logout_cleanup_failed",
+                "서버에 보관된 로그인 정보를 삭제하지 못했어요. 연결을 확인하고 로그아웃을 다시 시도해 주세요."));
+        }
+    };
+    st.sessions.remove_hashes(&hashes);
+    st.sessions.remove(&token);
+    let secure = if st.config.cookie_secure { "; Secure" } else { "" };
+    let cookie = format!("{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{secure}", auth::COOKIE);
+    Ok(([(header::SET_COOKIE, cookie)], Json(json!({ "ok": true }))).into_response())
+}
+
+async fn logout_all(State(st): State<Shared>, LoginToken(token): LoginToken) -> Result<Response, ApiError> {
+    let _access = st.sessions.access(&token).read_owned().await;
+    let hash = vault::token_hash(&token);
+    let record = db::login_record(&st.db, &hash).await?.ok_or_else(ApiError::session_revoked)?;
+    let uid = record.user_id;
+    let _account_access = st.sessions.account_access(uid).write_owned().await;
+    let record = db::login_record(&st.db, &hash).await?.ok_or_else(ApiError::session_revoked)?;
+    if record.logout_all_at.is_none() {
+        if record.revoked_at.is_some() { return Err(ApiError::session_revoked()); }
+        if record.expires_at <= Utc::now() { return Err(ApiError::unauthorized()); }
+        if let Err(error) = crate::background::revoke_account(&st.db, uid, &hash).await {
+            tracing::error!(code=?error.as_database_error().and_then(|e|e.code()), "전체 로그아웃 인증정보 정리 실패");
+            return Err(ApiError::new(axum::http::StatusCode::INTERNAL_SERVER_ERROR, "logout_cleanup_failed",
+                "모든 기기의 로그인 정보를 삭제하지 못했어요. 연결을 확인하고 다시 시도해 주세요."));
+        }
+        st.sessions.remove_user(uid);
     }
-    st.sessions.remove(&user.token);
-    if let Err(e) = db::delete_remembered(&st.db, &vault::token_hash(&user.token)).await {
-        tracing::warn!("보관 세션 삭제 실패: {e}");
-    }
-    let cookie = format!("{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0", auth::COOKIE);
-    ([(header::SET_COOKIE, cookie)], Json(json!({ "ok": true }))).into_response()
+    let secure = if st.config.cookie_secure { "; Secure" } else { "" };
+    let cookie = format!("{}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{secure}", auth::COOKIE);
+    Ok(([(header::SET_COOKIE, cookie)], Json(json!({ "ok": true }))).into_response())
 }
 
 async fn me(user: CurrentUser) -> ApiResult<Value> {
     let Some(school) = user.session.school.as_ref() else {
         return Ok(Json(json!({
             "profile": { "name": user.session.name, "hasPicture": false, "studentId": user.session.student_id },
-            "remembered": false,
+            "remembered": user.session.remembered,
         })));
     };
     let profile = school.profile().await?;
@@ -160,15 +198,27 @@ async fn me(user: CurrentUser) -> ApiResult<Value> {
 #[derive(Deserialize)]
 struct DeviceLoginBody {
     token: String,
+    #[serde(default)]
+    remember: bool,
 }
 
-async fn device_login(State(st): State<Shared>, Json(b): Json<DeviceLoginBody>) -> ApiResult<Value> {
+async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Json<DeviceLoginBody>) -> ApiResult<Value> {
+    let previous = auth::token_from_headers(&headers);
+    let _previous_access = match previous.as_ref() {
+        Some(token) => {
+            let access = st.sessions.access(token).read_owned().await;
+            let record = db::login_record(&st.db, &vault::token_hash(token)).await?.ok_or_else(ApiError::session_revoked)?;
+            if record.revoked_at.is_some() { return Err(ApiError::session_revoked()); }
+            Some(access)
+        }
+        None => None,
+    };
     let token = b.token.trim();
     if token.is_empty() || token.len() > 128 || !token.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(ApiError::bad_request("잘못된 요청이에요"));
     }
     let (student_id, name) = hongsi_core::classroom::token_owner(&st.http, token).await.map_err(|e| match e {
-        hongsi_core::CoreError::SessionExpired => ApiError::new(
+        hongsi_core::CoreError::SessionExpired | hongsi_core::CoreError::ClassroomTokenExpired => ApiError::new(
             axum::http::StatusCode::UNAUTHORIZED,
             "login_rejected",
             "클래스룸 로그인을 확인하지 못했어요",
@@ -176,9 +226,33 @@ async fn device_login(State(st): State<Shared>, Json(b): Json<DeviceLoginBody>) 
         other => ApiError::from(other),
     })?;
     let user_id = db::upsert_user(&st.db, &auth::user_key(&st.pepper, &student_id)).await?;
-    let session = st.sessions.insert(UserSession::new(None, user_id, name.clone(), student_id, false));
+    let _account_access = st.sessions.account_access(user_id).read_owned().await;
+    let previous_hash = previous.as_deref().map(vault::token_hash);
+    if let Some(hash) = previous_hash.as_ref() {
+        let record = db::login_record(&st.db, hash).await?.ok_or_else(ApiError::session_revoked)?;
+        if record.revoked_at.is_some() { return Err(ApiError::session_revoked()); }
+        if record.user_id != user_id { return Err(ApiError::conflict("기존 계정에서 먼저 로그아웃해 주세요")); }
+    }
+    let sealed = vault::Sealed { device: true, name: name.clone(), student_id: student_id.clone(), cookies: Vec::new() };
+    let session = UserSession::new(None, user_id, name.clone(), student_id, b.remember);
+    let expires_at = session.expires_at;
+    let token = st.sessions.insert(session);
+    let encrypted = if b.remember {
+        let Some(encrypted) = vault::seal(&st.pepper, &token, &sealed) else {
+            st.sessions.remove(&token);
+            return Err(ApiError::conflict("로그인 상태를 저장하지 못했어요"));
+        };
+        Some(encrypted)
+    } else { None };
+    if let Err(error) = db::save_login(&st.db, &vault::token_hash(&token), user_id,
+        encrypted.as_ref().map(|(nonce, data)| (nonce.as_slice(), data.as_slice())), expires_at, previous_hash.as_deref()).await {
+        st.sessions.remove(&token);
+        if matches!(error, sqlx::Error::RowNotFound) { return Err(ApiError::session_revoked()); }
+        return Err(error.into());
+    }
+    if let Some(previous) = previous { st.sessions.remove(&previous); }
     tracing::info!("앱 기기 로그인");
-    Ok(Json(json!({ "token": session, "profile": { "name": name } })))
+    Ok(Json(json!({ "token": token, "expiresAt": expires_at.timestamp(), "profile": { "name": name } })))
 }
 
 async fn avatar(user: CurrentUser) -> Result<Response, ApiError> {

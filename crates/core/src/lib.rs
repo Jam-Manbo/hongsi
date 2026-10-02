@@ -11,4 +11,4 @@ pub mod timetable;
 mod util;
 
 pub use error::{CoreError, Result};
-pub use session::{public_client, SchoolSession};
+pub use session::{public_client, SchoolSession, SchoolSessionSnapshot};

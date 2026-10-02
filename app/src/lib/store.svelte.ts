@@ -1,7 +1,8 @@
-import { ApiError, api, isApp } from './api';
+import { ApiError, api, isApp, onSessionRevoked } from './api';
 import { normalizeCalendar } from './calendar-data';
 import { errorText, onReconnect, troubleOf, type Trouble } from './net.svelte';
 import { clearLegacyData, clearUserData, isStaleSession, onSessionChange, readUserData, setSessionUser, writeUserData } from './session';
+import { toastOnce } from './ui.svelte';
 import type {
   ActiveLectures,
   AttendanceCourse,
@@ -24,6 +25,7 @@ export const app = $state({
   booting: true,
   notice: '',
   remembered: false,
+  loggingOut: false,
 });
 
 type Cached<T> = { data: T; at: number };
@@ -36,9 +38,14 @@ function writeCache<T>(key: string, data: T, at: number) {
   writeUserData(key, { data, at });
 }
 
-let logoutPending: Promise<unknown> = Promise.resolve();
+let logoutPending: Promise<void> | null = null;
+const logoutPreparations = new Set<() => Promise<void>>();
 
-export const waitForLogout = () => logoutPending;
+export const waitForLogout = () => logoutPending ?? Promise.resolve();
+export function onBeforeLogout(prepare: () => Promise<void>) {
+  logoutPreparations.add(prepare);
+  return () => logoutPreparations.delete(prepare);
+}
 
 export function startSession(profile: Profile, remembered: boolean, id = profile.studentId ?? '') {
   clearLegacyData();
@@ -57,16 +64,42 @@ export function endSession() {
   setSessionUser(null);
 }
 
-export function logoutSession() {
-  endSession();
-  logoutPending = logoutPending.then(() => api.logout()).catch(() => {});
-  return logoutPending;
+export function logoutSession(scope: 'device' | 'all' = 'device') {
+  if (logoutPending) return logoutPending;
+  app.loggingOut = true;
+  let revoked = false;
+  const pending = (async () => {
+    await Promise.all([...logoutPreparations].map((prepare) => prepare()));
+    const result = await (scope === 'all' ? api.logoutAll() : api.logout());
+    if (result.ok !== true) throw new ApiError(200, 'logout_incomplete', '로그인 정보 삭제를 확인하지 못했어요. 다시 시도해 주세요.');
+    endSession();
+  })().catch((e) => {
+    revoked = e instanceof ApiError && e.status === 401 && e.code === 'session_revoked';
+    throw e;
+  }).finally(() => {
+    app.loggingOut = false;
+    if (logoutPending === pending) logoutPending = null;
+    if (revoked) handleSessionRevoked();
+  });
+  logoutPending = pending;
+  return pending;
 }
+
+function handleSessionRevoked() {
+  if (app.loggingOut) return;
+  if (app.profile || app.account) endSession();
+  app.notice = '로그인 정보가 해제됐어요. 다시 로그인해 주세요.';
+}
+onSessionRevoked(handleSessionRevoked);
 
 export function handleAuthError(e: unknown): boolean {
   if (isStaleSession(e)) return true;
   if (e instanceof ApiError && e.status === 401 && e.code !== 'login_rejected') {
-    if (e.code === 'session_expired') void logoutSession();
+    if (e.code === 'session_revoked') { handleSessionRevoked(); return true; }
+    if (app.loggingOut) return true;
+    if (e.code === 'session_expired') void logoutSession().catch((err) => {
+      toastOnce(`학교 로그인이 만료됐지만 로그아웃을 완료하지 못했어요. ${errorText(err, '연결을 확인해 주세요.')} 내 정보에서 다시 로그아웃해 주세요.`, 'error', 8000);
+    });
     else endSession();
     app.notice = e.code === 'session_expired' ? '학교 로그인이 만료됐어요. 다시 로그인해 주세요.' : '';
     return true;
@@ -105,6 +138,7 @@ export class Resource<T> {
   }
 
   load(force = false): Promise<void> {
+    if (app.loggingOut) return Promise.resolve();
     if (this.pending) return this.pending;
     if (!force && this.data !== null && !this.stale) return Promise.resolve();
     if (Date.now() - this.lastStart < 3000) return Promise.resolve();
@@ -171,7 +205,7 @@ export const allResources = [calendar, seats, seatSession, meals, lectures, atte
 onSessionChange(() => allResources.forEach((r) => r.restore()));
 
 onReconnect((what) => {
-  if (!app.profile) return;
+  if (!app.profile || app.loggingOut) return;
   const jobs = allResources.filter((r) => r.error !== null && (what === 'server' || r.trouble === 'school'));
   if (what === 'server' && isApp && calendar.data && !jobs.includes(calendar)) jobs.push(calendar);
   return Promise.all(jobs.map((r) => r.load(true)));

@@ -28,6 +28,10 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized", "로그인이 필요해요")
     }
 
+    pub fn session_revoked() -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "session_revoked", "로그아웃된 기기예요. 다시 로그인해 주세요.")
+    }
+
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "bad_request", message)
     }
@@ -44,6 +48,9 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let mut response = (self.status, Json(json!({ "error": { "code": self.code, "message": self.message } }))).into_response();
+        if self.code == "session_revoked" {
+            response.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_static("hsid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"));
+        }
         if let Some(seconds) = self.retry_after {
             response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
         }
@@ -55,6 +62,7 @@ impl From<CoreError> for ApiError {
     fn from(err: CoreError) -> Self {
         let message = err.to_string();
         match err {
+            CoreError::ClassroomTokenExpired => Self::new(StatusCode::UNAUTHORIZED, "session_expired", message),
             CoreError::SessionExpired => Self::new(StatusCode::UNAUTHORIZED, "session_expired", message),
             CoreError::LoginRejected(_) => Self::new(StatusCode::UNAUTHORIZED, "login_rejected", message),
             CoreError::Network(e) => {

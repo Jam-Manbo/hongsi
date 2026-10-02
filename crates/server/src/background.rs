@@ -60,6 +60,7 @@ struct Device {
 }
 #[derive(FromRow)]
 struct Background {
+    id: String,
     nonce: Vec<u8>,
     ciphertext: Vec<u8>,
     snapshot: Option<Value>,
@@ -102,7 +103,7 @@ pub async fn status(
     let uid = user.session.user_id;
     let device: Option<(Option<String>, bool)> = sqlx::query_as("select last_error,classroom_alerts from notification_devices where id=$1 and user_id=$2 and expires_at>now()") .bind(&q.device).bind(uid).fetch_optional(&st.db).await?;
     let bg: Option<(DateTime<Utc>, Option<DateTime<Utc>>, Option<String>)> = sqlx::query_as(
-        "select expires_at,last_poll_at,last_error from background_sessions b where user_id=$1 and expires_at>now() and exists(select 1 from background_devices d where d.id=$2 and d.user_id=b.user_id and d.expires_at>now())",
+        "select d.expires_at,b.last_poll_at,b.last_error from background_sessions b join background_devices d on d.user_id=b.user_id where b.user_id=$1 and d.id=$2 and d.expires_at>now()",
     )
     .bind(uid)
     .bind(&q.device)
@@ -144,32 +145,32 @@ pub async fn renew(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Re
 async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool) -> Result<Json<Value>, ApiError> {
     let uid = user.session.user_id;
     let cookies = verified_cookies(st, user, b.cookies).await?;
-    let sealed = vault::Sealed { name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies };
-    let (nonce, ciphertext) = vault::seal(&st.pepper, &format!("background:{uid}"), &sealed)
+    let sealed = vault::Sealed { device: false, name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies };
+    let (nonce, ciphertext) = vault::seal(&st.pepper, &format!("background:{uid}:{}", b.device_id), &sealed)
         .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요"))?;
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
     if renew_only {
-        let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.expires_at>now() and b.expires_at>now())")
+        let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.expires_at>now())")
             .bind(&b.device_id).bind(uid).fetch_one(&mut *tx).await?;
         if !eligible { return Err(ApiError::conflict("백그라운드 동기화를 다시 연결해 주세요.")); }
     }
     let count: i64 = sqlx::query_scalar("select count(*) from background_devices where user_id=$1 and id<>$2 and expires_at>now()")
         .bind(uid).bind(&b.device_id).fetch_one(&mut *tx).await?;
     if count >= 10 { return Err(ApiError::bad_request("동기화할 수 있는 기기는 10개까지예요")); }
-    let expires: DateTime<Utc> = sqlx::query_scalar("insert into background_sessions(user_id,nonce,ciphertext,expires_at) values($1,$2,$3,now()+interval '14 days') on conflict(user_id) do update set nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=excluded.expires_at,next_poll_at=case when background_sessions.last_error is not null then now() else background_sessions.next_poll_at end,last_error=null returning expires_at")
-        .bind(uid).bind(nonce).bind(ciphertext).fetch_one(&mut *tx).await?;
-    let saved = sqlx::query("insert into background_devices(id,user_id,session_hash) values($1,$2,$3) on conflict(id) do update set session_hash=excluded.session_hash,expires_at=now()+interval '14 days' where background_devices.user_id=excluded.user_id")
-        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).execute(&mut *tx).await?;
-    if saved.rows_affected() != 1 { return Err(ApiError::conflict("이 기기의 이전 계정 동기화를 먼저 해제해 주세요")); }
+    sqlx::query("insert into background_sessions(user_id) values($1) on conflict(user_id) do update set next_poll_at=case when background_sessions.last_error is not null then now() else background_sessions.next_poll_at end,last_error=null")
+        .bind(uid).execute(&mut *tx).await?;
+    let expires: Option<DateTime<Utc>> = sqlx::query_scalar("insert into background_devices(id,user_id,session_hash,nonce,ciphertext) values($1,$2,$3,$4,$5) on conflict(id) do update set session_hash=excluded.session_hash,nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=now()+interval '14 days' where background_devices.user_id=excluded.user_id returning expires_at")
+        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(nonce).bind(ciphertext).fetch_optional(&mut *tx).await?;
+    let expires = expires.ok_or_else(|| ApiError::conflict("이 기기의 이전 계정 동기화를 먼저 해제해 주세요"))?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true,"expiresAt":expires.timestamp()})))
 }
 
 async fn notice_baseline(st: &Shared, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, uid: i64) -> Option<Vec<String>> {
-    let row = sqlx::query_as::<_, Background>("select nonce,ciphertext,snapshot from background_sessions where user_id=$1 and expires_at>now()")
+    let row = sqlx::query_as::<_, Background>("select d.id,d.nonce,d.ciphertext,b.snapshot from background_devices d join background_sessions b on b.user_id=d.user_id where d.user_id=$1 and d.expires_at>now() order by d.expires_at desc limit 1")
         .bind(uid).fetch_optional(&mut **tx).await.ok()??;
-    let sealed = vault::open(&st.pepper, &format!("background:{uid}"), &row.nonce, &row.ciphertext)?;
+    let sealed = vault::open(&st.pepper, &format!("background:{uid}:{}", row.id), &row.nonce, &row.ciphertext)?;
     let school = hongsi_core::SchoolSession::from_sso_cookies(sealed.cookies).ok()?;
     let notices = fetch_notices(&school, None).await.ok()?;
     Some(notices.iter().map(notice_key).collect())
@@ -183,8 +184,8 @@ pub async fn register(State(st): State<Shared>, user: CurrentUser, Json(b): Json
     let uid = user.session.user_id;
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
-    let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.expires_at>now() and b.expires_at>now())")
-        .bind(&b.device_id).bind(uid).fetch_one(&mut *tx).await?;
+    let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.session_hash=$3 and d.expires_at>now())")
+        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).fetch_one(&mut *tx).await?;
     if !eligible { return Err(ApiError::conflict("백그라운드 동기화를 먼저 켜 주세요.")); }
     sqlx::query("insert into notification_devices(id,user_id,session_hash,kind,destination,leads,seat_leads,classroom_epoch) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(id) do update set session_hash=excluded.session_hash,kind=excluded.kind,destination=excluded.destination,leads=excluded.leads,seat_leads=excluded.seat_leads,expires_at=now()+interval '90 days',last_error=null where notification_devices.user_id=excluded.user_id")
         .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(&b.kind).bind(&b.destination).bind(&b.leads).bind(&b.seat_leads).bind(&b.classroom_epoch).execute(&mut *tx).await?;
@@ -245,18 +246,34 @@ pub async fn disable_sync(State(st): State<Shared>, user: CurrentUser, Query(q):
     Ok(Json(json!({"ok":true})))
 }
 
-pub async fn revoke_login(db: &PgPool, token: &str) -> sqlx::Result<()> {
+pub async fn revoke_login(db: &PgPool, token: &str) -> sqlx::Result<Vec<String>> {
     let hash = vault::token_hash(token);
-    let users: Vec<(i64,)> = sqlx::query_as("select distinct user_id from background_devices where session_hash=$1 order by user_id")
-        .bind(&hash).fetch_all(db).await?;
     let mut tx = db.begin().await?;
-    for (uid,) in &users { sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?; }
-    sqlx::query("delete from background_devices where session_hash=$1").bind(&hash).execute(&mut *tx).await?;
-    for (uid,) in users {
-        sqlx::query("delete from background_sessions b where user_id=$1 and not exists(select 1 from background_devices d where d.user_id=b.user_id)").bind(uid).execute(&mut *tx).await?;
-    }
+    let Some(record) = sqlx::query_as::<_, db::LoginRecord>("select user_id,family_hash,expires_at,revoked_at,logout_all_at from auth_sessions where token_hash=$1")
+        .bind(&hash).fetch_optional(&mut *tx).await? else { return Ok(Vec::new()); };
+    let uid = record.user_id;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
+    let hashes: Vec<String> = sqlx::query_scalar("select token_hash from auth_sessions where family_hash=$1 and user_id=$2")
+        .bind(&record.family_hash).bind(uid).fetch_all(&mut *tx).await?;
+    sqlx::query("delete from notification_devices where session_hash=any($1)").bind(&hashes).execute(&mut *tx).await?;
+    sqlx::query("delete from background_devices where session_hash=any($1)").bind(&hashes).execute(&mut *tx).await?;
+    sqlx::query("delete from background_sessions b where user_id=$1 and not exists(select 1 from background_devices d where d.user_id=b.user_id)").bind(uid).execute(&mut *tx).await?;
+    sqlx::query("update background_sessions set next_poll_at=now(),last_error=null where user_id=$1 and last_error is not null").bind(uid).execute(&mut *tx).await?;
+    sqlx::query("delete from remembered_sessions where token_hash=any($1)").bind(&hashes).execute(&mut *tx).await?;
+    sqlx::query("update auth_sessions set revoked_at=coalesce(revoked_at,now()) where token_hash=any($1)").bind(&hashes).execute(&mut *tx).await?;
     tx.commit().await?;
-    Ok(())
+    Ok(hashes)
+}
+
+pub async fn revoke_account(db: &PgPool, user_id: i64, initiator_hash: &str) -> sqlx::Result<()> {
+    let mut tx = db.begin().await?;
+    sqlx::query("select pg_advisory_xact_lock($1)").bind(-user_id).execute(&mut *tx).await?;
+    sqlx::query("delete from notification_devices where user_id=$1").bind(user_id).execute(&mut *tx).await?;
+    sqlx::query("delete from background_sessions where user_id=$1").bind(user_id).execute(&mut *tx).await?;
+    sqlx::query("delete from remembered_sessions where user_id=$1").bind(user_id).execute(&mut *tx).await?;
+    sqlx::query("update auth_sessions set revoked_at=coalesce(revoked_at,now()) where user_id=$1").bind(user_id).execute(&mut *tx).await?;
+    sqlx::query("update auth_sessions set logout_all_at=now() where token_hash=$1 and user_id=$2").bind(initiator_hash).bind(user_id).execute(&mut *tx).await?;
+    tx.commit().await
 }
 
 pub async fn run(st: Shared) {
@@ -274,7 +291,7 @@ async fn cycle(st: &Shared) -> sqlx::Result<()> {
     sqlx::query("delete from notification_devices where expires_at<now()")
         .execute(&st.db)
         .await?;
-    sqlx::query("delete from background_sessions b where expires_at<now() or not exists(select 1 from background_devices d where d.user_id=b.user_id)").execute(&st.db).await?;
+    sqlx::query("delete from background_sessions b where not exists(select 1 from background_devices d where d.user_id=b.user_id)").execute(&st.db).await?;
     sqlx::query("delete from notification_outbox where expires_at < now()-interval '7 days'")
         .execute(&st.db)
         .await?;
@@ -304,10 +321,10 @@ async fn poll_due(db: &PgPool, uid: i64) -> sqlx::Result<bool> {
 }
 
 async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
-    let Some(mut bg) = sqlx::query_as::<_,Background>("select user_id,nonce,ciphertext,expires_at,snapshot from background_sessions where user_id=$1 and expires_at>now()").bind(uid).fetch_optional(&st.db).await? else { return Ok(()) };
+    let Some(mut bg) = sqlx::query_as::<_,Background>("select d.id,d.nonce,d.ciphertext,b.snapshot from background_devices d join background_sessions b on b.user_id=d.user_id where d.user_id=$1 and d.expires_at>now() order by d.expires_at desc limit 1").bind(uid).fetch_optional(&st.db).await? else { return Ok(()) };
     let Some(sealed) = vault::open(
         &st.pepper,
-        &format!("background:{uid}"),
+        &format!("background:{uid}:{}", bg.id),
         &bg.nonce,
         &bg.ciphertext,
     ) else {
@@ -321,13 +338,13 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
                 bg.snapshot = Some(snapshot);
             }
             Err(e) => {
-                let expired = e.code == "session_expired" || e.code == "login_rejected";
+                let expired = e.code == "session_expired" || e.code == "classroom_token_expired" || e.code == "login_rejected";
                 let error = if expired {
                     "학교 로그인이 만료됐어요. 백그라운드 동기화를 다시 연결해 주세요.".to_owned()
                 } else {
                     format!("학교의 최신 일정을 확인하지 못했어요. {}분 뒤 다시 확인해요.", POLL_SECS / 60)
                 };
-                sqlx::query("update background_sessions set last_error=$2,next_poll_at=case when $3 then expires_at else now()+make_interval(secs=>$4) end where user_id=$1").bind(uid).bind(error).bind(expired).bind(POLL_SECS as f64).execute(&st.db).await?;
+                sqlx::query("update background_sessions set last_error=$2,next_poll_at=case when $3 then coalesce((select max(expires_at) from background_devices where user_id=$1),now()) else now()+make_interval(secs=>$4) end where user_id=$1").bind(uid).bind(error).bind(expired).bind(POLL_SECS as f64).execute(&st.db).await?;
             }
         }
     }

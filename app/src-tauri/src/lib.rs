@@ -1,7 +1,8 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use hongsi_direct::{Direct, Reply};
+use hongsi_direct::{AuthSnapshot, Direct, Reply};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::async_runtime::Mutex;
@@ -32,6 +33,9 @@ struct Shell {
     direct: Direct,
     credentials: credentials::Store,
     login_lock: Mutex<()>,
+    saved: Mutex<CredentialState>,
+    operations: tokio::sync::RwLock<()>,
+    revoked: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -49,22 +53,83 @@ fn respond(shell: &Shell, r: Reply) -> ApiResponse {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Saved {
     id: String,
     password: String,
+    #[serde(default)]
+    auth: Option<AuthSnapshot>,
+}
+
+#[derive(Default)]
+struct CredentialState {
+    loaded: bool,
+    value: Option<Saved>,
 }
 
 async fn saved_login(shell: &Shell) -> Result<Option<Saved>, String> {
-    shell
-        .credentials
-        .load()
-        .await?
-        .map(|s| {
-            serde_json::from_str(&s)
-                .map_err(|_| "자동 로그인 정보를 읽지 못했어요. 다시 로그인해 주세요.".into())
-        })
-        .transpose()
+    let mut cached = shell.saved.lock().await;
+    if !cached.loaded {
+        cached.value = shell
+            .credentials
+            .load()
+            .await?
+            .map(|s| {
+                serde_json::from_str(&s).map_err(|_| {
+                    "자동 로그인 정보를 읽지 못했어요. 다시 로그인해 주세요.".to_string()
+                })
+            })
+            .transpose()?;
+        cached.loaded = true;
+    }
+    Ok(cached.value.clone())
+}
+
+async fn save_credentials(shell: &Shell, saved: Option<Saved>) -> Result<(), String> {
+    let mut cached = shell.saved.lock().await;
+    if let Some(saved) = &saved {
+        let encoded = serde_json::to_string(saved).map_err(|e| e.to_string())?;
+        shell.credentials.save(&encoded).await?;
+    } else {
+        shell.credentials.clear().await?;
+    }
+    cached.value = saved;
+    cached.loaded = true;
+    Ok(())
+}
+
+async fn persist_auth_locked(shell: &Shell) -> Result<(), String> {
+    if shell.revoked.load(Ordering::Acquire) || shell.direct.session_revoked() {
+        return Ok(());
+    }
+    if let Some(mut saved) = saved_login(shell).await? {
+        let auth = shell.direct.snapshot().await;
+        if auth.is_some() && saved.auth != auth {
+            saved.auth = auth;
+            save_credentials(shell, Some(saved)).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn persist_auth(shell: &Shell) {
+    if shell.direct.session_revoked() {
+        clear_revoked_login(shell).await;
+        return;
+    }
+    let _guard = shell.login_lock.lock().await;
+    if persist_auth_locked(shell).await.is_err() {
+        tracing::warn!("갱신한 자동 로그인 인증값을 기기 보안 저장소에 보관하지 못했어요");
+    }
+}
+
+async fn clear_revoked_login(shell: &Shell) {
+    shell.revoked.store(true, Ordering::Release);
+    let _guard = shell.login_lock.lock().await;
+    if save_credentials(shell, None).await.is_err() {
+        tracing::warn!("철회된 로그인 정보를 기기 보안 저장소에서 삭제하지 못했어요");
+    }
+    shell.direct.clear_login().await;
 }
 
 fn message(r: &Reply) -> String {
@@ -80,6 +145,13 @@ fn need_login() -> Reply {
 
 async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
     let _guard = shell.login_lock.lock().await;
+    if shell.revoked.load(Ordering::Acquire) || shell.direct.session_revoked() {
+        return Err(Reply::error(
+            401,
+            "session_revoked",
+            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+        ));
+    }
     if shell.direct.generation() != seen && shell.direct.logged_in().await {
         return Ok(());
     }
@@ -89,31 +161,92 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
     else {
         return Err(need_login());
     };
-    let reply = shell.direct.login(&saved.id, &saved.password).await;
+    let reply = shell.direct.login(&saved.id, &saved.password, true).await;
     match reply.status {
-        200 => Ok(()),
-        _ if reply.code() == Some("login_rejected") => {
-            shell
-                .credentials
-                .clear()
-                .await
-                .map_err(|e| Reply::error(503, "credentials_unavailable", e))?;
-            Err(Reply::error(
-                401,
-                "unauthorized",
-                "저장된 비밀번호로 로그인하지 못했어요. 다시 로그인해 주세요",
-            ))
+        200 => {
+            if persist_auth_locked(shell).await.is_err() {
+                tracing::warn!("갱신한 자동 로그인 인증값을 기기 보안 저장소에 보관하지 못했어요");
+            }
+            Ok(())
         }
+        _ if reply.code() == Some("login_rejected") => Err(Reply::error(
+            401,
+            "session_expired",
+            "저장된 비밀번호로 로그인하지 못했어요. 다시 로그인해 주세요",
+        )),
+        _ if reply.code() == Some("session_revoked") => Err(reply),
         s if s >= 500 => Err(reply),
         _ => Err(need_login()),
     }
 }
 
 async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
+    if shell.revoked.load(Ordering::Acquire) || shell.direct.session_revoked() {
+        clear_revoked_login(shell).await;
+        return Err(Reply::error(
+            401,
+            "session_revoked",
+            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+        ));
+    }
     if shell.direct.logged_in().await {
         return Ok(());
     }
-    relogin(shell, shell.direct.generation()).await
+    {
+        let _guard = shell.login_lock.lock().await;
+        if shell.revoked.load(Ordering::Acquire) || shell.direct.session_revoked() {
+            return Err(Reply::error(
+                401,
+                "session_revoked",
+                "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            ));
+        }
+        if shell.direct.logged_in().await {
+            return Ok(());
+        }
+        let saved = saved_login(shell)
+            .await
+            .map_err(|e| Reply::error(503, "credentials_unavailable", e))?;
+        if let Some(saved) = saved {
+            if let Some(auth) = saved.auth {
+                if shell.direct.restore(&saved.id, auth).await {
+                    return Ok(());
+                }
+            }
+            save_credentials(shell, None)
+                .await
+                .map_err(|e| Reply::error(503, "credentials_unavailable", e))?;
+        }
+    }
+    Err(need_login())
+}
+
+async fn refresh_classroom(shell: &Shell, seen: u64) -> Result<(), Reply> {
+    let reply = {
+        let _guard = shell.login_lock.lock().await;
+        if shell.revoked.load(Ordering::Acquire) || shell.direct.session_revoked() {
+            return Err(Reply::error(
+                401,
+                "session_revoked",
+                "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            ));
+        }
+        if shell.direct.generation() != seen && shell.direct.logged_in().await {
+            return Ok(());
+        }
+        let reply = shell.direct.refresh_classroom().await;
+        if reply.status == 200 && persist_auth_locked(shell).await.is_err() {
+            tracing::warn!("갱신한 클래스룸 인증값을 기기 보안 저장소에 보관하지 못했어요");
+        }
+        reply
+    };
+    if reply.status == 200 {
+        Ok(())
+    } else if reply.needs_login() || reply.code() == Some("classroom_token_expired") {
+        relogin(shell, seen).await
+    } else {
+        Err(reply)
+    }
 }
 
 async fn call<F, Fut>(shell: &Shell, f: F) -> Reply
@@ -122,16 +255,35 @@ where
     Fut: Future<Output = Reply>,
 {
     if let Err(reply) = ensure_login(shell).await {
+        if reply.code() == Some("session_revoked") {
+            clear_revoked_login(shell).await;
+        }
         return reply;
     }
     let seen = shell.direct.generation();
-    let reply = f().await;
-    if reply.needs_login() {
-        return match relogin(shell, seen).await {
+    let mut reply = f().await;
+    let recovery = if reply.code() == Some("classroom_token_expired") {
+        Some(refresh_classroom(shell, seen).await)
+    } else if reply.needs_login() && reply.code() != Some("session_revoked") {
+        Some(relogin(shell, seen).await)
+    } else {
+        None
+    };
+    if let Some(recovery) = recovery {
+        reply = match recovery {
             Ok(()) => f().await,
-            Err(e) if e.status >= 500 => e,
-            Err(_) => reply,
+            Err(e) => e,
         };
+    }
+    if reply.code() == Some("session_revoked") || shell.direct.session_revoked() {
+        clear_revoked_login(shell).await;
+        return Reply::error(
+            401,
+            "session_revoked",
+            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+        );
+    } else {
+        persist_auth(shell).await;
     }
     reply
 }
@@ -147,34 +299,60 @@ async fn api(
         return Err("잘못된 요청 경로예요".into());
     }
 
+    if path == "/api/auth/logout" || path == "/api/auth/logout-all" {
+        let _operations = shell.operations.write().await;
+        let _guard = shell.login_lock.lock().await;
+        if !shell.direct.logged_in().await {
+            if let Some(saved) = saved_login(&shell).await? {
+                if let Some(auth) = saved.auth {
+                    shell.direct.restore(&saved.id, auth).await;
+                }
+            }
+        }
+        let reply = if path == "/api/auth/logout-all" {
+            shell.direct.revoke_all_logins().await
+        } else {
+            shell.direct.revoke_login().await
+        };
+        if reply.status == 200 && reply.body["ok"] == true {
+            save_credentials(&shell, None).await?;
+            shell.direct.clear_login().await;
+        } else if reply.code() == Some("session_revoked") {
+            shell.revoked.store(true, Ordering::Release);
+            save_credentials(&shell, None).await?;
+            shell.direct.clear_login().await;
+        }
+        return Ok(respond(&shell, reply));
+    }
+
     if path == "/api/auth/login" {
+        let _operations = shell.operations.write().await;
         let body = body.unwrap_or(Value::Null);
         let id = body["id"].as_str().unwrap_or("").to_string();
         let password = body["password"].as_str().unwrap_or("").to_string();
         let remember = body["remember"].as_bool().unwrap_or(false);
         let _guard = shell.login_lock.lock().await;
-        let reply = shell.direct.login(&id, &password).await;
+        let reply = shell.direct.login(&id, &password, remember).await;
         if reply.status == 200 {
             if remember {
-                let secret = serde_json::to_string(&Saved {
-                    id: id.trim().to_uppercase(),
-                    password,
-                })
-                .map_err(|e| e.to_string())?;
-                shell.credentials.save(&secret).await?;
+                save_credentials(
+                    &shell,
+                    Some(Saved {
+                        id: id.trim().to_uppercase(),
+                        password,
+                        auth: shell.direct.snapshot().await,
+                    }),
+                )
+                .await?;
             } else {
-                shell.credentials.clear().await?;
+                save_credentials(&shell, None).await?;
             }
+            shell.revoked.store(false, Ordering::Release);
         }
         return Ok(respond(&shell, reply));
     }
 
-    if path == "/api/auth/logout" {
-        shell.credentials.clear().await?;
-        let reply = shell.direct.logout().await;
-        return Ok(respond(&shell, reply));
-    }
-
+    let _operations = shell.operations.read().await;
     let reply = call(&shell, || {
         shell.direct.request(&method, &path, body.clone())
     })
@@ -184,12 +362,14 @@ async fn api(
 
 #[tauri::command]
 async fn auto_login_enabled(shell: State<'_, Shell>) -> Result<bool, String> {
-    Ok(saved_login(&shell).await?.is_some())
+    let _operations = shell.operations.read().await;
+    Ok(!shell.revoked.load(Ordering::Acquire) && saved_login(&shell).await?.is_some())
 }
 
 #[tauri::command]
 async fn avatar(shell: State<'_, Shell>) -> Result<Option<String>, String> {
     use base64::Engine;
+    let _operations = shell.operations.read().await;
     if ensure_login(&shell).await.is_err() {
         return Ok(None);
     }
@@ -217,6 +397,7 @@ async fn submit_assignment(
     accept_statement: bool,
 ) -> Result<ApiResponse, String> {
     use base64::Engine;
+    let _operations = shell.operations.read().await;
     let mut decoded = Vec::with_capacity(files.len());
     for f in files {
         let bytes = base64::engine::general_purpose::STANDARD
@@ -231,6 +412,7 @@ async fn submit_assignment(
         .direct
         .submit(cmid, keep, decoded, late_confirmed, accept_statement)
         .await;
+    persist_auth(&shell).await;
     Ok(respond(&shell, reply))
 }
 
@@ -301,14 +483,28 @@ async fn download(
     source: FileSource,
     name: String,
 ) -> Result<String, String> {
+    let _operations = shell.operations.read().await;
     if let Err(reply) = ensure_login(&shell).await {
         return Err(message(&reply));
     }
     let seen = shell.direct.generation();
     let mut result = fetch_file(&shell.direct, &source).await;
-    if matches!(&result, Err(r) if r.needs_login()) && relogin(&shell, seen).await.is_ok() {
-        result = fetch_file(&shell.direct, &source).await;
+    if let Err(reply) = &result {
+        let recovery = if reply.code() == Some("classroom_token_expired") {
+            Some(refresh_classroom(&shell, seen).await)
+        } else if reply.needs_login() {
+            Some(relogin(&shell, seen).await)
+        } else {
+            None
+        };
+        if let Some(recovery) = recovery {
+            result = match recovery {
+                Ok(()) => fetch_file(&shell.direct, &source).await,
+                Err(e) => Err(e),
+            };
+        }
     }
+    persist_auth(&shell).await;
     let (_, bytes) = result.map_err(|r| message(&r))?;
     let name = name.rsplit('/').next().unwrap_or(&name).to_string();
     let path = unique_path(&download_dir(&app)?, &safe_name(&name));
@@ -376,6 +572,7 @@ async fn reveal_file(app: AppHandle, path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn open_url(app: AppHandle, shell: State<'_, Shell>, url: String) -> Result<(), String> {
+    let _operations = shell.operations.read().await;
     let allowed = (url.starts_with("https://") || url.starts_with("http://"))
         && url.len() < 4096
         && !url.chars().any(|c| c.is_whitespace() || c.is_control());
@@ -386,6 +583,7 @@ async fn open_url(app: AppHandle, shell: State<'_, Shell>, url: String) -> Resul
         ensure_login(&shell).await.map_err(|r| message(&r))?;
     }
     let target = shell.direct.browser_url(&url).await;
+    persist_auth(&shell).await;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "openUrl", &target).await;
     #[cfg(not(target_os = "android"))]
@@ -436,6 +634,9 @@ pub fn run_app() {
                 direct: Direct::new(base),
                 credentials: app.state::<credentials::Store>().inner().clone(),
                 login_lock: Mutex::new(()),
+                saved: Mutex::new(CredentialState::default()),
+                operations: tokio::sync::RwLock::new(()),
+                revoked: AtomicBool::new(false),
             });
             Ok(())
         })

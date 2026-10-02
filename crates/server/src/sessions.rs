@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
@@ -64,9 +64,37 @@ impl UserSession {
 #[derive(Default)]
 pub struct Sessions {
     inner: Mutex<HashMap<String, Arc<UserSession>>>,
+    access: Mutex<HashMap<String, Weak<tokio::sync::RwLock<()>>>>,
+    accounts: Mutex<HashMap<i64, Weak<tokio::sync::RwLock<()>>>>,
 }
 
 impl Sessions {
+    pub fn access(&self, token: &str) -> Arc<tokio::sync::RwLock<()>> {
+        let mut access = self.access.lock().expect("세션 잠금");
+        access.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = access.get(token).and_then(Weak::upgrade) { return lock; }
+        let lock = Arc::new(tokio::sync::RwLock::new(()));
+        access.insert(token.to_string(), Arc::downgrade(&lock));
+        lock
+    }
+
+    pub fn account_access(&self, user_id: i64) -> Arc<tokio::sync::RwLock<()>> {
+        let mut accounts = self.accounts.lock().expect("세션 잠금");
+        accounts.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = accounts.get(&user_id).and_then(Weak::upgrade) { return lock; }
+        let lock = Arc::new(tokio::sync::RwLock::new(()));
+        accounts.insert(user_id, Arc::downgrade(&lock));
+        lock
+    }
+
+    pub fn remove_hashes(&self, hashes: &[String]) {
+        self.inner.lock().expect("세션 잠금").retain(|token, _| !hashes.contains(&crate::vault::token_hash(token)));
+    }
+
+    pub fn remove_user(&self, user_id: i64) {
+        self.inner.lock().expect("세션 잠금").retain(|_, session| session.user_id != user_id);
+    }
+
     pub fn insert(&self, session: UserSession) -> String {
         let token = hex::encode(rand::random::<[u8; 32]>());
         self.inner.lock().expect("세션 잠금").insert(token.clone(), Arc::new(session));

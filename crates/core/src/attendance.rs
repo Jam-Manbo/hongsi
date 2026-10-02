@@ -12,7 +12,8 @@ use crate::{CoreError, Result, SchoolSession};
 const AT: &str = "https://at.hongik.ac.kr/";
 
 impl SchoolSession {
-    async fn ensure_attendance(&self) -> Result<()> {
+    async fn ensure_attendance(&self) -> Result<Option<String>> {
+        let mut initial_body = None;
         self.attendance_ready
             .get_or_try_init(|| async {
                 self.client
@@ -20,24 +21,24 @@ impl SchoolSession {
                     .header(REFERER, "https://my.hongik.ac.kr/")
                     .send()
                     .await?;
-                self.client
-                    .get(format!("{AT}index.jsp"))
-                    .header(REFERER, format!("{AT}login.jsp"))
-                    .send()
-                    .await?;
+                let body = self.get_text(&format!("{AT}index.jsp"), Some(&format!("{AT}login.jsp"))).await?;
+                if looks_like_login(&body) {
+                    return Err(CoreError::SessionExpired);
+                }
+                initial_body = Some(body);
                 Ok::<(), CoreError>(())
             })
             .await?;
-        Ok(())
+        Ok(initial_body)
     }
 
     async fn active_rows(
         &self,
     ) -> Result<(Vec<(ActiveLecture, Vec<(String, String)>)>, Option<String>)> {
-        self.ensure_attendance().await?;
-        let body = self
-            .get_text(&format!("{AT}index.jsp"), Some(&format!("{AT}login.jsp")))
-            .await?;
+        let body = match self.ensure_attendance().await? {
+            Some(body) => body,
+            None => self.get_text(&format!("{AT}index.jsp"), Some(&format!("{AT}login.jsp"))).await?,
+        };
         if looks_like_login(&body) {
             return Err(CoreError::SessionExpired);
         }
@@ -129,7 +130,7 @@ impl SchoolSession {
     }
 
     pub async fn attendance_status(&self) -> Result<Vec<AttendanceCourse>> {
-        self.ensure_attendance().await?;
+        let _ = self.ensure_attendance().await?;
         let forms = self.fetch_attendance_forms().await?;
         let mut courses = Vec::new();
         for data in forms {
@@ -149,7 +150,7 @@ impl SchoolSession {
     }
 
     pub async fn attendance_course(&self, code: &str) -> Result<AttendanceCourse> {
-        self.ensure_attendance().await?;
+        let _ = self.ensure_attendance().await?;
         let forms = self
             .attendance_forms
             .get_or_try_init(|| self.fetch_attendance_forms())

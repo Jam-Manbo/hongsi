@@ -86,8 +86,19 @@ create table if not exists seat_watch_meta (
     last_poll_at timestamptz not null
 );
 
-create table if not exists remembered_sessions (
+create table if not exists auth_sessions (
     token_hash text primary key,
+    family_hash text not null,
+    user_id bigint not null references users(id) on delete cascade,
+    expires_at timestamptz not null,
+    revoked_at timestamptz,
+    logout_all_at timestamptz
+);
+create index if not exists auth_sessions_user on auth_sessions(user_id);
+create index if not exists auth_sessions_family on auth_sessions(family_hash);
+
+create table if not exists remembered_sessions (
+    token_hash text primary key references auth_sessions(token_hash) on delete cascade,
     user_id    bigint not null references users (id) on delete cascade,
     nonce      bytea not null,
     ciphertext bytea not null,
@@ -136,8 +147,6 @@ create table if not exists notices_seen (
 
 create table if not exists background_sessions (
     user_id bigint primary key references users(id) on delete cascade,
-    nonce bytea not null, ciphertext bytea not null,
-    expires_at timestamptz not null,
     last_poll_at timestamptz,
     next_poll_at timestamptz not null default now(),
     last_error text,
@@ -146,13 +155,17 @@ create table if not exists background_sessions (
 create table if not exists background_devices (
     id text primary key,
     user_id bigint not null references background_sessions(user_id) on delete cascade,
-    session_hash text not null,
-    expires_at timestamptz not null default now() + interval '14 days'
+    session_hash text not null references auth_sessions(token_hash) on delete cascade,
+    nonce bytea not null,
+    ciphertext bytea not null,
+    expires_at timestamptz not null default now() + interval '14 days',
+    unique (id, session_hash)
 );
 create index if not exists background_devices_user on background_devices(user_id);
+create index if not exists background_devices_login on background_devices(session_hash);
 
 create table if not exists notification_devices (
-    id text primary key references background_devices(id) on delete cascade,
+    id text primary key,
     user_id bigint not null references users(id) on delete cascade,
     session_hash text not null,
     kind text not null check (kind in ('web','fcm','apns')),
@@ -163,9 +176,11 @@ create table if not exists notification_devices (
     classroom_epoch text not null,
     notice_keys text[],
     expires_at timestamptz not null default now() + interval '90 days',
-    last_error text
+    last_error text,
+    foreign key (id, session_hash) references background_devices(id, session_hash) on update cascade on delete cascade
 );
 create index if not exists notification_devices_user on notification_devices(user_id);
+create index if not exists notification_devices_login on notification_devices(session_hash);
 create table if not exists notification_outbox (
     device_id text not null references notification_devices(id) on delete cascade,
     event_key text not null,

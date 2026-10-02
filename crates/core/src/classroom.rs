@@ -19,13 +19,30 @@ use crate::{CoreError, Result, SchoolSession};
 pub const CN2: &str = "https://cn2.hongik.ac.kr";
 
 impl SchoolSession {
+    async fn ensure_moodle_web(&self) -> Result<()> {
+        self.moodle_web_ready.get_or_try_init(|| async {
+            let body = self.client.get(format!("{CN2}/login/index.php")).send().await?.text().await?;
+            if !body.contains("\"sesskey\"") {
+                return Err(CoreError::SessionExpired);
+            }
+            Ok::<(), CoreError>(())
+        }).await?;
+        Ok(())
+    }
+
+    async fn moodle_page(&self, url: &str) -> Result<String> {
+        self.ensure_moodle_web().await?;
+        let body = self.get_text(url, None).await?;
+        if body.contains("loginform") || body.contains("id=\"login\"") {
+            return Err(CoreError::SessionExpired);
+        }
+        Ok(body)
+    }
+
     async fn moodle(&self) -> Result<&MoodleAuth> {
         self.moodle
             .get_or_try_init(|| async {
-                let body = self.client.get(format!("{CN2}/login/index.php")).send().await?.text().await?;
-                if !body.contains("\"sesskey\"") {
-                    return Err(CoreError::SessionExpired);
-                }
+                self.ensure_moodle_web().await?;
                 let passport = chrono::Utc::now().timestamp().to_string();
                 let response = self
                     .no_redirect
@@ -88,6 +105,12 @@ impl SchoolSession {
         Ok(self.moodle().await?.token.clone())
     }
 
+    pub async fn refresh_moodle(&self) -> Result<Self> {
+        let session = Self::from_sso_cookies(self.sso_cookies().to_vec())?;
+        session.moodle().await?;
+        Ok(session)
+    }
+
     pub async fn autologin_url(&self, target: &str) -> Result<String> {
         if !target.starts_with(&format!("{CN2}/")) {
             return Err(CoreError::NotFound("클래스룸 주소가 아니에요".into()));
@@ -116,6 +139,9 @@ impl SchoolSession {
         let url = url.replacen(&format!("{CN2}/pluginfile.php/"), &format!("{CN2}/webservice/pluginfile.php/"), 1);
         let auth = self.moodle().await?;
         let response = self.client.get(&url).query(&[("token", auth.token.as_str())]).send().await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(CoreError::ClassroomTokenExpired);
+        }
         if !response.status().is_success() {
             return Err(CoreError::Upstream(format!("파일을 받지 못했어요 ({})", response.status().as_u16())));
         }
@@ -129,7 +155,7 @@ impl SchoolSession {
             .unwrap_or("application/octet-stream")
             .to_string();
         if mime.starts_with("text/html") {
-            return Err(CoreError::SessionExpired);
+            return Err(CoreError::ClassroomTokenExpired);
         }
         let bytes = response.bytes().await?;
         if bytes.len() as u64 > max_bytes {
@@ -195,11 +221,7 @@ impl SchoolSession {
     }
 
     pub async fn board_article(&self, cmid: i64, bwid: i64) -> Result<BoardArticle> {
-        self.moodle().await?;  
-        let body = self.get_text(&format!("{CN2}/mod/ubboard/article.php?id={cmid}&bwid={bwid}"), None).await?;
-        if body.contains("loginform") || body.contains("id=\"login\"") {
-            return Err(CoreError::SessionExpired);
-        }
+        let body = self.moodle_page(&format!("{CN2}/mod/ubboard/article.php?id={cmid}&bwid={bwid}")).await?;
         let mut article = parse_article(&body, cmid, bwid)
             .ok_or_else(|| CoreError::NotFound("글을 찾지 못했어요. 지워졌거나 볼 수 없는 글일 수 있어요".into()))?;
         article.html = self.inline_images(&article.html).await;
@@ -282,6 +304,9 @@ impl SchoolSession {
                 .text("itemid", item_id.to_string())
                 .part("file_1", part);
             let v: Value = self.client.post(format!("{CN2}/webservice/upload.php")).multipart(form).send().await?.json().await?;
+            if v["errorcode"].as_str() == Some("invalidtoken") {
+                return Err(CoreError::ClassroomTokenExpired);
+            }
             let uploaded = v.as_array().and_then(|a| a.first()).cloned().unwrap_or(Value::Null);
             item_id = uploaded["itemid"]
                 .as_i64()
@@ -317,10 +342,7 @@ impl SchoolSession {
     }
 
     pub async fn submission_state(&self, course_id: i64, cmid: i64) -> Result<SubmissionState> {
-        let body = self.get_text(&format!("{CN2}/mod/assign/index.php?id={course_id}"), None).await?;
-        if body.contains("id=\"login\"") || body.contains("loginform") {
-            return Err(CoreError::SessionExpired);
-        }
+        let body = self.moodle_page(&format!("{CN2}/mod/assign/index.php?id={course_id}")).await?;
         Ok(parse_submission_states(&body)
             .into_iter()
             .find(|(id, _)| *id == cmid)
@@ -351,11 +373,7 @@ impl SchoolSession {
     }
 
     pub async fn notifications(&self, page: u32) -> Result<Vec<Notification>> {
-        self.moodle().await?;  
-        let body = self.get_text(&format!("{CN2}/local/ubnotification/index.php?page={page}"), None).await?;
-        if body.contains("loginform") {
-            return Err(CoreError::SessionExpired);
-        }
+        let body = self.moodle_page(&format!("{CN2}/local/ubnotification/index.php?page={page}")).await?;
         Ok(parse_notifications(&body))
     }
 
@@ -405,7 +423,7 @@ impl SchoolSession {
     async fn submission_states(&self, courses: &[Course]) -> Result<HashMap<i64, SubmissionState>> {
         let pages = join_all(courses.iter().map(|c| async move {
             let url = format!("{CN2}/mod/assign/index.php?id={}", c.id);
-            self.get_text(&url, None).await
+            self.moodle_page(&url).await
         }))
         .await;
         let mut states = HashMap::new();
@@ -429,12 +447,12 @@ impl SchoolSession {
     }
 
     async fn course_vods(&self, course_id: i64) -> Result<Vec<Vod>> {
-        let page = self.get_text(&format!("{CN2}/course/view.php?id={course_id}"), None).await?;
+        let page = self.moodle_page(&format!("{CN2}/course/view.php?id={course_id}")).await?;
         let periods = parse_vod_periods(&page);
         if periods.is_empty() {
             return Ok(vec![]);
         }
-        let progress = self.get_text(&format!("{CN2}/report/ubcompletion/progress.php?id={course_id}"), None).await?;
+        let progress = self.moodle_page(&format!("{CN2}/report/ubcompletion/progress.php?id={course_id}")).await?;
         let rows = parse_progress(&progress);
         let now = chrono::Utc::now().timestamp();
         Ok(periods
@@ -478,7 +496,7 @@ async fn ws_call(client: &reqwest::Client, token: &str, function: &str, params: 
     if value.get("exception").is_some() {
         let code = value["errorcode"].as_str().unwrap_or("unknown");
         if code == "invalidtoken" {
-            return Err(CoreError::SessionExpired);
+            return Err(CoreError::ClassroomTokenExpired);
         }
         return Err(CoreError::Upstream(format!("클래스룸 API 오류 ({code})")));
     }
