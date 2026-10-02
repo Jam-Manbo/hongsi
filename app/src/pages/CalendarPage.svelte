@@ -175,7 +175,7 @@
   const narrow = new MediaQuery('max-width: 767px');
   const sideable = new MediaQuery('min-width: 1200px');
   type Layout = 'wide' | 'side';
-  let layout = $state<Layout>(pref<Layout>('calendar-layout', 'wide'));
+  let layout = $state<Layout>(pref<Layout>('calendar-layout', isApp ? 'wide' : 'side'));
   const side = $derived(sideable.current && layout === 'side');
   let dayPop = $state(false);
   let dayAnchor = $state<HTMLElement | null>(null);

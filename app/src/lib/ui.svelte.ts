@@ -37,6 +37,12 @@ onSessionChange(() => {
   focus.timetable = false;
   focus.seatBuilding = null;
   toasts.splice(0);
+  route.tab = 'home';
+  if (typeof window !== 'undefined') {
+    history.replaceState(history.state, '', '#/home');
+    window.scrollTo({ top: 0 });
+    document.querySelector('.scroller')?.scrollTo({ top: 0 });
+  }
 });
 
 const current = (): Tab => {
