@@ -1,9 +1,11 @@
 import { isApp } from './env';
 import { reportSchool, reportServer } from './net.svelte';
-import { inSession } from './session';
+import { inSession, sessionUser } from './session';
 import type {
   ActiveLectures,
   AttendanceCourse,
+  AttendanceReceipt,
+  AttendanceSubmission,
   BoardArticle,
   CalendarData,
   ClassNotification,
@@ -47,7 +49,7 @@ function note(path: string, status: number, data: unknown, server?: boolean | nu
   } else {
     reportServer(!(data === null && status >= 502 && status <= 504));
   }
-  if (!SCHOOL_PATH.test(path)) return;
+  if (path.startsWith('/api/attendance/receipts') || !SCHOOL_PATH.test(path)) return;
   const code = errorOf(data)?.code ?? '';
   if (status < 400) reportSchool(true);
   else if (code === 'school_unreachable' || code === 'school_error') reportSchool(false);
@@ -126,7 +128,9 @@ export const api = {
 
   activeLectures: () => request<ActiveLectures>('GET', '/api/attendance/active'),
   submitAttendance: (lectureKey: string, code: string, latitude: number, longitude: number) =>
-    request<{ message: string }>('POST', '/api/attendance/submit', { lectureKey, code, latitude, longitude }),
+    request<AttendanceSubmission>('POST', '/api/attendance/submit', { lectureKey, code, latitude, longitude }),
+  attendanceReceipts: () => request<AttendanceReceipt[]>('GET', '/api/attendance/receipts'),
+  shareAttendanceReceipt: (receipt: AttendanceReceipt) => request<{ ok: boolean }>('PUT', '/api/attendance/receipts', { receipt, account: sessionUser() }),
   attendanceStatus: () => request<AttendanceCourse[]>('GET', '/api/attendance/status'),
   attendanceCourse: (code: string) =>
     request<AttendanceCourse>('GET', `/api/attendance/course?code=${encodeURIComponent(code)}`),

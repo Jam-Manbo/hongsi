@@ -6,6 +6,19 @@ create table if not exists users (
     last_login_at timestamptz not null default now()
 );
 
+create table if not exists attendance_receipts (
+    user_id      bigint not null references users(id) on delete cascade,
+    school_date  date not null,
+    lecture_key  text not null,
+    course_code  text,
+    course_name  text not null,
+    lecture_time text not null,
+    kind         text not null check (kind in ('present', 'late', 'excused')),
+    confirmed_at timestamptz not null,
+    primary key (user_id, school_date, lecture_key)
+);
+create index if not exists attendance_receipts_date on attendance_receipts(school_date);
+
 create table if not exists assignment_snapshots (
     user_id          bigint not null references users (id) on delete cascade,
     cmid             bigint not null,

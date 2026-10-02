@@ -1,8 +1,8 @@
 import { api } from './api';
 import { dayKey, todayKey } from './format';
-import { attendance, handleAuthError, lectures, timetable } from './store.svelte';
+import { attendance, attendanceReceipts, handleAuthError, lectures, timetable } from './store.svelte';
 import { isCurrentSession, onSessionChange, readUserData, sessionVersion, writeUserData } from './session';
-import type { ActiveLecture, AttendanceCourse, ClassSlot, MarkKind } from './types';
+import type { ActiveLecture, AttendanceCourse, AttendanceReceipt, AttendanceSubmission, ClassSlot, MarkKind } from './types';
 
 export const WATCH_BEFORE = 3 * 60_000;
 export const WATCH_AFTER = 10 * 60_000;
@@ -10,44 +10,31 @@ export const POLL_MS = 5_000;
 const STATUS_MS = 60_000;
 const MIN_SPIN_MS = 700;
 const KST = 9 * 3600_000;
-const STORE = 'attended-v2';
+const STORE = 'attendance-confirmed-v1';
 
 export type TodayClass = ClassSlot & { at: number };
-export type Mark = { label: string; kind: MarkKind; source: 'school' | 'app' | 'list' };
+export type Mark = { label: string; kind: MarkKind; source: 'school' | 'app' };
 type CourseRef = { code: string | null; name: string; at?: number; lectureKey?: string };
-type SavedMark = Mark & { ref: CourseRef; recordedAt: number };
-
-export const SOURCE_TEXT: Record<Mark['source'], string> = {
-  school: '학교 출결부에서 확인',
-  app: '학교가 출석 처리 성공을 응답했어요',
-  list: '',
-};
-
-export const sourceSuffix = (m: Mark) => (SOURCE_TEXT[m.source] ? ` · ${SOURCE_TEXT[m.source]}` : '');
-
+type SavedReceipt = { receipt: AttendanceReceipt; synced: boolean };
+const SOURCE_TEXT = { school: '학교 출결부에서 확인', app: '학교가 출석 처리 성공을 응답했어요' };
+export const sourceSuffix = (m: Mark) => ` · ${SOURCE_TEXT[m.source]}`;
 const LABEL: Partial<Record<MarkKind, string>> = { present: '출석', late: '지각', excused: '공결', absent: '결석' };
 const ATTENDED: MarkKind[] = ['present', 'late', 'excused'];
-
 const norm = (s: string) => s.replace(/\(\*\)|\s/g, '');
 const keyOf = (c: CourseRef) => `${c.at ? dayKey(c.at) : todayKey()}|${c.code || norm(c.name)}|${c.at ?? c.lectureKey ?? 'course'}`;
-
-function loadSaved(): Record<string, SavedMark> {
-  try {
-    const all = readUserData<Record<string, SavedMark>>(STORE, {});
-    const today = todayKey();
-    return Object.fromEntries(Object.entries(all).filter(([k, m]) => k.startsWith(`${today}|`) && m?.ref
-      && ['school', 'app', 'list'].includes(m.source) && Number.isFinite(m.recordedAt)));
-  } catch {
-    return {};
-  }
+const validReceipt = (r: AttendanceReceipt) => r?.date === todayKey() && ATTENDED.includes(r.kind)
+  && typeof r.lecture?.key === 'string' && Number.isSafeInteger(r.confirmedAt) && Math.abs(r.confirmedAt) <= 8.64e15 && dayKey(r.confirmedAt) === todayKey();
+function loadSaved(): SavedReceipt[] {
+  const saved = readUserData<unknown>(STORE, []);
+  return Array.isArray(saved) ? saved.filter((entry) => entry && validReceipt(entry.receipt) && typeof entry.synced === 'boolean') : [];
 }
-
 export const classWatch = $state({
   current: null as TodayClass | null,
-  nextAt: 0,
-  polling: false,
-  now: Date.now(),
-  marks: loadSaved(),
+  nextAt: 0, polling: false, now: Date.now(), day: todayKey(),
+  receipts: loadSaved(),
+  seenOpen: [] as string[],
+  school: {} as Record<string, { course: AttendanceCourse; at: number }>,
+  shareError: '',
 });
 
 export function todayClasses(slots: ClassSlot[], now = Date.now()): TodayClass[] {
@@ -89,207 +76,190 @@ export function sameCourse(l: { code?: string | null; name: string }, c: CourseR
   return norm(l.name) === norm(c.name);
 }
 
-export function todayMark(course: AttendanceCourse, now = Date.now()): Mark | null {
-  if (!course.published) return null;
-  const k = new Date(now + KST);
-  const key = `${k.getUTCMonth() + 1}/${k.getUTCDate()}`;
-  const marks = course.weeks.flatMap((w) => w.sessions).filter((s) => s.date === key);
-  const kind = marks[0]?.kind;
-  return kind && LABEL[kind] && marks.every((s) => s.kind === kind)
-    ? { label: LABEL[kind]!, kind, source: 'school' } : null;
-}
-
 type AttendedMark = Mark & { kind: 'present' | 'late' | 'excused' };
-type ConfirmedMark = AttendedMark & { source: 'school' | 'app' };
 export const isAttended = (m: Mark | null): m is AttendedMark => !!m && ATTENDED.includes(m.kind);
-export const isConfirmed = (m: Mark | null): m is ConfirmedMark => isAttended(m) && (m.source === 'school' || m.source === 'app');
 export const markTitle = (m: Mark) => m.kind === 'present' ? '출석 완료' : `${m.label} 처리됨`;
 
 function schoolMark(c: CourseRef, course: AttendanceCourse): Mark | null {
-  const classes = todayClasses(timetable.data?.slots ?? []).filter((s) => sameCourse(s, c));
-  if (classes.length > 1 || (classes.length && c.at === undefined)) return null;
-  const k = new Date(Date.now() + KST);
+  if (!course.published || c.at === undefined || dayKey(c.at) !== todayKey()) return null;
+  const sessions = todaySessions(timetable.data?.slots ?? []).filter((s) => sameCourse(s, c));
+  const index = sessions.findIndex((s) => s.at === c.at);
+  const k = new Date(c.at + KST);
   const date = `${k.getUTCMonth() + 1}/${k.getUTCDate()}`;
   const entries = course.weeks.flatMap((w) => w.sessions).filter((s) => s.date === date);
-  if (classes[0] && entries.length < classes[0].periods.length) return null;
-  return todayMark(course);
+  if (index < 0 || entries.length !== sessions.length) return null;
+  const entry = entries[index];
+  if (LABEL[entry.kind]) return { label: LABEL[entry.kind]!, kind: entry.kind, source: 'school' };
+  return entry.kind === 'other' && entry.mark ? { label: entry.mark, kind: entry.kind, source: 'school' } : null;
+}
+
+function lectureRef(l: ActiveLecture, now = Date.now()): CourseRef {
+  const classes = todaySessions(timetable.data?.slots ?? [], now).filter((c) => sameCourse(l, c));
+  const time = /(?:^|\D)(\d{1,2}):(\d{2})/.exec(l.time);
+  const start = time ? `${time[1].padStart(2, '0')}:${time[2]}` : null;
+  const matches = start ? classes.filter((c) => c.start === start) : classes.filter((c) => inWindow(c, now));
+  return matches.length === 1 ? { ...matches[0], lectureKey: l.key } : { code: l.code ?? null, name: l.name, lectureKey: l.key };
 }
 
 export function markFor(c: CourseRef): Mark | null {
-  const saved = classWatch.marks[keyOf(c)];
-  const course = c.code ? attendance.data?.find((a) => a.code === c.code) : undefined;
-  const school = course ? schoolMark(c, course) : null;
-  if (school && (!saved || attendance.at >= saved.recordedAt)) return school;
-  return saved ?? school;
+  if (c.at !== undefined && dayKey(c.at) !== todayKey()) return null;
+  const matches = (attendance.data ?? []).filter((course) => sameCourse(course, c));
+  const listed = matches.length === 1 ? matches[0] : undefined;
+  const latest = classWatch.school[c.code ?? listed?.code ?? ''];
+  const course = latest && latest.at >= attendance.at ? latest.course : listed;
+  const official = course ? schoolMark(c, course) : null;
+  if (official) return official;
+  const receipts = [...(attendanceReceipts.data ?? []), ...classWatch.receipts.map((entry) => entry.receipt)];
+  const receipt = receipts.filter((r) => validReceipt(r) && (c.lectureKey === r.lecture.key || keyOf(lectureRef(r.lecture, r.confirmedAt)) === keyOf(c)))
+    .sort((a, b) => b.confirmedAt - a.confirmedAt)[0];
+  return receipt ? { label: LABEL[receipt.kind]!, kind: receipt.kind, source: 'app' } : null;
+}
+export const lectureMark = (l: ActiveLecture) => markFor(lectureRef(l));
+
+export function sessionState(c: TodayClass): { label: string; cls: string } {
+  const m = markFor(c);
+  if (m) return { label: m.label, cls: m.kind === 'absent' ? 'danger' : m.kind === 'late' ? 'warn' : isAttended(m) ? 'ok' : '' };
+  const fresh = !lectures.error && lectures.at >= classWatch.now - 2 * POLL_MS;
+  const listed = fresh && lectures.data?.items.some((l) => keyOf(lectureRef(l)) === keyOf(c));
+  if (listed) return { label: '출석 가능', cls: 'primary' };
+  if (fresh && classWatch.seenOpen.includes(keyOf(c))) return { label: '확인 불가', cls: '' };
+  if (c.at > classWatch.now) return { label: inWindow(c, classWatch.now) ? '확인 중' : '예정', cls: inWindow(c, classWatch.now) ? 'primary' : '' };
+  if (inWindow(c, classWatch.now) && !fresh && !lectures.error) return { label: '확인 중', cls: 'primary' };
+  return { label: '확인 불가', cls: '' };
 }
 
-function lectureRef(l: ActiveLecture): CourseRef {
-  const classes = todaySessions(timetable.data?.slots ?? []).filter((c) => sameCourse(l, c));
-  const time = /(?:^|\D)(\d{1,2}):(\d{2})/.exec(l.time);
-  const start = time ? `${time[1].padStart(2, '0')}:${time[2]}` : null;
-  const cls = start ? classes.find((c) => c.start === start)
-    : classes.find((c) => inWindow(c)) ?? (classes.length === 1 ? classes[0] : undefined);
-  return cls ?? { code: l.code ?? null, name: l.name, lectureKey: l.key };
-}
-
-export function lectureMark(l: ActiveLecture): Mark | null {
-  const m = markFor(lectureRef(l));
-  return m?.source === 'list' ? null : m;
-}
-
-function remember(c: CourseRef, mark: Mark) {
-  classWatch.marks[keyOf(c)] = { ...mark, ref: { code: c.code, name: c.name, at: c.at, lectureKey: c.lectureKey }, recordedAt: Date.now() };
-  persistMarks();
-}
-
-function persistMarks() {
-  try {
-    writeUserData(STORE, $state.snapshot(classWatch.marks));
-  } catch {
-  }
-}
-
+function persist() { writeUserData(STORE, $state.snapshot(classWatch.receipts)); }
 let users = 0;
 let timer: ReturnType<typeof setInterval> | undefined;
 let statusAt = 0;
-let seenOpen = false;
-let observedAt = 0;
+let sharedAt = 0;
 let pendingCheck: Promise<void> | null = null;
+let pendingSync: Promise<void> | null = null;
 
 export function useClassWatch(): () => void {
-  users += 1;
+  users++;
   if (users === 1) {
     timer = setInterval(tick, 1000);
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onVisibility);
+    void attendance.load();
   }
   void checkNow();
   return () => {
-    users -= 1;
+    users--;
     if (users === 0) {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onVisibility);
     }
   };
+}
+
+async function syncReceipts() {
+  if (pendingSync) return pendingSync;
+  const version = sessionVersion();
+  sharedAt = Date.now();
+  const task = (async () => {
+    let failed = false;
+    for (const entry of classWatch.receipts.filter((entry) => !entry.synced && validReceipt(entry.receipt))) {
+      try {
+        await api.shareAttendanceReceipt(entry.receipt);
+        if (!isCurrentSession(version)) return;
+        entry.synced = true;
+        persist();
+      } catch (e) {
+        if (!isCurrentSession(version)) return;
+        if (handleAuthError(e)) return;
+        failed = true;
+      }
+    }
+    if (!isCurrentSession(version)) return;
+    classWatch.shareError = failed ? '출석은 확인했지만 기기 간 공유를 완료하지 못했어요. 연결되면 다시 시도해요.' : '';
+    await attendanceReceipts.load(true);
+  })().finally(() => { if (pendingSync === task) pendingSync = null; });
+  pendingSync = task;
+  return task;
 }
 
 export function checkNow(): Promise<void> {
   if (pendingCheck) return pendingCheck;
   tick(false);
   classWatch.nextAt = Date.now() + POLL_MS;
-  const request = poll().finally(() => { if (pendingCheck === request) pendingCheck = null; });
-  pendingCheck = request;
-  return request;
+  const task = poll().finally(() => { if (pendingCheck === task) pendingCheck = null; });
+  pendingCheck = task;
+  return task;
 }
-
 function onVisibility() {
-  if (document.visibilityState === 'visible') tick();
+  if (document.visibilityState === 'visible') {
+    sharedAt = 0;
+    void checkNow();
+  }
 }
-
 function tick(automatic = true) {
   const now = Date.now();
   classWatch.now = now;
+  if (classWatch.day !== todayKey()) {
+    classWatch.day = todayKey();
+    classWatch.receipts = loadSaved();
+    classWatch.school = {}; classWatch.seenOpen = [];
+    persist();
+    sharedAt = 0; statusAt = 0;
+  }
   const cur = todaySessions(timetable.data?.slots ?? [], now).find((c) => inWindow(c, now)) ?? null;
-  const prev = classWatch.current;
-  if (!sameClass(cur, prev)) {
+  if (!sameClass(cur, classWatch.current)) {
     classWatch.current = cur;
     classWatch.nextAt = Math.max(now, lectures.at + POLL_MS);
     statusAt = 0;
-    seenOpen = false;
   }
-  observeActiveList();
-  const mark = cur ? markFor(cur) : null;
-  if (!automatic || !cur || document.visibilityState !== 'visible' || isAttended(mark)) return;
-  if (now >= classWatch.nextAt && !classWatch.polling) {
-    void checkNow();
+  const active = dayKey(lectures.at) === todayKey() ? (lectures.data?.items ?? []) : [];
+  if (!lectures.error && lectures.at >= now - 2 * POLL_MS) {
+    const seen = new Set(classWatch.seenOpen);
+    for (const lecture of active) seen.add(keyOf(lectureRef(lecture)));
+    if (seen.size !== classWatch.seenOpen.length) classWatch.seenOpen = [...seen];
   }
-  if (cur.code && (statusAt === 0 || now - statusAt >= STATUS_MS)) {
+  if (!automatic || document.visibilityState !== 'visible') return;
+  const open = active.filter((lecture) => !isAttended(lectureMark(lecture)));
+  if (now - sharedAt >= (cur || open.length ? POLL_MS : 30_000)) void syncReceipts();
+  const watched = cur ?? (open[0] ? lectureRef(open[0]) : null);
+  if (watched?.code && (statusAt === 0 || now - statusAt >= STATUS_MS)) {
     statusAt = now;
-    void checkSchool(cur);
+    void checkSchool(watched);
   }
+  if (((cur && !isAttended(markFor(cur))) || open.length) && now >= classWatch.nextAt && !classWatch.polling) void checkNow();
 }
-
 async function poll() {
   const version = sessionVersion();
   classWatch.polling = true;
   const started = Date.now();
-  await lectures.load(true);
+  await Promise.all([lectures.load(true), syncReceipts()]);
   if (!isCurrentSession(version)) return;
   tick(false);
   const rest = MIN_SPIN_MS - (Date.now() - started);
-  if (rest > 0) await new Promise((r) => setTimeout(r, rest));
+  if (rest > 0) await new Promise((resolve) => setTimeout(resolve, rest));
   if (isCurrentSession(version)) classWatch.polling = false;
 }
-
-export function observeActiveList() {
-  if (lectures.error) return;
-  if (!lectures.data || lectures.loading || lectures.at <= observedAt || Date.now() - lectures.at > POLL_MS * 2) return;
-  observedAt = lectures.at;
-  let changed = false;
-  for (const [key, mark] of Object.entries(classWatch.marks)) {
-    if (mark.source === 'list' && lectures.at >= mark.recordedAt
-      && lectures.data.items.some((l) => keyOf(lectureRef(l)) === key)) {
-      delete classWatch.marks[key];
-      changed = true;
-    }
-  }
-  if (changed) persistMarks();
-  const cur = classWatch.current;
-  if (cur && inWindow(cur)) judge(cur);
-}
-
-function judge(cur: TodayClass) {
-  const listed = (lectures.data?.items ?? []).some((l) => keyOf(lectureRef(l)) === keyOf(cur));
-  if (listed) {
-    seenOpen = true;
-    return;
-  }
-  if (!seenOpen) return;
-  if (isAttended(markFor(cur))) return;
-  remember(cur, { label: '출석', kind: 'present', source: 'list' });
-}
-
 async function checkSchool(c: CourseRef) {
   if (!c.code) return;
-  const version = sessionVersion();
-  const day = todayKey();
-  const before = classWatch.marks[keyOf(c)];
+  const version = sessionVersion(), day = todayKey();
   try {
     const course = await api.attendanceCourse(c.code);
-    if (!isCurrentSession(version) || todayKey() !== day || classWatch.marks[keyOf(c)] !== before) return;
-    const mark = schoolMark(c, course);
-    if (mark) remember(c, mark);
-  } catch (e) {
-    handleAuthError(e);
-  }
+    if (isCurrentSession(version) && todayKey() === day) classWatch.school[c.code] = { course, at: Date.now() };
+  } catch (e) { handleAuthError(e); }
 }
-
-const SUCCESS = /(?:출석|출결|지각)(?:이|가|은|는|으로)?\s*(?:정상적으로\s*)?(?:처리(?:가)?\s*)?(?:(?:완료|성공)(?:되었습니다|됐습니다|했습니다|하였습니다)?|되었습니다|됐습니다|하였습니다|했습니다|하셨습니다)[.!。\s]*$/;
-const FAILURE = /실패|오류|에러|틀렸|틀립|잘못|아닙|않|없|만료|초과|불가|벗어|못했|못하|되지|되기|완료하려|완료하기|예정|가능|미완료/;
-
-export const submissionConfirmed = (message: string) => SUCCESS.test(message) && !FAILURE.test(message);
-
-export function afterSubmit(l: ActiveLecture, message: string) {
-  const version = sessionVersion();
-  const day = todayKey();
-  const ref = lectureRef(l);
-  const confirmed = submissionConfirmed(message);
-  if (confirmed) {
-    const late = message.includes('지각');
-    remember(ref, { label: late ? '지각' : '출석', kind: late ? 'late' : 'present', source: 'app' });
-  }
+export function afterSubmit(submission: AttendanceSubmission) {
+  const receipt = submission.receipt;
+  if (!receipt || !validReceipt(receipt)) return false;
+  classWatch.receipts = [...classWatch.receipts.filter((entry) => entry.receipt.lecture.key !== receipt.lecture.key && validReceipt(entry.receipt)), { receipt, synced: submission.synced }];
+  persist();
+  classWatch.shareError = submission.synced ? '' : '출석은 확인했지만 기기 간 공유를 완료하지 못했어요. 연결되면 다시 시도해요.';
+  void syncReceipts();
+  const version = sessionVersion(), day = todayKey(), ref = lectureRef(receipt.lecture, receipt.confirmedAt);
   if (ref.code) setTimeout(() => { if (isCurrentSession(version) && todayKey() === day) void checkSchool(ref); }, 1500);
-  return confirmed;
+  return true;
 }
-
 export function resetClassWatch() {
-  classWatch.marks = loadSaved();
-  classWatch.polling = false;
-  classWatch.current = null;
-  classWatch.nextAt = 0;
-  statusAt = 0;
-  seenOpen = false;
-  observedAt = 0;
-  pendingCheck = null;
+  classWatch.receipts = loadSaved(); classWatch.school = {}; classWatch.seenOpen = []; classWatch.shareError = '';
+  classWatch.day = todayKey(); classWatch.polling = false; classWatch.current = null; classWatch.nextAt = 0;
+  statusAt = 0; sharedAt = 0; pendingCheck = null; pendingSync = null;
 }
-
 onSessionChange(resetClassWatch);

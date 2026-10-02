@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { api, isApp } from '../lib/api';
+  import { ApiError, api, isApp } from '../lib/api';
   import {
     POLL_MS,
     afterSubmit,
@@ -15,6 +15,7 @@
     markTitle,
     periodLabel,
     sourceSuffix,
+    sessionState,
     todayClasses,
     useClassWatch,
     type TodayClass,
@@ -22,7 +23,7 @@
   import { ago, WEEKDAYS } from '../lib/format';
   import { courseColors } from '../lib/colors';
   import { errorText, writeBlocked } from '../lib/net.svelte';
-  import { attendance, calendar, handleAuthError, lectures, pref, setPref, timetable } from '../lib/store.svelte';
+  import { attendance, attendanceReceipts, calendar, handleAuthError, lectures, pref, setPref, timetable } from '../lib/store.svelte';
   import { focus, toast } from '../lib/ui.svelte';
   import { refreshState, refreshTab } from '../lib/refresh.svelte';
   import type { ActiveLecture, AttendanceMark, AttendanceWeek, MarkKind } from '../lib/types';
@@ -78,28 +79,19 @@
   const openCount = $derived(openList.filter((l) => !isAttended(lectureMark(l))).length);
   const current = $derived(classWatch.current);
   const currentMark = $derived(current ? markFor(current) : null);
-  const currentDone = $derived(isAttended(currentMark));
-  const watching = $derived(current && !currentDone ? current : null);
+  const watching = $derived(current && !currentMark ? current : null);
   const left = $derived(Math.max(0, Math.min(1, (classWatch.nextAt - classWatch.now) / POLL_MS)));
   const headline = $derived(
     openCount
       ? `출석할 수 있는 수업 ${openCount}개`
       : watching
-        ? `${watching.name} 출석을 기다리는 중`
-        : current && currentDone && currentMark
+        ? sessionState(watching).label === '확인 불가' ? `${watching.name} · 출석 확인 불가` : `${watching.name} 출석을 기다리는 중`
+        : current && currentMark
           ? `${current.name} · ${markTitle(currentMark)}`
           : openList.length ? '출석 완료' : '출석할 수업이 없어요',
   );
   const today = $derived(todayClasses(timetable.data?.slots ?? [], classWatch.now));
 
-  function classState(c: TodayClass): { label: string; cls: string } | null {
-    const m = markFor(c);
-    if (isAttended(m)) return { label: m.label, cls: m.kind === 'late' ? 'warn' : 'ok' };
-    if (m?.kind === 'absent') return { label: '결석', cls: 'danger' };
-    if (inWindow(c, classWatch.now)) return { label: '확인 중', cls: 'primary' };
-    if (c.at > classWatch.now) return { label: '예정', cls: '' };
-    return { label: '확인 불가', cls: '' };
-  }
 
   const colorByCode = $derived.by(() => {
     const courses = calendar.data?.courses ?? [];
@@ -201,14 +193,16 @@
     busy = true;
     try {
       const res = await api.submitAttendance(target.key, code.trim(), geo.lat!, geo.lon!);
-      const confirmed = afterSubmit(target, res.message);
+      const confirmed = afterSubmit(res);
       const wrongCode = /(?:출결|인증|출석)\s*번호/.test(res.message) && /일치하지|불일치|틀|잘못/.test(res.message);
       const rejected = wrongCode || /실패|오류|에러|틀렸|틀립|잘못|불일치|일치하지|만료|초과|불가|벗어|못했|못하/.test(res.message);
-      toast(wrongCode ? '출결번호가 일치하지 않습니다.' : res.message, confirmed ? 'success' : rejected ? 'error' : 'info', 5000);
+      toast(wrongCode ? '출결번호가 일치하지 않습니다.' : confirmed && !res.synced ? `${res.message} 기기 간 공유는 다시 시도할게요.` : res.message, confirmed ? 'success' : rejected ? 'error' : 'info', 5000);
       lectures.load(true);
       attendance.load(true);
     } catch (err) {
-      if (!handleAuthError(err)) result = errorText(err, '출석을 보내지 못했어요');
+      if (!handleAuthError(err)) result = err instanceof ApiError && (err.status === 0 || err.status >= 500)
+        ? '학교 응답을 확인하지 못했어요. 출석 처리 여부를 확인해 주세요.'
+        : errorText(err, '출석 처리 여부를 확인하지 못했어요');
     } finally {
       busy = false;
     }
@@ -237,6 +231,8 @@
       {/if}
     </div>
     <LoadError resource={lectures} what="출석 가능 수업을" stale={false} />
+    <LoadError resource={attendanceReceipts} what="공유된 출석 기록을" />
+    {#if classWatch.shareError}<p class="muted small" role="status">{classWatch.shareError}</p>{/if}
     {#if openList.length}
       <div class="lectures">
         {#each openList as l (l.key)}
@@ -258,8 +254,8 @@
       <div class="watch-row">
         <p class="muted small" aria-live="polite">
           {#if watching}
-            {classWatch.polling ? '확인하는 중…' : '수업 시작 3분 전부터 10분 뒤까지 5초마다 자동으로 확인해요'}
-          {:else if current && currentMark && currentDone}
+            {sessionState(watching).label === '확인 불가' ? '확인된 출석 결과가 없어요. 출석 가능 여부는 5초마다 다시 확인해요.' : classWatch.polling ? '확인하는 중…' : '수업 시작 3분 전부터 10분 뒤까지 5초마다 자동으로 확인해요'}
+          {:else if current && currentMark}
             {current.start} 수업{sourceSuffix(currentMark)}
           {:else}
             {(lectures.data.message ?? '출석할 수업이 없어요').replace(/\.$/, '')} · {lectures.at ? ago(lectures.at / 1000) : ''} 확인
@@ -298,7 +294,7 @@
           </div>
           <div class="session-tags" aria-label="교시별 출석 상태">
             {#each sessions as session (session.at)}
-              {@const state = classState(session)}
+              {@const state = sessionState(session)}
               {#if state}<span class="chip {state.cls}" title="{session.start} · {periodLabel(session)}">{sessions.length > 1 ? `${session.round}회차 ` : ''}{state.label}</span>{/if}
             {/each}
           </div>

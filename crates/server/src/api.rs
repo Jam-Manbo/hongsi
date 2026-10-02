@@ -54,6 +54,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/todos", get(todo_list).post(todo_create))
         .route("/api/todos/{id}", put(todo_update).delete(todo_delete))
         .route("/api/todos/{id}/done", post(todo_done))
+        .route("/api/attendance/receipts", get(crate::attendance::list).put(crate::attendance::record))
         .route("/api/attendance/active", get(attendance_active))
         .route("/api/attendance/submit", post(attendance_submit))
         .route("/api/attendance/status", get(attendance_status))
@@ -356,7 +357,7 @@ struct SubmitBody {
     longitude: f64,
 }
 
-async fn attendance_submit(user: CurrentUser, Json(b): Json<SubmitBody>) -> ApiResult<Value> {
+async fn attendance_submit(State(st): State<Shared>, user: CurrentUser, Json(b): Json<SubmitBody>) -> ApiResult<Value> {
     let code = b.code.trim();
     if code.is_empty() || code.len() > 12 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(ApiError::bad_request("인증번호를 확인해 주세요"));
@@ -364,10 +365,16 @@ async fn attendance_submit(user: CurrentUser, Json(b): Json<SubmitBody>) -> ApiR
     if !(-90.0..=90.0).contains(&b.latitude) || !(-180.0..=180.0).contains(&b.longitude) {
         return Err(ApiError::bad_request("위치 정보가 올바르지 않아요"));
     }
-    let message = user.session.school()?.submit_attendance(&b.lecture_key, code, b.latitude, b.longitude).await?;
+    let submission = user.session.school()?.submit_attendance(&b.lecture_key, code, b.latitude, b.longitude).await?;
     *user.session.lectures_cache.lock().await = None;
     user.session.course_cache.lock().await.clear();
-    Ok(Json(json!({ "message": message })))
+    let synced = if let Some(receipt) = &submission.receipt {
+        match crate::attendance::save(&st.db, user.session.user_id, receipt).await {
+            Ok(()) => true,
+            Err(_) => { tracing::warn!("출석 성공 기록 공유 실패"); false }
+        }
+    } else { true };
+    Ok(Json(json!({ "message": submission.message, "receipt": submission.receipt, "synced": synced })))
 }
 
 async fn attendance_status(user: CurrentUser) -> ApiResult<Vec<AttendanceCourse>> {

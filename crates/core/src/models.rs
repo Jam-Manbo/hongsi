@@ -42,6 +42,22 @@ pub enum MarkKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AttendanceReceipt {
+    pub lecture: ActiveLecture,
+    pub date: String,
+    pub kind: MarkKind,
+    pub confirmed_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttendanceSubmission {
+    pub message: String,
+    pub receipt: Option<AttendanceReceipt>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AttendanceMark {
     pub date: String,
     pub mark: String,

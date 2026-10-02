@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { isApp } from '../lib/api';
   import { toggleDone } from '../lib/actions.svelte';
-  import { POLL_MS, classWatch, isAttended, lectureMark, markFor, markTitle, nextClass, sourceSuffix, useClassWatch } from '../lib/classwatch.svelte';
+  import { POLL_MS, classWatch, isAttended, lectureMark, markFor, markTitle, nextClass, sourceSuffix, sessionState, useClassWatch } from '../lib/classwatch.svelte';
   import { currentMealIndex, isNowMeal, placePrice, sortedPlaces } from '../lib/meals';
   import { courseColors } from '../lib/colors';
   import { dayKey, dueDateTime, hourNow, todayKey } from '../lib/format';
@@ -129,7 +129,7 @@
         <span class="watch-icon" class:spin={classWatch.polling}><Icon name="refresh" size={18} stroke={2.2} /></span>
       </Ring>
       <div>
-        <span class="eyebrow">{watching.start} 수업 · 출석 열리는지 확인 중</span>
+        <span class="eyebrow">{watching.start} 수업 · {sessionState(watching).label === '확인 불가' ? '출석 확인 불가' : markFor(watching)?.label ?? '출석 열리는지 확인 중'}</span>
         <strong>{watching.name}</strong>
         <span class="muted" aria-live="polite">{classWatch.polling ? '확인하는 중…' : '5초마다 자동으로 확인해요'}{watching.room ? ` · ${watching.room}` : ''}</span>
       </div>

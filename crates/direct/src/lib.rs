@@ -324,6 +324,7 @@ impl Direct {
     }
 
     async fn submit_attendance(&self, b: &Value) -> R<Value> {
+        let generation = self.generation();
         let s = self.current().await?;
         let key = b["lectureKey"].as_str().unwrap_or("");
         let code = b["code"].as_str().unwrap_or("").trim();
@@ -334,10 +335,16 @@ impl Direct {
         if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
             return Err(Reply::error(400, "bad_request", "위치 정보가 올바르지 않아요"));
         }
-        let message = s.session.submit_attendance(key, code, lat, lon).await?;
+        let submission = s.session.submit_attendance(key, code, lat, lon).await?;
+        if self.generation() != generation { return Err(Reply::error(409, "account_changed", "이전 계정의 출석 요청이에요")); }
         *s.lectures.lock().await = None;
         s.courses.lock().await.clear();
-        Ok(json!({ "message": message }))
+        let synced = if let Some(receipt) = &submission.receipt {
+            let body = json!({"receipt":receipt,"account":s.student_id});
+            tokio::time::timeout(Duration::from_secs(3), self.server(&Method::PUT, "/api/attendance/receipts", Some(&body))).await
+                .is_ok_and(|response| response.status == 200 && response.body["ok"] == true)
+        } else { true };
+        Ok(json!({ "message": submission.message, "receipt": submission.receipt, "synced": synced }))
     }
 
     async fn attendance_course(&self, code: &str) -> R<Value> {

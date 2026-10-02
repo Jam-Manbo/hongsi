@@ -3,7 +3,7 @@ use reqwest::header::{ORIGIN, REFERER};
 use scraper::Html;
 
 use crate::models::{
-    ActiveLecture, ActiveLectures, AttendanceCourse, AttendanceMark, AttendanceSummary,
+    ActiveLecture, ActiveLectures, AttendanceCourse, AttendanceMark, AttendanceReceipt, AttendanceSubmission, AttendanceSummary,
     AttendanceWeek, MarkKind,
 };
 use crate::util::{form_inputs, looks_like_login, sel, squash, text_of};
@@ -60,7 +60,7 @@ impl SchoolSession {
                 _ => None,
             };
             let lecture = ActiveLecture {
-                key: format!("{name}|{time}"),
+                key: format!("{}|{name}|{time}", code.as_deref().unwrap_or("")),
                 name,
                 time,
                 code,
@@ -93,15 +93,16 @@ impl SchoolSession {
         code: &str,
         latitude: f64,
         longitude: f64,
-    ) -> Result<String> {
+    ) -> Result<AttendanceSubmission> {
         let (rows, _) = self.active_rows().await?;
-        let (_, mut form) = rows
+        let (lecture, mut form) = rows
             .into_iter()
             .find(|(lecture, _)| lecture.key == lecture_key)
             .ok_or_else(|| CoreError::NotFound("지금 출석할 수 있는 수업이 아니에요".into()))?;
         form.push(("key".into(), code.to_string()));
         form.push(("latitude".into(), latitude.to_string()));
         form.push(("longitude".into(), longitude.to_string()));
+        let submitted_at = chrono::Utc::now();
         let body = self
             .client
             .post(format!("{AT}stud02_proc.jsp"))
@@ -110,20 +111,21 @@ impl SchoolSession {
             .form(&form)
             .send()
             .await?
+            .error_for_status()?
             .text()
             .await?;
         if looks_like_login(&body) {
             return Err(CoreError::SessionExpired);
         }
-        if let Some(message) = alert_message(&body) {
-            return Ok(message);
-        }
-        let doc = Html::parse_document(&body);
-        doc.select(&sel(".alert.alert-warning"))
-            .next()
-            .map(text_of)
-            .filter(|m| !m.is_empty())
-            .ok_or_else(|| CoreError::Upstream("출결 서버가 알 수 없는 응답을 보냈어요".into()))
+        let message = submission_message(&body)
+            .ok_or_else(|| CoreError::Upstream("학교 응답을 확인하지 못했어요. 출석 처리 여부를 확인해 주세요.".into()))?;
+        let receipt = confirmed_attendance(&message).map(|kind| AttendanceReceipt {
+            lecture,
+            date: (submitted_at + chrono::Duration::hours(9)).format("%Y-%m-%d").to_string(),
+            kind,
+            confirmed_at: submitted_at.timestamp_millis(),
+        });
+        Ok(AttendanceSubmission { message, receipt })
     }
 
     pub async fn attendance_status(&self) -> Result<Vec<AttendanceCourse>> {
@@ -185,6 +187,22 @@ impl SchoolSession {
             .map(form_inputs)
             .collect())
     }
+}
+
+pub fn confirmed_attendance(message: &str) -> Option<MarkKind> {
+    let compact: String = message.chars().filter(|c| !c.is_whitespace()).collect();
+    match compact.as_str() {
+        "출석확인이완료되었습니다.[출석]" => Some(MarkKind::Present),
+        "출석확인이완료되었습니다.[지각]" => Some(MarkKind::Late),
+        "출석확인이완료되었습니다.[공결]" => Some(MarkKind::Excused),
+        _ => None,
+    }
+}
+
+pub fn submission_message(body: &str) -> Option<String> {
+    if let Some(message) = alert_message(body) { return Some(message); }
+    Html::parse_document(body).select(&sel(".alert.alert-warning"))
+        .next().map(text_of).filter(|message| !message.is_empty())
 }
 
 fn field<'a>(data: &'a [(String, String)], name: &str) -> &'a str {

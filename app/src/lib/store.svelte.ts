@@ -5,6 +5,7 @@ import { clearLegacyData, clearUserData, isStaleSession, onSessionChange, readUs
 import type {
   ActiveLectures,
   AttendanceCourse,
+  AttendanceReceipt,
   CalendarData,
   ClassNotification,
   MealDay,
@@ -159,13 +160,14 @@ export const seats = new Resource<SeatsData>('seats', () => api.seats(), MIN);
 export const seatSession = new Resource<{ session: SeatSession | null }>('seat-session', () => api.seatSession(), MIN);
 export const meals = new Resource<MealDay[]>('meals', () => api.meals(), 30 * MIN);
 export const lectures = new Resource<ActiveLectures>('lectures', () => api.activeLectures(), MIN / 2);
+export const attendanceReceipts = new Resource<AttendanceReceipt[]>('attendance-receipts-v1', () => api.attendanceReceipts(), 5_000);
 export const attendance = new Resource<AttendanceCourse[]>('attendance', () => api.attendanceStatus(), 10 * MIN);
 export const timetable = new Resource<Timetable>('timetable', (force) => api.timetable(force), 360 * MIN);
 
 export const todos = new Resource<Todo[]>('todos', () => api.todos(), 5 * MIN);
 export const notices = new Resource<ClassNotification[]>('notices', () => api.notifications(), 5 * MIN);
 
-export const allResources = [calendar, seats, seatSession, meals, lectures, attendance, timetable, todos, notices];
+export const allResources = [calendar, seats, seatSession, meals, lectures, attendance, attendanceReceipts, timetable, todos, notices];
 onSessionChange(() => allResources.forEach((r) => r.restore()));
 
 onReconnect((what) => {
