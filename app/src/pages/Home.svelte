@@ -2,13 +2,13 @@
   import { onMount } from 'svelte';
   import { isApp } from '../lib/api';
   import { toggleDone } from '../lib/actions.svelte';
-  import { POLL_MS, classWatch, isAttended, lectureMark, markFor, markTitle, nextClass, sourceSuffix, sessionState, useClassWatch } from '../lib/classwatch.svelte';
+  import { classWatch } from '../lib/classwatch.svelte';
   import { currentMealIndex, isNowMeal, placePrice, sortedPlaces } from '../lib/meals';
   import { courseColors } from '../lib/colors';
   import { dayKey, dueDateTime, hourNow, todayKey } from '../lib/format';
   import { homeAgenda, type HomeEntry } from '../lib/home-agenda';
   import { settings } from '../lib/settings.svelte';
-  import { calendar, lectures, meals, seatSession, seats, timetable, todos } from '../lib/store.svelte';
+  import { calendar, meals, seatSession, seats, timetable, todos } from '../lib/store.svelte';
   import { go, openSeats } from '../lib/ui.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
   import AgendaItem from '../components/AgendaItem.svelte';
@@ -17,7 +17,7 @@
   import ItemSheet from '../components/ItemSheet.svelte';
   import LoadError from '../components/LoadError.svelte';
   import MySeat from '../components/MySeat.svelte';
-  import Ring from '../components/Ring.svelte';
+  import CurrentAttendance from '../components/CurrentAttendance.svelte';
   import Skeleton from '../components/Skeleton.svelte';
   import TodoRow from '../components/TodoRow.svelte';
   import TodoSheet from '../components/TodoSheet.svelte';
@@ -32,7 +32,6 @@
     meals.load();
     timetable.load();
     todos.load();
-    return useClassWatch();
   });
 
   const colors = $derived(courseColors(calendar.data?.courses ?? []));
@@ -61,22 +60,6 @@
   }
   const session = $derived(seatSession.data?.session ?? null);
 
-  const active = $derived(lectures.at > classWatch.now - 10 * 60_000 ? (lectures.data?.items ?? []) : []);
-  const openItems = $derived(active.filter((l) => !isAttended(lectureMark(l))));
-  const done = $derived.by(() => {
-    const cur = classWatch.current;
-    const m = cur ? markFor(cur) : null;
-    if (cur && isAttended(m)) return { name: cur.name, detail: `${cur.start} 수업${cur.room ? ` · ${cur.room}` : ''}`, mark: m };
-    for (const l of active) {
-      const lm = lectureMark(l);
-      if (isAttended(lm)) return { name: l.name, detail: l.time, mark: lm };
-    }
-    return null;
-  });
-  const watching = $derived(classWatch.current && !done ? classWatch.current : null);
-  const left = $derived(Math.max(0, Math.min(1, (classWatch.nextAt - classWatch.now) / POLL_MS)));
-  const next = $derived(nextClass(classWatch.now));
-
   const todayPlace = $derived.by(() => {
     const day = meals.data?.find((d) => d.date === todayKey());
     return day ? (sortedPlaces(day)[0] ?? null) : null;
@@ -102,49 +85,8 @@
 
 <div class="page home">
   <section class="a-attend" aria-label="출석">
-  <h2 class="section-title">지금 출석</h2>
-  <LoadError resource={lectures} what="출석 정보를" />
-  {#if openItems.length}
-    <button class="attend card live" onclick={() => go('attendance')}>
-      <span class="pulse" aria-hidden="true"></span>
-      <div>
-        <span class="eyebrow">지금 출석할 수 있어요</span>
-        <strong>{openItems[0].name}{openItems.length > 1 ? ` 외 ${openItems.length - 1}개` : ''}</strong>
-        <span class="muted">{openItems[0].time}</span>
-      </div>
-      <span class="go">출석하기 <Icon name="right" size={18} /></span>
-    </button>
-  {:else if done}
-    <button class="attend card done" onclick={() => go('attendance')}>
-      <span class="badge" aria-hidden="true"><Icon name="tick" size={18} stroke={2.6} /></span>
-      <div>
-        <strong>{done.name} · {markTitle(done.mark)}</strong>
-        <span class="muted">{done.detail}{sourceSuffix(done.mark)}</span>
-      </div>
-      <Icon name="right" size={18} />
-    </button>
-  {:else if watching}
-    <button class="attend card watch" onclick={() => go('attendance')}>
-      <Ring value={left} size={42} stroke={3.5}>
-        <span class="watch-icon" class:spin={classWatch.polling}><Icon name="refresh" size={18} stroke={2.2} /></span>
-      </Ring>
-      <div>
-        <span class="eyebrow">{watching.start} 수업 · {sessionState(watching).label === '확인 불가' ? '출석 확인 불가' : markFor(watching)?.label ?? '출석 열리는지 확인 중'}</span>
-        <strong>{watching.name}</strong>
-        <span class="muted" aria-live="polite">{classWatch.polling ? '확인하는 중…' : '5초마다 자동으로 확인해요'}{watching.room ? ` · ${watching.room}` : ''}</span>
-      </div>
-      <Icon name="right" size={18} />
-    </button>
-  {:else}
-    <button class="attend card idle" onclick={() => go('attendance')}>
-      <Icon name="check" size={28} />
-      <div>
-        <strong>{lectures.error ? '출석 정보를 확인해 주세요' : !lectures.data ? '출석 가능한 수업을 확인하고 있어요' : '지금 출석 가능한 수업이 없어요'}</strong>
-        <span class="muted">{next ? `다음 수업 ${next.start} · ${next.name}` : '출결 현황과 시간표를 확인해 보세요'}</span>
-      </div>
-      <Icon name="right" size={18} />
-    </button>
-  {/if}
+  <h2 class="section-title">지금 출석 <button class="link" onclick={() => go('attendance')}>출결</button></h2>
+  <CurrentAttendance showLabel={false} />
   </section>
 
   <section class="a-due" aria-label="오늘 할 일">
@@ -281,112 +223,6 @@
   .seat-fold summary span { display: flex; align-items: center; gap: 7px; }
   .seat-fold .seat-summary { border-top: 1px solid var(--border); }
   .a-attend { margin-bottom: 0; }
-  .idle { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
-  .idle > :global(svg) { color: var(--primary-text); }
-
-  .attend {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 16px 18px;
-    text-align: left;
-    color: var(--text-2);
-  }
-
-  .attend div {
-    flex: 1;
-    display: grid;
-    gap: 1px;
-  }
-
-  .attend strong {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text);
-  }
-
-  .attend .muted {
-    font-size: 13px;
-  }
-
-  .live {
-    background: var(--ok-weak);
-    border: 0;
-    color: #fff;
-    box-shadow: none;
-  }
-
-  .live strong,
-  .live .muted,
-  .live .eyebrow {
-    color: var(--ok);
-  }
-
-  .live .eyebrow {
-    font-size: 12.5px;
-    font-weight: 700;
-    opacity: 0.9;
-  }
-
-  .go {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    font-weight: 750;
-    white-space: nowrap;
-  }
-
-  .pulse {
-    width: 12px;
-    height: 12px;
-    border-radius: 999px;
-    background: var(--ok);
-  }
-
-  @keyframes ping {
-    70% {
-      box-shadow: 0 0 0 12px rgb(255 255 255 / 0%);
-    }
-  }
-
-  .done {
-    background: var(--ok-weak);
-    border-color: color-mix(in srgb, var(--ok) 30%, transparent);
-  }
-
-  .done strong {
-    font-size: 16px;
-  }
-
-
-  .badge {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 999px;
-    background: var(--ok);
-    color: var(--surface);
-    flex: none;
-  }
-
-  .watch {
-    border-color: var(--primary);
-    box-shadow: none;
-  }
-
-  .watch .eyebrow {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--primary-text);
-  }
-
-  .watch-icon {
-    display: grid;
-    color: var(--primary-text);
-  }
-
   .link {
     color: var(--primary-text);
     font-size: 13px;
@@ -627,11 +463,6 @@
   }
 
   .a-attend .section-title { margin-top: 22px; }
-  .attend { min-height: 88px; padding: 18px 16px; gap: 12px; }
-  .attend div { min-width: 0; gap: 5px; }
-  .attend > :global(svg:last-child) { flex: none; }
-  .idle { border-color: var(--border); }
-  .live { color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 25%, var(--border)); }
   .agenda-label { font-weight: 600; }
   .agenda-label span { font-size: 12px; padding: 0 5px; background: var(--surface-3); border-radius: 5px; }
   .show-more { min-height: 44px; }

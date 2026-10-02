@@ -6,7 +6,7 @@ import type { ActiveLecture, AttendanceCourse, AttendanceReceipt, AttendanceSubm
 
 export const WATCH_BEFORE = 3 * 60_000;
 export const WATCH_AFTER = 10 * 60_000;
-export const POLL_MS = 5_000;
+export const POLL_MS = 10_000;
 const STATUS_MS = 60_000;
 const MIN_SPIN_MS = 700;
 const KST = 9 * 3600_000;
@@ -16,8 +16,6 @@ export type TodayClass = ClassSlot & { at: number };
 export type Mark = { label: string; kind: MarkKind; source: 'school' | 'app' };
 type CourseRef = { code: string | null; name: string; at?: number; lectureKey?: string };
 type SavedReceipt = { receipt: AttendanceReceipt; synced: boolean };
-const SOURCE_TEXT = { school: '학교 출결부에서 확인', app: '학교가 출석 처리 성공을 응답했어요' };
-export const sourceSuffix = (m: Mark) => ` · ${SOURCE_TEXT[m.source]}`;
 const LABEL: Partial<Record<MarkKind, string>> = { present: '출석', late: '지각', excused: '공결', absent: '결석' };
 const ATTENDED: MarkKind[] = ['present', 'late', 'excused'];
 const norm = (s: string) => s.replace(/\(\*\)|\s/g, '');
@@ -225,7 +223,7 @@ function tick(automatic = true) {
     statusAt = now;
     void checkSchool(watched);
   }
-  if (((cur && !isAttended(markFor(cur))) || open.length) && now >= classWatch.nextAt && !classWatch.polling) void checkNow();
+  if (((cur && !isAttended(markFor(cur))) || open.length || lectures.error !== null) && now >= classWatch.nextAt && !classWatch.polling) void checkNow();
 }
 async function poll() {
   const version = sessionVersion();
