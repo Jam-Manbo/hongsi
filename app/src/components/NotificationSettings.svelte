@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { sentenceLines } from '../lib/format';
   import { onMount } from 'svelte';
   import { ALERT_LEADS, settings, toggleAlertLead } from '../lib/settings.svelte';
   import { notificationsAllowed, notificationState as notifications } from '../lib/notify';
@@ -16,7 +17,7 @@
     try { await refreshBackground(); } finally { checking = false; }
   }
   onMount(() => { void notificationsAllowed(); void checkBackground(); });
-  const errors = $derived([...new Set([notifications.error, ...local.map((c) => c.error), background.error || background.status?.schoolError || background.status?.error].filter(Boolean))]);
+  const errors = $derived([...new Set([notifications.error, ...local.map((c) => c.error), background.error || background.status?.schoolError || background.status?.error].filter((error): error is string => !!error))]);
 </script>
 
 <div class="notification-settings">
@@ -30,26 +31,25 @@
   <div class="leads" role="group" aria-label="마감 알림 시간">
     {#each ALERT_LEADS as l (l.min)}<button class="filter" aria-pressed={settings.alertLeads.includes(l.min)} onclick={() => toggleAlertLead(l.min)}>{l.label}</button>{/each}
   </div>
-  <p class="hint">과제·강의·할 일에 기본으로 적용해요. 각 항목에서 따로 바꿀 수 있어요.</p>
+  <p class="hint">과제, 강의와 할 일에 기본으로 적용해요.</p>
   <div class="background">
     <div class="setting-head">
       <strong>백그라운드 동기화</strong>
       <Switch checked={background.choice === true} label="백그라운드 동기화" disabled={app.loggingOut} onchange={setBackgroundEnabled} />
     </div>
-    <p class="hint">앱을 닫아도 서버에서 {background.status?.pollMinutes ?? 5}분마다 일정과 클래스룸 알림을 확인합니다. 학번과 학교 로그인 세션을 암호화해 최대 14일 보관하고, 유효한 로그인 상태로 이용하면 보관 기한을 갱신합니다. 학교 세션의 유효기간을 연장하는 것은 아닙니다.</p>
-    <p class="hint">끄면 이 계정의 모든 기기에 대한 백그라운드용 세션과 동기화·푸시 등록을 삭제합니다. 각 기기의 로그인과 자동 로그인 설정은 유지됩니다.</p>
+    <p class="hint">앱을 닫아도 일정 및 클래스룸 알림을 동기화해요.</p>
     <div class="classroom-alerts">
       <div class="setting-head">
         <strong>클래스룸 알림</strong>
         <Switch checked={background.classroomAlerts} label="클래스룸 알림" disabled={app.loggingOut || background.choice !== true} onchange={setClassroomAlerts} />
       </div>
-      <p class="hint">클래스룸에 새 알림이 생기면 알려드립니다.</p>
+      <p class="hint">클래스룸에 새 알림이 생기면 알려줘요.</p>
       {#if background.choice !== true}<p class="hint">백그라운드 동기화를 켜면 사용할 수 있어요.</p>{/if}
     </div>
   </div>
   {#if errors.length}
     <div class="background-status">
-      <div>{#each errors as error}<p class="error" role="alert">{error}</p>{/each}</div>
+      <div>{#each errors as error}<p class="error sentence-message" role="alert">{sentenceLines(error)}</p>{/each}</div>
       <button class="icon-btn" aria-label="설정 다시 적용" disabled={app.loggingOut || checking || background.busy} onclick={checkBackground}><Icon name="refresh" size={18} /></button>
     </div>
   {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { settings } from '../lib/settings.svelte';
   import { periodLabel } from '../lib/classwatch.svelte';
   import type { ClassSlot } from '../lib/types';
   import Popover from './Popover.svelte';
@@ -31,9 +32,10 @@
   const range = $derived.by(() => {
     const starts = slots.map(toMin);
     const ends = slots.map((s) => toMin(s) + s.periods.length * 60);
+    const fit = settings.timetableDisplay === 'fit' && slots.length > 0;
     return {
-      from: Math.min(9, ...starts.map((m) => Math.floor(m / 60))),
-      to: Math.max(18, ...ends.map((m) => Math.ceil(m / 60))),
+      from: Math.min(...(fit ? [] : [9]), ...starts.map((m) => Math.floor(m / 60))),
+      to: Math.max(...(fit ? [] : [18]), ...ends.map((m) => Math.ceil(m / 60))),
     };
   });
   const hours = $derived(Array.from({ length: range.to - range.from }, (_, i) => range.from + i));

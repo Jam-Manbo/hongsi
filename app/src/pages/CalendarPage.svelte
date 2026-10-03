@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { isApp } from '../lib/api';
   import { toggleDone } from '../lib/actions.svelte';
@@ -202,31 +202,52 @@
   }
 
   let calWrap: HTMLDivElement | undefined = $state();
+  let calSpace: HTMLDivElement | undefined = $state();
+  let monthView: HTMLDivElement | undefined = $state();
+  let weekView: HTMLDivElement | undefined = $state();
   let dayTitle: HTMLHeadingElement | undefined = $state();
-  let stripOn = $state(false);
+  let monthH = $state(0);
   let stripH = $state(0);
+  let collapse = $state(0);
+  const stripOn = $derived(collapse >= 0.999);
+  const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
+  const compactInteractive = $derived(collapse >= (reducedMotion.current ? 0.999 : 0.85));
 
   $effect(() => {
-    if (!narrow.current || !calWrap) {
-      stripOn = false;
+    if (!narrow.current || !calWrap || !calSpace || !monthView || !weekView) {
+      collapse = 0;
       return;
     }
-    const wrap = calWrap;
-    const scroller = wrap.closest('.scroller');
+    const space = calSpace, full = monthView, compact = weekView;
+    const scroller = calWrap.closest('.scroller');
     if (!scroller) return;
     let raf = 0;
+    let previousHeight = 0;
     const check = () => {
       raf = 0;
       const bar = document.querySelector('.topbar');
       const edge = (bar ?? scroller).getBoundingClientRect()[bar ? 'bottom' : 'top'];
-      stripOn = wrap.getBoundingClientRect().bottom <= edge + 1;
+      collapse = Math.max(0, Math.min(1, (edge - space.getBoundingClientRect().top) / Math.max(1, monthH - stripH)));
     };
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(check);
     };
+    const measure = () => {
+      const height = full.offsetHeight;
+      const adjustment = previousHeight && stripOn ? height - previousHeight : 0;
+      previousHeight = height;
+      monthH = height;
+      stripH = compact.offsetHeight;
+      if (adjustment) scroller.scrollTop += adjustment;
+      onScroll();
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(full);
+    observer.observe(compact);
     scroller.addEventListener('scroll', onScroll, { passive: true });
-    check();
+    untrack(measure);
     return () => {
+      observer.disconnect();
       scroller.removeEventListener('scroll', onScroll);
       cancelAnimationFrame(raf);
     };
@@ -237,7 +258,7 @@
   }
 
   function expand() {
-    calWrap?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    (calSpace ?? calWrap)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
 </script>
@@ -353,24 +374,11 @@
     </div>
 
     <div class="board calendar-board" data-layout={side ? 'side' : 'wide'}>
-      <div class="cal-wrap" bind:this={calWrap}>
-        <MonthCalendar
-          bind:year
-          bind:month
-          bind:selected
-          items={visible}
-          {colors}
-          {names}
-          todos={myTodos}
-          onpick={onPick}
-        />
-      </div>
-
-      {#if narrow.current}
-        <div class="strip-anchor">
-          <div class="strip" class:on={stripOn} inert={!stripOn} bind:clientHeight={stripH}>
+      <div class="cal-wrap" bind:this={calWrap} style:--collapse={collapse} style:--calendar-height="{monthH - (monthH - stripH) * collapse}px">
+        <div class="calendar-dock">
+          <div class="month-view" bind:this={monthView} inert={narrow.current && compactInteractive}>
             <MonthCalendar
-              week
+              {collapse}
               bind:year
               bind:month
               bind:selected
@@ -378,14 +386,30 @@
               {colors}
               {names}
               todos={myTodos}
-              onpick={afterStripPick}
-              onexpand={expand}
+              onpick={onPick}
             />
           </div>
+          {#if narrow.current}
+            <div class="strip" class:on={stripOn} inert={!compactInteractive} bind:this={weekView}>
+              <MonthCalendar
+                week
+                bind:year
+                bind:month
+                bind:selected
+                items={visible}
+                {colors}
+                {names}
+                todos={myTodos}
+                onpick={afterStripPick}
+                onexpand={expand}
+              />
+            </div>
+          {/if}
         </div>
-      {/if}
+      </div>
+      {#if narrow.current}<div class="calendar-space" bind:this={calSpace} style:height="{monthH}px" aria-hidden="true"></div>{/if}
 
-      <div class="lists" style:--strip-h="{stripOn ? stripH : 0}px">
+      <div class="lists" style:--strip-h="{narrow.current ? stripH : 0}px">
         <section class="agenda">
           <h2 class="day-title" bind:this={dayTitle}>
             {longDay(selected)}
@@ -678,37 +702,43 @@
     scroll-margin-top: calc(var(--topbar-h, 64px) + 8px);
   }
 
-  .strip-anchor {
-    position: sticky;
-    top: var(--topbar-h, 64px);
-    z-index: 15;
-    height: 0;
-  }
+  .calendar-space { flex: none; scroll-margin-top: calc(var(--topbar-h, 64px) + 8px); overflow-anchor: none; }
 
-  .strip {
-    position: absolute;
-    top: 0;
-    left: -16px;
-    right: -16px;
-    opacity: 0;
-    transform: translateY(-10px);
-    pointer-events: none;
-    transition:
-      opacity 0.16s,
-      transform 0.22s var(--ease);
-  }
-
-  .strip.on {
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
-  }
-
-  @media (min-width: 640px) {
-    .strip {
-      left: -28px;
-      right: -28px;
+  @media (max-width: 767px) {
+    .cal-wrap {
+      position: sticky;
+      top: var(--topbar-h, 64px);
+      z-index: 15;
+      height: 0;
+      pointer-events: none;
     }
+    .calendar-dock {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: var(--calendar-height);
+      overflow: hidden;
+      border-radius: var(--radius);
+      background: var(--surface);
+      pointer-events: auto;
+      overflow-anchor: none;
+    }
+    .month-view { opacity: min(1, max(0, calc((1 - var(--collapse)) / .15))); }
+    .strip {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      opacity: max(0, calc((var(--collapse) - .85) / .15));
+      transform: translate3d(0, calc((1 - var(--collapse)) * 20px), 0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .month-view { opacity: 1; }
+    .strip { transform: none; opacity: 0; }
+    .strip.on { opacity: 1; }
   }
 
   .lists {

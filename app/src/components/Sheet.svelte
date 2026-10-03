@@ -1,5 +1,10 @@
 <script module lang="ts">
   const openPanels = new Set<HTMLElement>();
+  const panelClosers = new Set<() => void>();
+
+  export function closeSheets() {
+    for (const close of [...panelClosers].reverse()) close();
+  }
 </script>
 
 <script lang="ts">
@@ -76,12 +81,14 @@
     if (open && panel) {
       const currentPanel = panel;
       openPanels.add(currentPanel);
+      panelClosers.add(close);
       resetDrag();
       const prev = document.activeElement as HTMLElement | null;
       queueMicrotask(() => currentPanel.focus());
       document.body.style.overflow = 'hidden';
       return () => {
         openPanels.delete(currentPanel);
+        panelClosers.delete(close);
         document.body.style.overflow = openPanels.size ? 'hidden' : '';
         if (prev?.isConnected) prev.focus();
       };

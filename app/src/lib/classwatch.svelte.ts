@@ -126,6 +126,27 @@ export function sessionState(c: TodayClass): { label: string; cls: string } {
   return { label: '확인 불가', cls: '' };
 }
 
+export function attendanceWidgetSnapshot() {
+  return {
+    date: todayKey(),
+    loaded: lectures.data !== null,
+    error: lectures.error,
+    timetableLoaded: timetable.data !== null,
+    timetableError: timetable.error,
+    checkedAt: lectures.at,
+    sessions: todaySessions(timetable.data?.slots ?? []).map((session) => ({
+      ...session,
+      identity: keyOf(session),
+      mark: markFor(session),
+      seenOpen: classWatch.seenOpen.includes(keyOf(session)),
+    })),
+    active: (lectures.data?.items ?? []).map((lecture) => ({
+      key: lecture.key, name: lecture.name, time: lecture.time, code: lecture.code,
+      identity: keyOf(lectureRef(lecture)), mark: lectureMark(lecture),
+    })),
+  };
+}
+
 function persist() { writeUserData(STORE, $state.snapshot(classWatch.receipts)); }
 let users = 0;
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -172,7 +193,7 @@ async function syncReceipts() {
       }
     }
     if (!isCurrentSession(version)) return;
-    classWatch.shareError = failed ? '출석은 확인했지만 기기 간 공유를 완료하지 못했어요. 연결되면 다시 시도해요.' : '';
+    classWatch.shareError = failed ? '출석은 확인했지만 다른 기기에 기록을 공유하지 못했어요. 서버에 연결되면 다시 시도할게요.' : '';
     await attendanceReceipts.load(true);
   })().finally(() => { if (pendingSync === task) pendingSync = null; });
   pendingSync = task;
@@ -249,7 +270,7 @@ export function afterSubmit(submission: AttendanceSubmission) {
   if (!receipt || !validReceipt(receipt)) return false;
   classWatch.receipts = [...classWatch.receipts.filter((entry) => entry.receipt.lecture.key !== receipt.lecture.key && validReceipt(entry.receipt)), { receipt, synced: submission.synced }];
   persist();
-  classWatch.shareError = submission.synced ? '' : '출석은 확인했지만 기기 간 공유를 완료하지 못했어요. 연결되면 다시 시도해요.';
+  classWatch.shareError = submission.synced ? '' : '출석은 확인했지만 다른 기기에 기록을 공유하지 못했어요. 서버에 연결되면 다시 시도할게요.';
   void syncReceipts();
   const version = sessionVersion(), day = todayKey(), ref = lectureRef(receipt.lecture, receipt.confirmedAt);
   if (ref.code) setTimeout(() => { if (isCurrentSession(version) && todayKey() === day) void checkSchool(ref); }, 1500);

@@ -1,49 +1,107 @@
 <script lang="ts">
-  let { value = $bindable('09:00') }: { value: string } = $props();
+  import { onDestroy, untrack } from 'svelte';
 
+  let { value = $bindable('09:00'), minuteStep = 5 }: { value: string; minuteStep?: 1 | 5 } = $props();
+
+  type Column = 'h' | 'm';
   const ITEM = 40;
   const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
-  const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+  const minutes = $derived(Array.from({ length: 60 / minuteStep }, (_, i) => String(i * minuteStep).padStart(2, '0')));
+  const hour = $derived(value.slice(0, 2));
+  const minute = $derived(value.slice(3, 5));
 
   let hourEl: HTMLDivElement | undefined = $state();
   let minEl: HTMLDivElement | undefined = $state();
-  let timers: Record<string, ReturnType<typeof setTimeout>> = {};
+  const timers: Partial<Record<Column, ReturnType<typeof setTimeout>>> = {};
+  const targets: Partial<Record<Column, number>> = {};
+  let writtenValue = '';
+  let appliedStep = 0;
+  let placedHour: HTMLDivElement | undefined;
+  let placedMinute: HTMLDivElement | undefined;
+  let placementFrame = 0;
+  let destroyed = false;
 
-  const [h0, m0] = (value || '09:00').split(':');
-  let hour = $state(h0);
-  let minute = $state(String(Math.min(55, Math.round(Number(m0) / 5) * 5)).padStart(2, '0'));
+  function clearTimers() {
+    cancelAnimationFrame(placementFrame);
+    clearTimeout(timers.h);
+    clearTimeout(timers.m);
+  }
+  onDestroy(() => { destroyed = true; clearTimers(); });
+
+  function inactive(el: HTMLElement | undefined) {
+    return destroyed || !el || !el.isConnected || !!el.closest('[inert]');
+  }
 
   $effect(() => {
-    value = `${hour}:${minute}`;
+    const incoming = value, step = minuteStep, h = hourEl, m = minEl;
+    untrack(() => {
+      if (incoming === writtenValue && step === appliedStep && h === placedHour && m === placedMinute) return;
+      clearTimers();
+      const [nextHour, rawMinute] = (incoming || '09:00').split(':');
+      const nextMinute = String(Math.min(60 - step, Math.round(Number(rawMinute) / step) * step)).padStart(2, '0');
+      writtenValue = `${nextHour}:${nextMinute}`;
+      value = writtenValue;
+      appliedStep = step;
+      placedHour = h;
+      placedMinute = m;
+      targets.h = hours.indexOf(nextHour);
+      targets.m = minutes.indexOf(nextMinute);
+      const place = () => {
+        if (inactive(h) || inactive(m)) return;
+        if (targets.h !== undefined) h?.scrollTo({ top: targets.h * ITEM, behavior: 'instant' });
+        if (targets.m !== undefined) m?.scrollTo({ top: targets.m * ITEM, behavior: 'instant' });
+      };
+      place();
+      placementFrame = requestAnimationFrame(place);
+    });
   });
 
-  $effect(() => {
-    hourEl?.scrollTo({ top: hours.indexOf(hour) * ITEM });
-    minEl?.scrollTo({ top: minutes.indexOf(minute) * ITEM });
-  });
+  function select(kind: Column, i: number) {
+    if (inactive(kind === 'h' ? hourEl : minEl)) return;
+    writtenValue = kind === 'h' ? `${hours[i]}:${minute}` : `${hour}:${minutes[i]}`;
+    value = writtenValue;
+  }
 
-  function settle(kind: 'h' | 'm') {
+  function selectedIndex(kind: Column, el: HTMLDivElement) {
+    const list = kind === 'h' ? hours : minutes;
+    return Math.max(0, Math.min(list.length - 1, Math.round(el.scrollTop / ITEM)));
+  }
+
+  function settle(kind: Column) {
+    const el = kind === 'h' ? hourEl : minEl;
+    if (!el || inactive(el)) return;
+    if (targets[kind] === undefined) select(kind, selectedIndex(kind, el));
     clearTimeout(timers[kind]);
     timers[kind] = setTimeout(() => {
-      const el = kind === 'h' ? hourEl : minEl;
-      if (!el) return;
-      const list = kind === 'h' ? hours : minutes;
-      const i = Math.max(0, Math.min(list.length - 1, Math.round(el.scrollTop / ITEM)));
+      if (inactive(el)) return;
+      const i = targets[kind] ?? selectedIndex(kind, el);
+      delete targets[kind];
+      select(kind, i);
       el.scrollTo({ top: i * ITEM, behavior: 'smooth' });
-      if (kind === 'h') hour = list[i];
-      else minute = list[i];
     }, 90);
   }
 
-  function pick(kind: 'h' | 'm', i: number) {
+  function pick(kind: Column, i: number) {
     const el = kind === 'h' ? hourEl : minEl;
-    el?.scrollTo({ top: i * ITEM, behavior: 'smooth' });
+    if (!el || inactive(el)) return;
+    targets[kind] = i;
+    select(kind, i);
+    el.scrollTo({ top: i * ITEM, behavior: 'smooth' });
+    settle(kind);
+  }
+
+  function interact(kind: Column) {
+    delete targets[kind];
+  }
+
+  function keyInteract(kind: Column, event: KeyboardEvent) {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) interact(kind);
   }
 </script>
 
 <div class="wheel" style:--item="{ITEM}px">
   <div class="band" aria-hidden="true"></div>
-  <div class="col" bind:this={hourEl} onscroll={() => settle('h')} role="listbox" aria-label="시" tabindex="0">
+  <div class="col" bind:this={hourEl} onscroll={() => settle('h')} onpointerdown={() => interact('h')} onwheel={() => interact('h')} onkeydown={(event) => keyInteract('h', event)} role="listbox" aria-label="시" tabindex="0">
     <div class="pad"></div>
     {#each hours as h, i (h)}
       <button type="button" class="it" class:on={h === hour} role="option" aria-selected={h === hour} onclick={() => pick('h', i)}>{h}</button>
@@ -51,7 +109,7 @@
     <div class="pad"></div>
   </div>
   <span class="colon">:</span>
-  <div class="col" bind:this={minEl} onscroll={() => settle('m')} role="listbox" aria-label="분" tabindex="0">
+  <div class="col" bind:this={minEl} onscroll={() => settle('m')} onpointerdown={() => interact('m')} onwheel={() => interact('m')} onkeydown={(event) => keyInteract('m', event)} role="listbox" aria-label="분" tabindex="0">
     <div class="pad"></div>
     {#each minutes as m, i (m)}
       <button type="button" class="it" class:on={m === minute} role="option" aria-selected={m === minute} onclick={() => pick('m', i)}>{m}</button>

@@ -1,6 +1,10 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
+
+#[cfg(target_os = "android")]
+mod widgets;
 
 use hongsi_direct::{AuthSnapshot, Direct, Reply};
 use serde::{Deserialize, Serialize};
@@ -13,6 +17,39 @@ mod android_external;
 #[cfg(target_os = "android")]
 mod android_update;
 mod credentials;
+
+#[tauri::command]
+async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _operations = shell.operations.read().await;
+        if !value.is_empty() {
+            let owner = serde_json::from_str::<Value>(&value).ok().and_then(|v| v["owner"].as_str().map(str::to_string));
+            let account = shell.direct.snapshot().await.and_then(|s| serde_json::to_value(s).ok()).and_then(|v| v["student_id"].as_str().map(str::to_string));
+            if owner.is_none() || owner != account { return Err("로그인한 계정의 위젯만 갱신할 수 있어요.".into()); }
+        }
+        return android_external::open(&app, "syncWidget", &value).await;
+    }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, shell, value); Ok(()) }
+}
+
+#[tauri::command]
+async fn set_widget_theme(app: AppHandle, value: String) -> Result<(), String> {
+    if !matches!(value.as_str(), "system" | "light" | "dark") { return Err("테마 설정을 확인해 주세요.".into()); }
+    #[cfg(target_os = "android")]
+    return android_external::open(&app, "setWidgetTheme", &value).await;
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, value); Ok(()) }
+}
+
+#[tauri::command]
+async fn widget_intent(app: AppHandle) -> Result<Value, String> {
+    #[cfg(target_os = "android")]
+    return android_external::take_widget_intent(&app).await;
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Ok(Value::Null) }
+}
 
 #[tauri::command]
 async fn app_update(
@@ -36,6 +73,15 @@ struct Shell {
     saved: Mutex<CredentialState>,
     operations: tokio::sync::RwLock<()>,
     revoked: AtomicBool,
+}
+
+static SHARED_SHELL: OnceLock<Arc<Shell>> = OnceLock::new();
+fn shared_shell(credentials: credentials::Store) -> Arc<Shell> {
+    SHARED_SHELL.get_or_init(|| Arc::new(Shell {
+        direct: Direct::new(server_base()), credentials,
+        login_lock: Mutex::new(()), saved: Mutex::new(CredentialState::default()),
+        operations: tokio::sync::RwLock::new(()), revoked: AtomicBool::new(false),
+    })).clone()
 }
 
 #[derive(Serialize)]
@@ -149,7 +195,7 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
         return Err(Reply::error(
             401,
             "session_revoked",
-            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            "로그아웃됐어요. 다시 로그인해 주세요.",
         ));
     }
     if shell.direct.generation() != seen && shell.direct.logged_in().await {
@@ -186,7 +232,7 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
         return Err(Reply::error(
             401,
             "session_revoked",
-            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            "로그아웃됐어요. 다시 로그인해 주세요.",
         ));
     }
     if shell.direct.logged_in().await {
@@ -198,7 +244,7 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
             return Err(Reply::error(
                 401,
                 "session_revoked",
-                "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+                "로그아웃됐어요. 다시 로그인해 주세요.",
             ));
         }
         if shell.direct.logged_in().await {
@@ -228,7 +274,7 @@ async fn refresh_classroom(shell: &Shell, seen: u64) -> Result<(), Reply> {
             return Err(Reply::error(
                 401,
                 "session_revoked",
-                "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+                "로그아웃됐어요. 다시 로그인해 주세요.",
             ));
         }
         if shell.direct.generation() != seen && shell.direct.logged_in().await {
@@ -280,7 +326,7 @@ where
         return Reply::error(
             401,
             "session_revoked",
-            "로그인 정보가 해제됐어요. 다시 로그인해 주세요.",
+            "로그아웃됐어요. 다시 로그인해 주세요.",
         );
     } else {
         persist_auth(shell).await;
@@ -290,7 +336,7 @@ where
 
 #[tauri::command]
 async fn api(
-    shell: State<'_, Shell>,
+    shell: State<'_, Arc<Shell>>,
     method: String,
     path: String,
     body: Option<Value>,
@@ -361,13 +407,13 @@ async fn api(
 }
 
 #[tauri::command]
-async fn auto_login_enabled(shell: State<'_, Shell>) -> Result<bool, String> {
+async fn auto_login_enabled(shell: State<'_, Arc<Shell>>) -> Result<bool, String> {
     let _operations = shell.operations.read().await;
     Ok(!shell.revoked.load(Ordering::Acquire) && saved_login(&shell).await?.is_some())
 }
 
 #[tauri::command]
-async fn avatar(shell: State<'_, Shell>) -> Result<Option<String>, String> {
+async fn avatar(shell: State<'_, Arc<Shell>>) -> Result<Option<String>, String> {
     use base64::Engine;
     let _operations = shell.operations.read().await;
     if ensure_login(&shell).await.is_err() {
@@ -389,7 +435,7 @@ struct UploadFile {
 
 #[tauri::command]
 async fn submit_assignment(
-    shell: State<'_, Shell>,
+    shell: State<'_, Arc<Shell>>,
     cmid: i64,
     keep: Vec<String>,
     files: Vec<UploadFile>,
@@ -479,7 +525,7 @@ async fn fetch_file(direct: &Direct, source: &FileSource) -> Result<(String, Vec
 #[tauri::command]
 async fn download(
     app: AppHandle,
-    shell: State<'_, Shell>,
+    shell: State<'_, Arc<Shell>>,
     source: FileSource,
     name: String,
 ) -> Result<String, String> {
@@ -571,7 +617,7 @@ async fn reveal_file(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn open_url(app: AppHandle, shell: State<'_, Shell>, url: String) -> Result<(), String> {
+async fn open_url(app: AppHandle, shell: State<'_, Arc<Shell>>, url: String) -> Result<(), String> {
     let _operations = shell.operations.read().await;
     let allowed = (url.starts_with("https://") || url.starts_with("http://"))
         && url.len() < 4096
@@ -620,7 +666,6 @@ fn server_base() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run_app() {
-    let base = server_base();
     let builder = tauri::Builder::default();
     #[cfg(target_os = "android")]
     let builder = builder
@@ -630,19 +675,15 @@ pub fn run_app() {
         .plugin(tauri_plugin_notifications::init())
         .plugin(credentials::init())
         .setup(move |app| {
-            app.manage(Shell {
-                direct: Direct::new(base),
-                credentials: app.state::<credentials::Store>().inner().clone(),
-                login_lock: Mutex::new(()),
-                saved: Mutex::new(CredentialState::default()),
-                operations: tokio::sync::RwLock::new(()),
-                revoked: AtomicBool::new(false),
-            });
+            app.manage(shared_shell(app.state::<credentials::Store>().inner().clone()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             api,
             app_update,
+            sync_widgets,
+            set_widget_theme,
+            widget_intent,
             auto_login_enabled,
             avatar,
             download,

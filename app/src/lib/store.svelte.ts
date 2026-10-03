@@ -88,7 +88,7 @@ export function logoutSession(scope: 'device' | 'all' = 'device') {
 function handleSessionRevoked() {
   if (app.loggingOut) return;
   if (app.profile || app.account) endSession();
-  app.notice = '로그인 정보가 해제됐어요. 다시 로그인해 주세요.';
+  app.notice = '로그아웃됐어요. 다시 로그인해 주세요.';
 }
 onSessionRevoked(handleSessionRevoked);
 

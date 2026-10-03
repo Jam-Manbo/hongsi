@@ -10,7 +10,7 @@ pub enum CoreError {
     SessionExpired,
     #[error("클래스룸 로그인 토큰이 만료됐어요")]
     ClassroomTokenExpired,
-    #[error("학교 페이지 형식을 읽지 못했어요 ({0})")]
+    #[error("학교 페이지의 정보를 읽지 못했어요 ({0})")]
     Parse(String),
     #[error("{0}")]
     Upstream(String),

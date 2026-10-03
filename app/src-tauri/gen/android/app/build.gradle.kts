@@ -75,6 +75,16 @@ android {
     }
 }
 
+val widgetThemes = tasks.register<GenerateWidgetThemes>("generateWidgetThemes") {
+    sourceDirectory.set(layout.projectDirectory.dir("src/main/res"))
+    resourceDirectory.set(layout.buildDirectory.dir("generated/widgetThemes/res"))
+    javaDirectory.set(layout.buildDirectory.dir("generated/widgetThemes/java"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.res?.addGeneratedSourceDirectory(widgetThemes, GenerateWidgetThemes::resourceDirectory)
+    variant.sources.java?.addGeneratedSourceDirectory(widgetThemes, GenerateWidgetThemes::javaDirectory)
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_21

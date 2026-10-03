@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api';
-  import { duration, time } from '../lib/format';
+  import { duration, time, sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
   import { notificationsAllowed } from '../lib/notify';
   import { configureNotificationPermission } from '../lib/background.svelte';
@@ -12,6 +12,7 @@
   import Icon from './Icon.svelte';
   import Ring from './Ring.svelte';
   import Sheet from './Sheet.svelte';
+  import TimeWheel from './TimeWheel.svelte';
 
   let { session, compact = false }: { session: SeatSession; compact?: boolean } = $props();
 
@@ -37,7 +38,7 @@
     session.startSource === 'detected'
       ? '좌석 지도에서 배정 시각을 자동으로 찾았어요'
       : session.startSource === 'adjusted'
-        ? '직접 고친 입실 시각이에요'
+        ? '직접 수정한 입실 시각이에요'
         : '입실 버튼을 누른 시각 기준이에요',
   );
 
@@ -60,13 +61,13 @@
 
   async function extend() {
     busy = 'extend';
-    await apply(api.extendSeat, '연장했어요. 퇴실 알림도 다시 맞췄어요');
+    await apply(api.extendSeat, '이용 시간을 연장하고 퇴실 알림 시간도 변경했어요');
   }
 
   async function end() {
     busy = 'end';
     confirmEnd = false;
-    await apply(api.checkOut, '퇴실 처리했어요. 좌석배정기에서 반납도 잊지 마세요');
+    await apply(api.checkOut, '퇴실 처리했어요. 좌석배정기에서 반납도 잊지 마세요.');
   }
 
   function openAdjust() {
@@ -82,7 +83,7 @@
     if (ts > now + 5 * 60_000) ts -= 86_400_000;
     busy = 'adjust';
     adjustOpen = false;
-    await apply(() => api.adjustSeat(Math.floor(ts / 1000), adjustPeriod), '입실 시각을 고쳤어요');
+    await apply(() => api.adjustSeat(Math.floor(ts / 1000), adjustPeriod), '입실 시각을 수정했어요');
   }
 
   async function onToggle(min: number) {
@@ -151,26 +152,26 @@
     </div>
     <p class="note">
       <Icon name="sparkle" size={14} />{sourceText}.
-      <button class="link" onclick={openAdjust}>시각 고치기</button>
+      <button class="link" onclick={openAdjust}>시각 수정</button>
     </p>
   {/if}
 </section>
 
 <Sheet bind:open={confirmEnd} title="퇴실할까요?">
-  <p class="sheet-text">퇴실 알림이 꺼져요. 좌석배정기에서 좌석 반납도 해 주세요.</p>
+  <p class="sentence-message sheet-text">{sentenceLines("퇴실 알림이 꺼져요. 좌석배정기에서 좌석 반납도 해 주세요.")}</p>
   {#snippet footer()}
     <button class="btn btn-ghost w1" onclick={() => (confirmEnd = false)}>취소</button>
     <button class="btn btn-danger w2" onclick={end}>퇴실하기</button>
   {/snippet}
 </Sheet>
 
-<Sheet bind:open={adjustOpen} title="입실 시각 고치기">
-  <label class="field">
-    <span>좌석배정기에서 배정받은 시각</span>
-    <input type="time" bind:value={adjustTime} />
-  </label>
+<Sheet bind:open={adjustOpen} title="입실 시각 수정">
   <div class="field">
-    <span>좌석 유효시간</span>
+    <span>좌석배정기에서 배정받은 시각</span>
+    <TimeWheel bind:value={adjustTime} minuteStep={1} />
+  </div>
+  <div class="field">
+    <span>좌석 이용 시간</span>
     <div class="filters">
       {#each PERIODS as p (p.id)}
         <button class="filter" aria-pressed={adjustPeriod === p.id} onclick={() => (adjustPeriod = p.id)}>
@@ -203,6 +204,9 @@
 
   .ring-text {
     display: grid;
+    justify-items: center;
+    text-align: center;
+    white-space: nowrap;
     line-height: 1.15;
   }
 
@@ -334,13 +338,4 @@
     color: var(--text-2);
   }
 
-  input[type='time'] {
-    height: 48px;
-    padding: 0 14px;
-    border-radius: 12px;
-    border: 1px solid var(--border-strong);
-    background: var(--surface-2);
-    font-size: 18px;
-    font-weight: 650;
-  }
 </style>

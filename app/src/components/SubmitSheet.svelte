@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api';
-  import { dueDateTime } from '../lib/format';
+  import { dueDateTime, sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
   import { calendar, handleAuthError } from '../lib/store.svelte';
   import { toast } from '../lib/ui.svelte';
@@ -93,7 +93,7 @@
           items: calendar.data.items.map((i) => (i.key === item!.key ? { ...i, status: 'submitted', done: true } : i)),
         });
       }
-      toast(edited ? '과제를 수정했어요' : '과제를 제출했어요', 'success', 4000);
+      toast(edited ? '제출한 파일을 수정했어요' : '과제를 제출했어요', 'success', 4000);
       open = false;
     } catch (e) {
       if (!handleAuthError(e)) {
@@ -106,8 +106,8 @@
   }
 </script>
 
-<Sheet bind:open title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요' : '제출할까요?') : edited ? '과제 수정하기' : '과제 제출'}>
-  {#if error}<div class="error-box"><Icon name="alert" size={18} />{error}</div>{/if}
+<Sheet bind:open title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
+  {#if error}<div class="error-box"><Icon name="alert" size={18} /><span class="sentence-message">{sentenceLines(error)}</span></div>{/if}
   {#if !view && !error}
     <Skeleton rows={3} height={52} />
   {:else if view && step === 'edit'}
@@ -118,11 +118,11 @@
     </div>
     {#if view.closed}
       <p class="closed">
-        {view.cutoff && view.cutoff * 1000 < Date.now() ? '제출 마감이 끝나서 더 이상 제출할 수 없어요.' : '지금은 이 과제를 제출하거나 고칠 수 없어요.'}
+        {view.cutoff && view.cutoff * 1000 < Date.now() ? '제출 기한이 지나 더 이상 제출할 수 없어요.' : '지금은 파일을 제출하거나 수정할 수 없어요.'}
       </p>
     {:else}
       {#if view.info.files.length}
-        <h4>{edited ? '지금 제출된 파일' : '첨부된 파일'} <span class="muted">빼려면 누르세요</span></h4>
+        <h4><span class="file-heading">{edited ? '지금 제출된 파일' : '첨부된 파일'}</span> <span class="muted">빼려면 누르세요</span></h4>
         <div class="list">
           {#each view.info.files as f (f.name)}
             <button class="file" class:off={!keep.has(f.name)} onclick={() => toggleKeep(f.name)} aria-pressed={keep.has(f.name)}>
@@ -135,12 +135,12 @@
       {/if}
 
       <h4>
-        새로 올릴 파일
+        <span class="file-heading">새로 올릴 파일</span>
         <span class="muted">
           {total}/{max}개 · 파일당 {size(perFile)}까지{view.config.maxBytes > SEND_LIMIT ? ` (클래스룸 설정 ${size(view.config.maxBytes)})` : ''}
         </span>
       </h4>
-      {#if total > max}<p class="warn-line">파일을 {max}개까지만 낼 수 있어요.</p>{/if}
+      {#if total > max}<p class="warn-line">파일은 최대 {max}개까지 제출할 수 있어요.</p>{/if}
       {#if addedBytes > SEND_LIMIT}<p class="warn-line">큰 파일은 클래스룸에서 직접 올려 주세요.</p>{/if}
       <div class="list">
         {#each added as f, i (f.name + i)}
@@ -164,7 +164,7 @@
         </label>
       {/if}
       {#if view.config.text && !view.config.files}
-        <p class="warn">텍스트 입력으로 내는 과제예요. 클래스룸에서 제출해 주세요.</p>
+        <p class="warn">내용을 직접 입력해 제출하는 과제예요. 클래스룸에서 제출해 주세요.</p>
       {/if}
     {/if}
   {:else if view && step === 'confirm'}
@@ -173,7 +173,7 @@
         <Icon name="alert" size={22} />
         <div>
           <strong>마감({view.due ? dueDateTime(view.due) : ''})이 지났어요.</strong>
-          <p>지금 {edited ? '제출을 고치면' : '제출하면'} 클래스룸에 <b>지각 제출</b>로 표시돼요. {edited ? '기한 안에 낸 기존 제출도 지각으로 바뀔 수 있어요.' : ''}</p>
+          <p>지금 {edited ? '제출한 파일을 수정하면' : '제출하면'} 클래스룸에 <b>지각 제출</b>로 표시돼요.{#if edited}<br />기한 안에 제출했더라도 지각 제출로 바뀔 수 있어요.{/if}</p>
         </div>
       </div>
       <label class="statement strong">
@@ -181,7 +181,7 @@
         지각 제출로 기록되는 것을 확인했어요
       </label>
     {:else}
-      <p class="confirm">클래스룸에 바로 {edited ? '고친 파일로 다시 제출' : '제출'}돼요. 파일 {total}개를 보낼게요.</p>
+      <p class="confirm">{edited ? '수정한 파일이 클래스룸에 다시 제출돼요.' : '파일이 클래스룸에 제출돼요.'}<br />파일 {total}개를 보낼게요.</p>
     {/if}
   {/if}
 
@@ -189,7 +189,7 @@
     {#if step === 'edit'}
       <button class="btn btn-ghost w1" onclick={() => (open = false)}>닫기</button>
       <button class="btn btn-primary w2" disabled={!canSend} onclick={() => (step = 'confirm')}>
-        <Icon name="check" size={18} />{edited ? '과제 수정하기' : '제출하기'}
+        <Icon name="check" size={18} />{edited ? '제출 파일 수정' : '제출하기'}
       </button>
     {:else}
       <button class="btn btn-ghost w1" onclick={() => (step = 'edit')} disabled={busy}>뒤로</button>
@@ -222,6 +222,8 @@
 
   h4 {
     display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
     justify-content: space-between;
     font-size: 13px;
     font-weight: 700;
@@ -233,12 +235,23 @@
     font-weight: 550;
   }
 
+  .file-heading {
+    flex: none;
+  }
+
+  .late-box b {
+    white-space: nowrap;
+  }
+
   .list {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 6px;
   }
 
   .file {
+    min-width: 0;
+    width: 100%;
     display: flex;
     align-items: center;
     gap: 10px;

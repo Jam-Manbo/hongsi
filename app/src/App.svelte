@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { watchAppUpdates } from './lib/app-update.svelte';
+  import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
   import AppUpdate from './components/AppUpdate.svelte';
   import NotificationPermission from './components/NotificationPermission.svelte';
   import DoneConfirm from './components/DoneConfirm.svelte';
@@ -62,6 +63,27 @@
   let profileOpen = $state(false);
   let bootError = $state('');
   let booting = false;
+
+  $effect(() => {
+    if (!isApp || app.booting) return;
+    void publishWidgetTheme(settings.theme).catch(() => {});
+  });
+
+  $effect(() => {
+    if (!isApp || app.booting) return;
+    const snapshot = widgetSnapshot();
+    if (!snapshot) { void publishWidgets(''); return; }
+    const timer = setTimeout(() => { void publishWidgets(snapshot); }, 200);
+    return () => clearTimeout(timer);
+  });
+
+  $effect(() => { if (!app.booting && app.profile) void untrack(openWidgetIntent); });
+  onMount(() => {
+    const open = () => { if (document.visibilityState === 'visible') void openWidgetIntent(); };
+    window.addEventListener('hongsi-widget', open);
+    document.addEventListener('visibilitychange', open);
+    return () => { window.removeEventListener('hongsi-widget', open); document.removeEventListener('visibilitychange', open); };
+  });
 
   async function boot() {
     if (booting) return;

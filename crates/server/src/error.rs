@@ -29,7 +29,7 @@ impl ApiError {
     }
 
     pub fn session_revoked() -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, "session_revoked", "로그아웃된 기기예요. 다시 로그인해 주세요.")
+        Self::new(StatusCode::UNAUTHORIZED, "session_revoked", "로그아웃됐어요. 다시 로그인해 주세요.")
     }
 
     pub fn bad_request(message: impl Into<String>) -> Self {
@@ -82,6 +82,6 @@ impl From<CoreError> for ApiError {
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
         tracing::error!("DB 오류: {err}");
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", "저장소 오류가 발생했어요")
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", "서버에서 데이터를 처리하지 못했어요")
     }
 }

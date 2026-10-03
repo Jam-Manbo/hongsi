@@ -60,7 +60,7 @@ export class ReminderScheduler {
           await this.reconcile(c, rev, force);
         }
       } catch {
-        if (rev === this.revision) for (const c of CHANNELS) this.status(c, { ...emptyStatus(), error: '알림 권한·예약 상태를 확인하지 못했어요. 다시 확인해 주세요.' });
+        if (rev === this.revision) for (const c of CHANNELS) this.status(c, { ...emptyStatus(), error: '알림 설정을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.' });
       }
     });
     this.tail = run.catch(() => {});
@@ -112,7 +112,7 @@ export class ReminderScheduler {
       this.signatures[c] = signature;
     } catch {
       delete this.signatures[c];
-      result.error = '알림 예약·취소를 확인하지 못했어요. 다시 확인해 주세요.';
+      result.error = '예약된 알림을 갱신하지 못했어요. 잠시 후 다시 시도해 주세요.';
     }
     if (rev === this.revision) this.status(c, result);
   }

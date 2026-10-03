@@ -2,7 +2,10 @@ use tauri::{plugin::{Builder, TauriPlugin}, Manager, Wry};
 
 #[cfg(target_os = "android")]
 #[derive(Clone)]
-pub struct Store(tauri::plugin::PluginHandle<Wry>);
+pub enum Store {
+    Plugin(tauri::plugin::PluginHandle<Wry>),
+    Native(std::sync::Arc<crate::widgets::Vault>),
+}
 #[cfg(not(target_os = "android"))]
 #[derive(Clone)]
 pub struct Store;
@@ -11,7 +14,7 @@ pub fn init() -> TauriPlugin<Wry> {
     Builder::new("credentials")
         .setup(|app, api| {
             #[cfg(target_os = "android")]
-            app.manage(Store(api.register_android_plugin("dev.kyuyoung.hongsi", "CredentialsPlugin")?));
+            app.manage(Store::Plugin(api.register_android_plugin("dev.kyuyoung.hongsi", "CredentialsPlugin")?));
             #[cfg(not(target_os = "android"))]
             { let _ = api; app.manage(Store); }
             Ok(())
@@ -21,17 +24,23 @@ pub fn init() -> TauriPlugin<Wry> {
 #[cfg(target_os = "android")]
 impl Store {
     pub async fn load(&self) -> Result<Option<String>, String> {
+        if let Self::Native(vault) = self { return vault.load(); }
         #[derive(serde::Deserialize)]
         struct Loaded { secret: Option<String> }
-        self.0.run_mobile_plugin_async::<Loaded>("load", ()).await
+        let Self::Plugin(plugin) = self else { unreachable!() };
+        plugin.run_mobile_plugin_async::<Loaded>("load", ()).await
             .map(|r| r.secret).map_err(|_| "자동 로그인 정보를 읽지 못했어요. 기기 잠금을 해제한 뒤 다시 시도해 주세요.".into())
     }
     pub async fn save(&self, secret: &str) -> Result<(), String> {
-        self.0.run_mobile_plugin_async::<serde_json::Value>("save", serde_json::json!({"secret": secret})).await
+        if let Self::Native(vault) = self { return vault.save(secret); }
+        let Self::Plugin(plugin) = self else { unreachable!() };
+        plugin.run_mobile_plugin_async::<serde_json::Value>("save", serde_json::json!({"secret": secret})).await
             .map(|_| ()).map_err(|_| "자동 로그인 정보를 보안 저장소에 저장하지 못했어요.".into())
     }
     pub async fn clear(&self) -> Result<(), String> {
-        self.0.run_mobile_plugin_async::<serde_json::Value>("clear", ()).await
+        if let Self::Native(vault) = self { return vault.clear(); }
+        let Self::Plugin(plugin) = self else { unreachable!() };
+        plugin.run_mobile_plugin_async::<serde_json::Value>("clear", ()).await
             .map(|_| ()).map_err(|_| "자동 로그인 정보를 삭제하지 못했어요. 다시 시도해 주세요.".into())
     }
 }

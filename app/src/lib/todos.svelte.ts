@@ -49,7 +49,7 @@ export async function saveTodo(id: number | null, input: TodoInput): Promise<boo
     const saved = id === null ? await api.createTodo(input) : await api.updateTodo(id, input);
     const list = (todos.data ?? []).filter((t) => t.id !== saved.id);
     replace([...list, saved]);
-    toast(id === null ? '할 일을 추가했어요' : '할 일을 고쳤어요', 'success', 1800);
+    toast(id === null ? '할 일을 추가했어요' : '할 일을 수정했어요', 'success', 1800);
     return true;
   } catch (e) {
     fail(e, '저장하지 못했어요');

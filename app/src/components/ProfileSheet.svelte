@@ -3,6 +3,7 @@
   import { appUpdater, canUpdateApp } from '../lib/app-update.svelte';
   import {
     setMealPlace,
+    setTimetableDisplay,
     setShowUndatedAssignments,
     setMidnight,
     setTheme,
@@ -50,12 +51,10 @@
       <p class="muted">{[studentId, app.profile?.department].filter(Boolean).join(' · ')}</p>
       <span class="chip {app.remembered ? 'ok' : ''}">
         <Icon name={app.remembered ? 'tick' : 'clock'} size={13} stroke={2.4} />
-        {#if isApp}{app.remembered ? '자동 로그인 켜짐' : '자동 로그인 꺼짐'}{:else}{app.remembered ? '로그인 상태 유지 중' : '이번 세션만 로그인'}{/if}
+        {#if isApp}{app.remembered ? '자동 로그인 켜짐' : '자동 로그인 꺼짐'}{:else}{app.remembered ? '로그인 상태 유지 중' : '로그인 상태 유지 꺼짐'}{/if}
       </span>
     </div>
   </div>
-
-  <p class="auth-hint muted">{#if isApp}{app.remembered ? '학번·비밀번호와 학교·클래스룸·홍시 로그인 정보를 이 기기의 보안 저장소에 보관해요.' : '자동 로그인 정보는 기기에 저장하지 않고, 현재 로그인 정보는 앱이 실행되는 동안만 사용해요.'}{:else}{app.remembered ? '학교 로그인 세션을 서버에 암호화해 보관하고, 브라우저 쿠키로 로그인 상태를 유지해요.' : '이번 브라우저 세션 동안 로그인 상태를 유지해요.'}{/if}</p>
 
   <h4 class="section-title">설정</h4>
   <div class="settings card">
@@ -85,7 +84,17 @@
       </div>
     </div>
     <div class="set">
-      <span class="set-label">날짜 미정 과제 표시<Switch checked={settings.showUndatedAssignments} label="날짜 미정 과제 표시" onchange={setShowUndatedAssignments} /></span>
+      <span class="set-label">주간 시간표</span>
+      <div class="seg" role="radiogroup" aria-label="주간 시간표">
+        <button role="radio" aria-checked={settings.timetableDisplay === 'full'} class:on={settings.timetableDisplay === 'full'} onclick={() => setTimetableDisplay('full')}>전체 표시</button>
+        <button role="radio" aria-checked={settings.timetableDisplay === 'fit'} class:on={settings.timetableDisplay === 'fit'} onclick={() => setTimetableDisplay('fit')}>최적화 표시</button>
+      </div>
+      <p class="set-hint muted">{settings.timetableDisplay === 'full'
+        ? '앞뒤 공강을 포함하여 전체 시간표를 표시합니다.'
+        : '앞뒤 공강이 있을 경우 해당 시간을 제외하고 시간표를 표시합니다.'}</p>
+    </div>
+    <div class="set">
+      <span class="set-label">마감일 없는 과제 표시<Switch checked={settings.showUndatedAssignments} label="마감일 없는 과제 표시" onchange={setShowUndatedAssignments} /></span>
     </div>
   </div>
 
@@ -102,27 +111,25 @@
     </div>
   {/if}
 
+
   <h4 class="section-title">계정</h4>
   <div class="settings card">
     <div class="set">
       <button class="btn btn-danger btn-block" disabled={app.loggingOut} onclick={() => confirmLogoutAll = true}><Icon name="logout" size={18} />모든 기기에서 로그아웃</button>
-      <p class="set-hint muted">모든 기기에서 로그아웃하고 저장된 모든 인증값을 삭제합니다.</p>
+      <p class="set-hint muted">모든 기기에서 로그아웃하고 저장된 로그인 정보를 모두 삭제해요.</p>
     </div>
   </div>
 
 
   {#snippet footer()}
-    <div class="logout-actions">
-      <p class="muted">로그아웃하면 이 기기의 저장된 로그인 정보와 해당 서버 세션·동기화 등록을 삭제해요. 다른 기기의 로그인은 유지돼요.</p>
-      <button class="btn btn-danger btn-block" disabled={app.loggingOut} onclick={onlogout}><Icon name="logout" size={18} />{app.loggingOut ? '로그아웃하는 중…' : '로그아웃'}</button>
-    </div>
+    <button class="btn btn-danger btn-block" disabled={app.loggingOut} onclick={onlogout}><Icon name="logout" size={18} />{app.loggingOut ? '로그아웃하는 중…' : '로그아웃'}</button>
   {/snippet}
 </Sheet>
 
 <Sheet bind:open={confirmLogoutAll} title="모든 기기에서 로그아웃할까요?" layer={1}>
   <div class="logout-confirm">
-    <p>모든 기기에서 로그아웃하고 저장된 모든 인증값을 삭제합니다.</p>
-    <p>서버의 모든 로그인 세션과 백그라운드 인증정보·동기화·푸시 등록을 삭제합니다. 오프라인인 다른 기기에 저장된 인증정보는 해당 기기가 다음에 서버에 연결할 때 삭제합니다.</p>
+    <p>모든 기기에서 로그아웃하고 저장된 로그인 정보를 모두 삭제해요.</p>
+    <p>서버에 저장된 모든 로그인 정보와 백그라운드 동기화·푸시 알림 등록 정보를 삭제합니다. 오프라인인 기기에 저장된 로그인 정보는 해당 기기가 다시 서버에 연결될 때 삭제합니다.</p>
   </div>
   {#snippet footer()}
     <button class="btn btn-ghost w1" disabled={app.loggingOut} onclick={() => confirmLogoutAll = false}>취소</button>
@@ -157,9 +164,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .auth-hint { margin-top: 12px; font-size: 12px; line-height: 1.65; }
-  .logout-actions { display: grid; gap: 10px; width: 100%; }
-  .logout-actions p { font-size: 12px; line-height: 1.65; }
   .logout-confirm { display: grid; gap: 12px; }
   .logout-confirm p { font-size: 14px; line-height: 1.7; color: var(--text-2); }
 

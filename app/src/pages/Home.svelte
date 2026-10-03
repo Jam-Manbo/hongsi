@@ -192,7 +192,7 @@
     <div>
       <AgendaItem item={entry.value} showDate color={colors.get(entry.value.courseId) ?? 'var(--text-3)'} course={courseName(entry.value.courseId)} onopen={(i) => detailKey = i.key} ontoggle={toggleDone} />
       {#if entry.value.kind === 'assignment' && entry.due !== null && entry.due * 1000 <= classWatch.now}
-        <p class="late-hint">{entry.value.lateUntil ? `늦은 제출 기한 ${dueDateTime(entry.value.lateUntil)} · 상세에서 확인` : '늦은 제출 가능 여부를 상세에서 확인해 주세요'}</p>
+        <p class="late-hint">{entry.value.lateUntil ? `지각 제출 마감 ${dueDateTime(entry.value.lateUntil)} · 상세에서 확인` : '지각 제출 가능 여부를 상세에서 확인해 주세요'}</p>
       {/if}
     </div>
   {/if}

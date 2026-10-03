@@ -85,7 +85,7 @@
       syncSeatReminders(res.session);
       toast(
         res.session.startSource === 'detected'
-          ? `입실 완료 · ${time(res.session.startedAt)} 배정을 찾았어요 · ${time(res.session.expiresAt)}까지`
+          ? `입실 완료 · 배정 시각 ${time(res.session.startedAt)} · ${time(res.session.expiresAt)}까지 이용 가능`
           : `입실 완료 · ${time(res.session.expiresAt)}까지`,
         'success',
         4500,
@@ -173,7 +173,7 @@
         {#if picked.state === 'used'}배정 시각은 좌석 지도 기록에서 자동으로 찾아요.{:else}지도에 아직 반영되지 않았다면 누른 시각으로 기록해요.{/if}
       </p>
       <div class="field">
-        <span>좌석 유효시간</span>
+        <span>좌석 이용 시간</span>
         <div class="filters">
           {#each PERIODS as p (p.id)}
             <button class="filter" aria-pressed={seatPrefs.period === p.id} onclick={() => setPeriod(p.id)}>

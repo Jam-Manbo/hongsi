@@ -22,7 +22,7 @@ fn validate(receipt: &AttendanceReceipt) -> Result<NaiveDate, ApiError> {
         || lecture.time.len() > 300 || lecture.code.as_ref().is_some_and(|code| code.len() > 32)
         || lecture.key != format!("{}|{}|{}", lecture.code.as_deref().unwrap_or(""), lecture.name, lecture.time)
     {
-        return Err(ApiError::bad_request("오늘 확인한 출석 성공 기록만 공유할 수 있어요"));
+        return Err(ApiError::bad_request("오늘 출석 처리가 확인된 기록만 공유할 수 있어요"));
     }
     Ok(day)
 }

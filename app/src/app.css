@@ -211,6 +211,24 @@ p {
   margin: 0;
 }
 
+.sentence-message {
+  min-width: 0;
+  white-space: pre-line;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.sheet p,
+.toast span,
+.error-box,
+.intro {
+  text-wrap: pretty;
+}
+
+.error-box > svg {
+  flex: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

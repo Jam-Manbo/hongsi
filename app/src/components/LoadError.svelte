@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ago } from '../lib/format';
+  import { ago, sentenceLines } from '../lib/format';
   import { TROUBLE_TEXT, type Trouble } from '../lib/net.svelte';
   import Icon from './Icon.svelte';
 
@@ -24,7 +24,7 @@
     hideParseError?: boolean;
   } = $props();
 
-  const parseError = $derived(resource.error?.includes('학교 페이지 형식을 읽지 못했어요') ?? false);
+  const parseError = $derived(['학교 페이지의 정보를 읽지 못했어요', '학교 페이지 형식을 읽지 못했어요'].some((message) => resource.error?.includes(message)));
   const kind = $derived(resource.trouble);
   const conn = $derived(kind === 'offline' || kind === 'server' || kind === 'school' ? kind : null);
   const ICON: Record<Trouble, string> = { offline: 'wifi-off', server: 'cloud-off', school: 'alert' };
@@ -35,7 +35,7 @@
     {#if stale && resource.at}
       <p class="stale" class:failed={parseError}>
         <Icon name="clock" size={13} stroke={2} />
-        {ago(resource.at / 1000)} 정보{conn ? '' : ` · ${parseError ? '불러오기를 실패했어요' : resource.error}`}
+        {ago(resource.at / 1000)} 정보{conn ? '' : ` · ${parseError ? '불러오지 못했어요' : resource.error}`}
       </p>
     {/if}
   {:else}
@@ -43,7 +43,7 @@
       <span class="ico"><Icon name={conn ? ICON[conn] : 'alert'} size={20} /></span>
       <div class="txt">
         <strong>{what} 불러오지 못했어요</strong>
-        {#if !(hideParseError && parseError)}<span>{conn ? TROUBLE_TEXT[conn].title : resource.error}</span>{/if}
+        {#if !(hideParseError && parseError)}<span class="sentence-message">{sentenceLines(conn ? TROUBLE_TEXT[conn].title : resource.error)}</span>{/if}
       </div>
       <button class="btn btn-ghost again" onclick={() => resource.load(true)} disabled={resource.loading}>
         <span class:spin={resource.loading}><Icon name="refresh" size={16} stroke={2.2} /></span>다시 시도
@@ -73,6 +73,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
     padding: 14px 14px 14px 16px;
   }
 
@@ -88,7 +89,7 @@
   }
 
   .txt {
-    flex: 1;
+    flex: 1 1 180px;
     min-width: 0;
     display: grid;
     gap: 1px;
@@ -97,6 +98,7 @@
   .txt strong {
     font-size: 14.5px;
     font-weight: 700;
+    text-wrap: balance;
   }
 
   .txt span {
@@ -105,6 +107,8 @@
   }
 
   .again {
+    flex: none;
+    margin-left: auto;
     min-height: 38px;
     padding: 0 12px;
     font-size: 13.5px;
