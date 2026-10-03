@@ -20,7 +20,7 @@
     <div class="content">
       <strong class="item-title">{item.title}</strong>
       <div class="status"><span>클래스룸 상태</span><span class="chip {status.tone}">{status.label}</span></div>
-      <p>홍시에서 이 {item.kind === 'vod' ? '강의를' : '과제를'} {pending?.done ? '완료' : '미완료'}로 표시해요. 클래스룸의 {item.kind === 'vod' ? '시청·출석' : '제출'} 상태는 바뀌지 않아요.</p>
+      <p>클래스룸 {item.kind === 'vod' ? '시청·출석' : '제출'} 상태에는 반영되지 않아요.</p>
     </div>
   {/if}
   {#snippet footer()}

@@ -33,5 +33,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const [directory] = process.argv.slice(2);
   if (!directory || !process.env.RELEASE_TAG || !process.env.GITHUB_REPOSITORY) throw new Error('Directory, RELEASE_TAG and GITHUB_REPOSITORY are required.');
   await publishRelease({ repository: process.env.GITHUB_REPOSITORY, tag: process.env.RELEASE_TAG, directory });
-  console.log(`Attached Android files to existing stable release ${process.env.RELEASE_TAG}`);
+  console.log(`Uploaded release assets: ${process.env.RELEASE_TAG}`);
 }

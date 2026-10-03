@@ -12,8 +12,9 @@
       {#if update.checking}
         <p role="status">새 버전을 확인하고 있어요…</p>
       {:else if update.release}
-        <h3>홍시 {update.release.version}</h3>
-        <p class="muted">{(update.release.size / 1024 / 1024).toFixed(1)} MB</p>
+        <h3>{update.release.version ? `홍시 ${update.release.version}` : '새 버전이 준비됐어요'}</h3>
+        {#if update.release.size}<p class="muted">{(update.release.size / 1024 / 1024).toFixed(1)} MB</p>{/if}
+        {#if update.source === 'play'}<p class="muted">앱 안에서 Google Play 업데이트를 진행해요.</p>{/if}
         {#if update.release.notes}<p class="notes">{update.release.notes}</p>{/if}
       {:else if update.checked}
         <p>{update.configured ? '최신 버전을 사용하고 있어요.' : '아직 공개된 업데이트가 없어요.'}</p>
@@ -26,7 +27,7 @@
         {#if update.permissionsNeeded}
           <button class="btn btn-primary" onclick={() => update.permissions()}>설치 허용 설정</button>
         {:else}
-          <button class="btn btn-primary" disabled={update.installing || update.checking} onclick={() => update.install()}><Icon name="download" size={18} />{update.installing ? '다운로드 중…' : '업데이트'}</button>
+          <button class="btn btn-primary" disabled={update.installing || update.checking} onclick={() => update.install()}><Icon name="download" size={18} />{update.installing ? (update.source === 'play' ? '업데이트 진행 중…' : '다운로드 중…') : '업데이트'}</button>
         {/if}
       {:else if update.error}
         <button class="btn btn-primary" disabled={update.checking} onclick={() => update.check(true)}>다시 확인</button>

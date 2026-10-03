@@ -7,6 +7,9 @@ plugins {
     id("rust")
 }
 
+val distribution = providers.environmentVariable("HONGSI_ANDROID_DISTRIBUTION").orElse("direct").get()
+require(distribution in setOf("direct", "play")) { "HONGSI_ANDROID_DISTRIBUTION must be direct or play" }
+
 val tauriProperties = Properties().apply {
     val propFile = file("tauri.properties")
     if (propFile.exists()) {
@@ -66,6 +69,11 @@ android {
             )
         }
     }
+    sourceSets {
+        getByName("main").java.directories.add("src/$distribution/java")
+        getByName("debug").manifest.srcFile("src/$distribution/AndroidManifest.xml")
+        getByName("release").manifest.srcFile("src/$distribution/AndroidManifest.xml")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -96,6 +104,7 @@ rust {
 }
 
 dependencies {
+    if (distribution == "play") implementation("com.google.android.play:app-update:2.1.0")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")

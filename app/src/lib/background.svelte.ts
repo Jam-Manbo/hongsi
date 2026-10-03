@@ -120,7 +120,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
     check();
     status = await readStatus();
     check();
-    if (!status.consented) throw new Error('동기화를 시작하지 못했어요. 자동으로 다시 시도할게요.');
+    if (!status.consented) throw new Error('동기화에 실패했어요.');
     renewedAt = Date.now();
     prefSignature = '';
   }
@@ -142,7 +142,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
   if (!status.available[kind]) {
     await setRemoteNotifications(false);
     check();
-    throw new Error('백그라운드 동기화는 계속돼요. 알림 서버에는 자동으로 다시 연결할게요.');
+    throw new Error('서버에 연결하지 못했어요.');
   }
   const values = prefs(), signature = JSON.stringify(values);
   if (!status.registered || renewToken) {

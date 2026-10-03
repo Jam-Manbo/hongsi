@@ -2,6 +2,11 @@ name: Android
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: v0.0.0
+        required: false
+        type: string
   release:
     types: [released]
   push:
@@ -16,11 +21,18 @@ concurrency:
 
 jobs:
   build:
+    name: Build ${{ matrix.distribution }}
+    strategy:
+      fail-fast: false
+      matrix:
+        distribution: [direct, play]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       HONGSI_API_URL: ${{ vars.HONGSI_API_URL || 'https://hongsi.kyuyoung.dev' }}
       HAS_SIGNING: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
+      HONGSI_ANDROID_DISTRIBUTION: ${{ matrix.distribution }}
+      BUILD_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
     defaults:
       run:
         working-directory: app
@@ -52,15 +64,13 @@ jobs:
           targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
-          key: android-aarch64
+          key: android-aarch64-${{ matrix.distribution }}
           cache-on-failure: true
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - name: Release version from tag
-        if: github.event_name == 'release'
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: node scripts/set-release-version.mjs "$RELEASE_TAG"
+      - name: Set release version
+        if: env.BUILD_VERSION != ''
+        run: node scripts/set-release-version.mjs "$BUILD_VERSION"
       - name: Restore Firebase and signing files
         env:
           FIREBASE_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
@@ -70,14 +80,17 @@ jobs:
           STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           RELEASE_EVENT: ${{ github.event_name }}
         run: node scripts/prepare-android-build.mjs
-      - name: Signed release APK and AAB
-        if: env.HAS_SIGNING == 'true'
-        run: pnpm tauri android build --target aarch64 --aab --apk --ci
+      - name: Signed APK for direct download
+        if: env.HAS_SIGNING == 'true' && matrix.distribution == 'direct'
+        run: pnpm tauri android build --target aarch64 --apk --ci
+      - name: Signed AAB for Google Play
+        if: env.HAS_SIGNING == 'true' && matrix.distribution == 'play'
+        run: pnpm tauri android build --target aarch64 --aab --ci
       - name: Debug APK for testing
-        if: env.HAS_SIGNING != 'true'
+        if: env.HAS_SIGNING != 'true' && matrix.distribution == 'direct'
         run: pnpm tauri android build --target aarch64 --debug --apk --ci
       - name: Verify and package GitHub update
-        if: env.HAS_SIGNING == 'true'
+        if: env.HAS_SIGNING == 'true' && matrix.distribution == 'direct'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -85,14 +98,46 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
           CODE=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)
           node scripts/package-android-release.mjs "$APK" "$CODE" "$RUNNER_TEMP/hongsi-release"
+      - name: Verify and package Play bundle
+        if: env.HAS_SIGNING == 'true' && matrix.distribution == 'play'
+        run: |
+          AAB=src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab
+          jarsigner -verify "$AAB"
+          python3 - "$AAB" <<'PYTHON'
+          import struct, sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as bundle:
+              names = bundle.namelist()
+              assert any(n.startswith('META-INF/') and n.endswith(('.RSA', '.DSA', '.EC')) for n in names), 'Unsigned bundle'
+              manifest = bundle.read('base/manifest/AndroidManifest.xml')
+              assert b'REQUEST_INSTALL_PACKAGES' not in manifest, 'Play bundle contains APK install permission'
+              assert b'UpdateInstallReceiver' not in manifest, 'Play bundle contains APK installer'
+              libraries = [n for n in names if n.startswith('base/lib/') and n.endswith('.so')]
+              assert libraries and any('/arm64-v8a/' in n for n in libraries), 'Missing 64-bit native libraries'
+              for name in libraries:
+                  elf = bundle.read(name)
+                  assert elf[:4] == b'\x7fELF' and elf[4] in (1, 2) and elf[5] in (1, 2), name
+                  endian = '<' if elf[5] == 1 else '>'
+                  wide = elf[4] == 2
+                  offset = struct.unpack_from(endian + ('Q' if wide else 'I'), elf, 32 if wide else 28)[0]
+                  stride, count = struct.unpack_from(endian + 'HH', elf, 54 if wide else 42)
+                  loads = 0
+                  for i in range(count):
+                      pos = offset + i * stride
+                      if struct.unpack_from(endian + 'I', elf, pos)[0] != 1:
+                          continue
+                      loads += 1
+                      align = struct.unpack_from(endian + ('Q' if wide else 'I'), elf, pos + (48 if wide else 28))[0]
+                      assert align >= 16384, f'{name}: PT_LOAD alignment {align} is below 16 KB'
+                  assert loads, f'{name}: no PT_LOAD headers'
+              print(f'Play bundle verified: no APK installer permission; {len(libraries)} aligned native libraries')
+          PYTHON
           VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          AABS=(src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
-          test -f "${AABS[0]}"
-          cp "${AABS[0]}" "$RUNNER_TEMP/hongsi-release/android/hongsi-$VERSION.aab"
+          mkdir -p "$RUNNER_TEMP/hongsi-release/android"
+          cp "$AAB" "$RUNNER_TEMP/hongsi-release/android/hongsi-$VERSION.aab"
       - uses: actions/upload-artifact@v7
         if: env.HAS_SIGNING == 'true'
         with:
-          name: hongsi-android
+          name: ${{ matrix.distribution == 'direct' && 'hongsi-android' || 'hongsi-google-play' }}
           path: ${{ runner.temp }}/hongsi-release/android/
           if-no-files-found: error
       - name: Remove restored credentials
@@ -114,7 +159,11 @@ jobs:
         with:
           name: hongsi-android
           path: release-assets
-      - name: Attach APK, AAB and metadata to the existing stable release
+      - uses: actions/download-artifact@v8
+        with:
+          name: hongsi-google-play
+          path: release-assets
+      - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

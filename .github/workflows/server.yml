@@ -55,7 +55,7 @@ jobs:
         with:
           name: hongsi-server-ubuntu26-arm64
           path: release-assets
-      - name: Attach server bundle to the existing stable release
+      - name: Upload server bundle
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}

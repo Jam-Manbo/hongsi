@@ -46,6 +46,7 @@ class UpdatePlugin(private val host: Activity) : Plugin(host) {
         val current = installed()
         put("currentVersion", current.versionName ?: BuildConfig.VERSION_NAME)
         put("currentCode", packageCode(current))
+        put("source", "direct")
         put("canInstall", allowed())
         put("installError", prefs.getString("error", null) ?: JSONObject.NULL)
     }

@@ -108,8 +108,8 @@ export function handleAuthError(e: unknown): boolean {
   if (e instanceof ApiError && e.status === 401 && e.code !== 'login_rejected') {
     if (e.code === 'session_revoked') { handleSessionRevoked(); return true; }
     if (app.loggingOut) return true;
-    if (e.code === 'session_expired') void logoutSession().catch((err) => {
-      toastOnce(`학교 로그인이 만료됐지만 로그아웃을 완료하지 못했어요. ${errorText(err, '연결을 확인해 주세요.')} 내 정보에서 다시 로그아웃해 주세요.`, 'error', 8000);
+    if (e.code === 'session_expired') void logoutSession().catch(() => {
+      toastOnce('로그아웃에 실패했어요. 다시 시도해주세요.', 'error', 8000);
     });
     else endSession();
     app.notice = e.code === 'session_expired' ? '학교 로그인이 만료됐어요. 다시 로그인해 주세요.' : '';
