@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_background">#1C232B</color>
+    <color name="widget_text">#EFF2F7</color>
+    <color name="widget_muted">#ADB5C1</color>
+    <color name="widget_key">#2C3642</color>
+    <color name="widget_primary">#FF9156</color>
+    <color name="widget_on_primary">#321A0D</color>
+    <color name="widget_success">#4BD697</color>
+    <color name="widget_error">#FF858C</color>
+    <color name="widget_gallery">#10151C</color>
+    <color name="widget_badge_ok_text">#6BE0A5</color>
+    <color name="widget_badge_ok_background">#243CAB78</color>
+    <color name="widget_badge_warn_text">#FFD178</color>
+    <color name="widget_badge_warn_background">#24EAAE3F</color>
+    <color name="widget_badge_danger_text">#FF929A</color>
+    <color name="widget_badge_danger_background">#24E85D70</color>
+    <color name="widget_badge_info_text">#95BEFF</color>
+    <color name="widget_badge_info_background">#245991E4</color>
+    <color name="widget_badge_muted_text">#ADB5C1</color>
+    <color name="widget_badge_muted_background">#247E8B9F</color>
+    <color name="widget_border">#495563</color>
+    <string name="seat_widget_preview_heading"><b>제4공학관</b> <small><font color="#ADB5C1">(T동)</font></small></string>
+    <string name="seat_widget_preview_remaining">1시간 30분 <small>남음</small></string>
+</resources>

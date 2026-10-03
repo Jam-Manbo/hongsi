@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="attendance_widget_name">빠른 출결</string>
+    <string name="attendance_widget_description">홈 화면에서 빠르게 출결해요.</string>
+    <color name="widget_background">#FFFAF6</color>
+    <color name="widget_text">#292321</color>
+    <color name="widget_muted">#756C67</color>
+    <color name="widget_key">#F3EAE3</color>
+    <color name="widget_primary">#CB470D</color>
+    <color name="widget_on_primary">#FFFFFF</color>
+    <color name="widget_success">#147447</color>
+    <color name="widget_error">#BF3340</color>
+    <string name="today_widget_name">오늘 수업</string>
+    <string name="today_widget_description">오늘 남은 수업과 강의실을 확인해요.</string>
+    <string name="deadlines_widget_name">다가오는 마감</string>
+    <string name="deadlines_widget_description">과제와 강의, 할 일의 마감과 상태를 확인해요.</string>
+    <string name="seat_widget_name">열람실 좌석</string>
+    <string name="seat_widget_description">내 좌석과 남은 시간을 확인하고 연장하거나 퇴실해요.</string>
+    <string name="week_widget_name">주간 시간표</string>
+    <string name="week_widget_description">한 주의 수업과 강의실을 한눈에 확인해요.</string>
+    <color name="widget_gallery">#F0F2F5</color>
+    <string name="deadlines_large_widget_name">다가오는 마감 크게</string>
+    <string name="deadlines_large_widget_description">더 많은 일정의 마감과 상태를 한눈에 확인해요.</string>
+    <color name="widget_badge_ok_text">#147447</color>
+    <color name="widget_badge_ok_background">#18147447</color>
+    <color name="widget_badge_warn_text">#93620D</color>
+    <color name="widget_badge_warn_background">#1FCA8800</color>
+    <color name="widget_badge_danger_text">#BF3340</color>
+    <color name="widget_badge_danger_background">#1FBF3340</color>
+    <color name="widget_badge_info_text">#2463AA</color>
+    <color name="widget_badge_info_background">#1F2463AA</color>
+    <color name="widget_badge_muted_text">#756C67</color>
+    <color name="widget_badge_muted_background">#1F756C67</color>
+    <string name="today_large_widget_name">오늘 수업 크게</string>
+    <string name="today_large_widget_description">오늘의 수업과 강의실을 넓게 확인해요.</string>
+    <color name="widget_border">#D7CDC6</color>
+    <string name="seat_widget_preview_heading"><b>제4공학관</b> <small><font color="#756C67">(T동)</font></small></string>
+    <string name="seat_widget_preview_remaining">1시간 30분 <small>남음</small></string>
+</resources>

@@ -24,3 +24,7 @@ tokio.workspace = true
 tracing.workspace = true
 base64 = "=0.22.1"
 keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "=0.21.1"
+sha2 = "=0.10.9"

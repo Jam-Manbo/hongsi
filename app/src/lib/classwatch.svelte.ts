@@ -126,6 +126,27 @@ export function sessionState(c: TodayClass): { label: string; cls: string } {
   return { label: '확인 불가', cls: '' };
 }
 
+export function attendanceWidgetSnapshot() {
+  return {
+    date: todayKey(),
+    loaded: lectures.data !== null,
+    error: lectures.error,
+    timetableLoaded: timetable.data !== null,
+    timetableError: timetable.error,
+    checkedAt: lectures.at,
+    sessions: todaySessions(timetable.data?.slots ?? []).map((session) => ({
+      ...session,
+      identity: keyOf(session),
+      mark: markFor(session),
+      seenOpen: classWatch.seenOpen.includes(keyOf(session)),
+    })),
+    active: (lectures.data?.items ?? []).map((lecture) => ({
+      key: lecture.key, name: lecture.name, time: lecture.time, code: lecture.code,
+      identity: keyOf(lectureRef(lecture)), mark: lectureMark(lecture),
+    })),
+  };
+}
+
 function persist() { writeUserData(STORE, $state.snapshot(classWatch.receipts)); }
 let users = 0;
 let timer: ReturnType<typeof setInterval> | undefined;

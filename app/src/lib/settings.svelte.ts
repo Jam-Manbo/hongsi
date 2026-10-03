@@ -3,6 +3,7 @@ import { pref, setPref } from './store.svelte';
 export type Theme = 'system' | 'light' | 'dark';
 export type Midnight = 'prev' | 'same';
 export type MealPlace = 'dorm' | 'staff';
+export type TimetableDisplay = 'full' | 'fit';
 
 export const ALERT_LEADS: { min: number; label: string }[] = [
   { min: 1440, label: '1일 전' },
@@ -17,6 +18,7 @@ export const settings = $state({
   midnight: pref<Midnight>('midnight', 'prev'),
   showUndatedAssignments: pref<boolean>('show-undated-assignments', false),
   mealPlace: pref<MealPlace>('meal-place', 'dorm'),
+  timetableDisplay: pref<TimetableDisplay>('timetable-display', 'fit'),
   alertLeads: pref<number[]>('alert-leads', [60]),
 });
 
@@ -26,6 +28,11 @@ export function toggleAlertLead(min: number) {
     : [...settings.alertLeads, min];
   settings.alertLeads = next.sort((a, b) => b - a);
   setPref('alert-leads', settings.alertLeads);
+}
+
+export function setTimetableDisplay(value: TimetableDisplay) {
+  settings.timetableDisplay = value;
+  setPref('timetable-display', value);
 }
 
 export function setMealPlace(value: MealPlace) {

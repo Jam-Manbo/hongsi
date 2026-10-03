@@ -3,6 +3,7 @@
   import { appUpdater, canUpdateApp } from '../lib/app-update.svelte';
   import {
     setMealPlace,
+    setTimetableDisplay,
     setShowUndatedAssignments,
     setMidnight,
     setTheme,
@@ -83,6 +84,14 @@
       </div>
     </div>
     <div class="set">
+      <span class="set-label">주간 시간표</span>
+      <div class="seg" role="radiogroup" aria-label="주간 시간표">
+        <button role="radio" aria-checked={settings.timetableDisplay === 'full'} class:on={settings.timetableDisplay === 'full'} onclick={() => setTimetableDisplay('full')}>전체 표시</button>
+        <button role="radio" aria-checked={settings.timetableDisplay === 'fit'} class:on={settings.timetableDisplay === 'fit'} onclick={() => setTimetableDisplay('fit')}>최적화 표시</button>
+      </div>
+      <p class="set-hint muted">최적화 표시는 앞뒤 수업이 없는 시간을 잘라 표시합니다.</p>
+    </div>
+    <div class="set">
       <span class="set-label">마감일 없는 과제 표시<Switch checked={settings.showUndatedAssignments} label="마감일 없는 과제 표시" onchange={setShowUndatedAssignments} /></span>
     </div>
   </div>
@@ -99,6 +108,7 @@
       </div>
     </div>
   {/if}
+
 
   <h4 class="section-title">계정</h4>
   <div class="settings card">

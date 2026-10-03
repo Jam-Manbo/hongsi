@@ -1,0 +1,16 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+    <TextView
+        android:id="@+id/widget_key_cell"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:textColor="@color/widget_text"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:background="@drawable/widget_key_background"
+        android:includeFontPadding="false" />
+</FrameLayout>

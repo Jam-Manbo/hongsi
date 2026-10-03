@@ -41,6 +41,20 @@ internal object ExternalIntents {
 
 @TauriPlugin
 class ExternalPlugin(private val host: Activity) : Plugin(host) {
+    @Command fun syncWidget(invoke: Invoke) {
+        val value = invoke.parseArgs(ExternalArgs::class.java).value
+        host.runOnUiThread {
+            try {
+                dev.kyuyoung.hongsi.widget.WidgetData.replace(host, value)
+                dev.kyuyoung.hongsi.widget.Widgets.updateAll(host, preserveInput = true)
+                dev.kyuyoung.hongsi.widget.WidgetSync.schedule(host)
+                invoke.resolve(JSObject())
+            } catch (_: Exception) { invoke.reject("위젯 정보를 저장하지 못했어요.") }
+        }
+    }
+    @Command fun takeWidgetIntent(invoke: Invoke) {
+        host.runOnUiThread { invoke.resolve(JSObject(dev.kyuyoung.hongsi.widget.WidgetNavigation.take(host).toString())) }
+    }
     private fun launch(invoke: Invoke, message: String, action: () -> Unit) {
         host.runOnUiThread {
             try { action(); invoke.resolve(JSObject()) }

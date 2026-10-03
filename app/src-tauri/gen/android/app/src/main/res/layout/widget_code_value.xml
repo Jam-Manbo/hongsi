@@ -1,0 +1,10 @@
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_code"
+    android:layout_width="match_parent"
+    android:layout_height="54dp"
+    android:gravity="center"
+    android:textColor="@color/widget_text"
+    android:textSize="28sp"
+    android:textStyle="bold"
+    android:includeFontPadding="false"
+    android:maxLines="1" />

@@ -67,7 +67,7 @@
   async function end() {
     busy = 'end';
     confirmEnd = false;
-    await apply(api.checkOut, '퇴실 처리했어요. 좌석배정기에서 반납도 잊지 마세요');
+    await apply(api.checkOut, '퇴실 처리했어요. 좌석배정기에서 반납도 잊지 마세요.');
   }
 
   function openAdjust() {
@@ -204,6 +204,9 @@
 
   .ring-text {
     display: grid;
+    justify-items: center;
+    text-align: center;
+    white-space: nowrap;
     line-height: 1.15;
   }
 

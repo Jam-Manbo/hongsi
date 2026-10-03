@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="12dp" android:background="@drawable/widget_attendance_background">
+  <TextView android:layout_width="match_parent" android:layout_height="match_parent" android:id="@+id/widget_empty" android:text="정보를 불러오고 있어요" android:textSize="17sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:gravity="center" android:padding="20dp" android:maxLines="3" />
+  <FrameLayout android:layout_width="40dp" android:layout_height="40dp" android:id="@+id/widget_refresh" android:contentDescription="새로고침" android:layout_gravity="top|end">
+    <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:id="@+id/refresh_icon" android:padding="10dp" android:src="@drawable/ic_widget_refresh" android:tint="@color/widget_muted" android:importantForAccessibility="no" />
+    <ProgressBar android:layout_width="match_parent" android:layout_height="match_parent" android:id="@+id/refresh_spinner" android:padding="10dp" android:indeterminate="true" android:indeterminateOnly="true" android:indeterminateDrawable="@drawable/widget_refresh_spin" android:indeterminateTint="@color/widget_muted" android:indeterminateDuration="650" android:interpolator="@android:anim/linear_interpolator" android:visibility="gone" android:importantForAccessibility="no" />
+  </FrameLayout>
+</FrameLayout>
