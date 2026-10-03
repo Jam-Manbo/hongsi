@@ -51,7 +51,7 @@
   import SeatsPage from './pages/SeatsPage.svelte';
 
   const TITLES = { home: '홈', calendar: '캘린더', seats: '열람실', attendance: '출결', meals: '학식' } as const;
-  const downloadPage = !isApp && location.pathname.replace(/\/$/, '') === '/download';
+  const downloadPage = !isApp && ['/download', '/download/versions'].includes(location.pathname.replace(/\/$/, ''));
 
   const weekDue = $derived.by(() => {
     const now = Date.now() / 1000;

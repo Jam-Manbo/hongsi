@@ -3,7 +3,55 @@
   import { sentenceLines } from '../lib/format';
   import Icon from '../components/Icon.svelte';
   type Release = { version: string; versionCode: number; url: string; size: number; notes: string; sha256: string };
+  type ReleaseSummary = { version: string; publishedAt: string | null; url: string; size: number; notesUrl: string };
+  const versionsPage = location.pathname.replace(/\/$/, '') === '/download/versions';
+  let history = $state<ReleaseSummary[]>([]);
+  let historyUrl = $state('');
+  let historyLoading = $state(true);
+  let historyError = $state('');
+  let visibleCount = $state(5);
+  let expandedVersion = $state<string | null>(null);
+  let notes = $state<Record<string, { loading: boolean; error: string; text: string | null }>>({});
+  async function loadNotes(item: ReleaseSummary) {
+    const cached = notes[item.version];
+    if (cached?.loading || cached?.text != null) return;
+    notes[item.version] = { loading: true, error: '', text: null };
+    try {
+      const response = await fetch(`/api/app-releases/${encodeURIComponent(item.version)}`, { cache: 'no-store', credentials: 'omit' });
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      if (data.version !== item.version || data.url !== item.url || data.size !== item.size || typeof data.notes !== 'string') throw new Error();
+      notes[item.version] = { loading: false, error: '', text: data.notes };
+    } catch { notes[item.version] = { loading: false, error: '변경사항을 불러오지 못했어요.', text: null }; }
+  }
+  function toggleVersion(item: ReleaseSummary) {
+    expandedVersion = expandedVersion === item.version ? null : item.version;
+    if (expandedVersion) void loadNotes(item);
+  }
   let release = $state<Release | null>(null);
+  function secureLink(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password; }
+    catch { return false; }
+  }
+  function publishedDate(value: string | null) {
+    if (!value || !Number.isFinite(Date.parse(value))) return '';
+    return new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Seoul' }).format(new Date(value));
+  }
+  async function loadHistory() {
+    historyLoading = true; historyError = '';
+    try {
+      const response = await fetch('/api/app-releases', { cache: 'no-store', credentials: 'omit' });
+      if (!response.ok) throw new Error();
+      const data = await response.json();
+      if (!secureLink(data.url) || !Array.isArray(data.releases) || !data.releases.every((item: ReleaseSummary) =>
+        item && typeof item.version === 'string' && Number.isFinite(item.size) && item.size > 0 &&
+        (item.publishedAt === null || typeof item.publishedAt === 'string') && secureLink(item.url) && secureLink(item.notesUrl)
+      )) throw new Error();
+      history = data.releases; historyUrl = data.url;
+    } catch { historyError = '버전 목록을 불러오지 못했어요.'; }
+    finally { historyLoading = false; }
+  }
   let loading = $state(true);
   let error = $state('');
   async function load() {
@@ -19,40 +67,87 @@
     } catch { error = '다운로드 정보를 불러오지 못했어요. 잠시 뒤 다시 확인해 주세요.'; }
     finally { loading = false; }
   }
-  onMount(() => { void load(); });
+  onMount(() => { if (versionsPage) void loadHistory(); else void load(); });
 </script>
 
-<svelte:head><title>홍시 앱 다운로드</title><meta name="description" content="빠른 출석 체크와 과제 일정·마감 알림을 홍시 Android 앱에서 이용하세요." /></svelte:head>
+<svelte:head><title>{versionsPage ? '홍시 앱 버전' : '홍시 앱 다운로드'}</title><meta name="description" content="빠른 출석 체크와 과제 일정·마감 알림을 홍시 Android 앱에서 이용하세요." /></svelte:head>
 <main class="download-page">
-  <header><a class="brand" href="/#/home"><img src="/favicon.svg" alt="" width="36" height="36" />홍시</a><a class="back" href="/#/home">웹에서 이용하기 <Icon name="right" size={17} /></a></header>
+  <header><a class="brand" href="/#/home"><img src="/favicon.svg" alt="" width="36" height="36" />홍시</a>{#if versionsPage}<a class="back" href="/download">앱 다운로드 <Icon name="download" size={17} /></a>{:else}<a class="back" href="/#/home">웹에서 이용하기 <Icon name="right" size={17} /></a>{/if}</header>
   <section>
-    <img class="app-icon" src="/favicon.svg" alt="홍시" width="88" height="88" />
-    <p class="eyebrow">홍시 · Android</p>
-    <h1>출석부터 마감까지,<br />휴대폰에서 바로.</h1>
-    <p class="intro">빠른 출석 체크와 과제 일정·마감 알림을 앱에서 이용하세요.</p>
-    <div class="download-actions">
-      {#if release && !loading && !error}<a class="btn btn-primary install" href={release.url} download><Icon name="download" size={21} />APK 다운로드</a>{/if}
-      <button class="btn btn-ghost install play-store" type="button" disabled>
-        <svg width="21" height="23" viewBox="0 0 24 26" fill="none" aria-hidden="true">
-          <path d="M2 1 14 8 9 13Z" fill="#34A853" />
-          <path d="M2 1C1 1.5 1 2 1 3V23C1 24 1 24.5 2 25L9 13Z" fill="#4285F4" />
-          <path d="m2 25 12-7-5-5Z" fill="#EA4335" />
-          <path d="m14 8 8 4c1 .5 1 1.5 0 2l-8 4-5-5Z" fill="#FBBC04" />
-        </svg>
-        Google Play에서 받기
-      </button>
-    </div>
-    {#if loading}<p class="loading-status" role="status">최신 버전을 확인하고 있어요…</p>
-    {:else if error}<div class="status error-status" role="alert"><span>{sentenceLines(error)}</span><button class="icon-btn" onclick={load} aria-label="다운로드 정보 다시 시도"><Icon name="refresh" size={20} /></button></div>
-    {:else if release}
-      <p class="version">v{release.version} · {(release.size / 1024 / 1024).toFixed(1)} MB · Android 7.0 이상</p>
-      <div class="details"><h2>이번 업데이트</h2><p class="notes">{release.notes || '사용성과 안정성을 개선했어요.'}</p></div>
-    {:else}<p class="status">앱 배포를 준비하고 있어요. 먼저 웹에서 이용할 수 있어요.</p>{/if}
-    <div class="details"><h2>APK 직접 설치 방법</h2><ol><li>APK를 다운로드한 뒤 파일을 열어 주세요.</li><li>Android의 설치 안내를 확인하고 설치해 주세요.</li><li>설치 후에는 홍시 앱에서 새 버전을 확인할 수 있어요.</li></ol><p class="muted small">iOS 앱은 아직 배포하지 않아요.</p>
-      <div class="support">
-        <p>앱이 마음에 드신다면 후원 부탁드립니다! 후원 금액은 추후 앱스토어 및 플레이스토어 등록비로 사용될 예정입니다.</p>
-        <a class="support-link" href="https://ko-fi.com/manbo" target="_blank" rel="noopener noreferrer"><img src="/kofi.png" alt="Ko-fi" width="22" height="18" />후원하러 가기 <Icon name="arrow-up-right" size={16} /></a>
-      </div></div>
+    {#if versionsPage}
+      <p class="eyebrow">홍시 · Android</p>
+      <div class="release-history">
+        <div class="history-heading">
+          <h1>전체 버전</h1>
+          {#if historyUrl}<a class="history-all" href={historyUrl} target="_blank" rel="noopener noreferrer">전체 버전 변경사항 <Icon name="arrow-up-right" size={15} /></a>{/if}
+        </div>
+        {#if historyLoading}
+          <p class="history-message" role="status">버전 목록을 확인하고 있어요…</p>
+        {:else if historyError}
+          <div class="history-error" role="alert"><p class="history-message">{historyError}</p><button class="icon-btn" onclick={loadHistory} aria-label="버전 목록 다시 불러오기"><Icon name="refresh" size={20} /></button></div>
+        {:else if history.length}
+          <ul class="release-list">
+            {#each history.slice(0, visibleCount) as item (item.version)}
+              <li class="release-entry">
+                <div class="release-row">
+                  <button class="release-toggle" onclick={() => toggleVersion(item)} aria-expanded={expandedVersion === item.version} aria-controls={`release-notes-${item.version}`} aria-label={`v${item.version} 변경사항`}>
+                    <span class="release-info">
+                      <span class="release-number">v{item.version}</span>
+                      <span class="release-meta">
+                        {#if publishedDate(item.publishedAt)}<time datetime={item.publishedAt ?? undefined}>{publishedDate(item.publishedAt)}</time>{/if}
+                        <span>{(item.size / 1024 / 1024).toFixed(1)} MB</span>
+                      </span>
+                    </span>
+                    <span class="release-chevron" class:expanded={expandedVersion === item.version}><Icon name="down" size={18} /></span>
+                  </button>
+                  <a class="btn btn-primary release-download" href={item.url} download aria-label={`v${item.version} APK 다운로드`}><Icon name="download" size={18} />APK</a>
+                </div>
+                <div id={`release-notes-${item.version}`} hidden={expandedVersion !== item.version} class="release-change">
+                  {#if expandedVersion === item.version}
+                    {#if notes[item.version]?.loading}<p class="history-message" role="status">변경사항을 불러오고 있어요…</p>
+                    {:else if notes[item.version]?.error}<div class="history-error" role="alert"><p class="history-message">{notes[item.version].error}</p><button class="icon-btn" onclick={() => loadNotes(item)} aria-label={`v${item.version} 변경사항 다시 불러오기`}><Icon name="refresh" size={20} /></button></div>
+                    {:else}<p class="notes">{notes[item.version]?.text || '등록된 변경사항이 없어요.'}</p>{/if}
+                  {/if}
+                </div>
+              </li>
+            {/each}
+          </ul>
+          {#if history.length > visibleCount}<button class="history-more" onclick={() => visibleCount += 5}>이전 버전 더 보기 <Icon name="down" size={16} /></button>{/if}
+        {:else}
+          <p class="history-message">아직 배포된 버전이 없어요.</p>
+        {/if}
+      </div>
+    {:else}
+      <p class="eyebrow">홍시 · Android</p>
+      <h1>출석부터 과제 마감까지,<br />휴대폰에서 바로.</h1>
+      <p class="intro">빠른 출석 체크와 과제 일정·마감 알림을 앱에서 이용하세요.</p>
+      <div class="download-actions">
+        {#if release && !loading && !error}<a class="btn btn-primary install" href={release.url} download><Icon name="download" size={21} />APK 다운로드</a>{/if}
+        <button class="btn btn-ghost install play-store" type="button" disabled>
+          <svg width="21" height="23" viewBox="0 0 24 26" fill="none" aria-hidden="true">
+            <path d="M2 1 14 8 9 13Z" fill="#34A853" />
+            <path d="M2 1C1 1.5 1 2 1 3V23C1 24 1 24.5 2 25L9 13Z" fill="#4285F4" />
+            <path d="m2 25 12-7-5-5Z" fill="#EA4335" />
+            <path d="m14 8 8 4c1 .5 1 1.5 0 2l-8 4-5-5Z" fill="#FBBC04" />
+          </svg>
+          Google Play에서 받기
+        </button>
+      </div>
+      {#if loading}<p class="loading-status" role="status">최신 버전을 확인하고 있어요…</p>
+      {:else if error}<div class="status error-status" role="alert"><span>{sentenceLines(error)}</span><button class="icon-btn" onclick={load} aria-label="다운로드 정보 다시 시도"><Icon name="refresh" size={20} /></button></div>
+      {:else if release}
+        <div class="version-row">
+          <p class="version"><span>v{release.version} · {(release.size / 1024 / 1024).toFixed(1)} MB</span><span>· Android 7.0 이상</span></p>
+          <a class="versions-link" href="/download/versions">이번 버전 <Icon name="arrow-up-right" size={16} /></a>
+        </div>
+        <details class="details latest-changes"><summary><h2>변경사항</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary><p class="notes">{release.notes || '사용성과 안정성을 개선했어요.'}</p></details>
+      {:else}<p class="status">앱 배포를 준비하고 있어요. 먼저 웹에서 이용할 수 있어요.</p>{/if}
+      <div class="details"><h2>APK 설치 방법</h2><ol><li>APK 파일을 다운로드 한 뒤 열어주세요.</li><li>보안 경고가 뜰 경우 '세부정보 더보기' - '무시하고 설치' 순으로 진행해주세요.</li><li>설치 후에는 홍시 앱 내에서 새 버전을 확인하고 자체적으로 업데이트 할 수 있어요.</li></ol><p class="ios-status">iOS 앱은 아직 배포하지 않아요.</p>
+        <div class="support">
+          <p>앱이 마음에 드신다면 후원 부탁드립니다!<br />후원 금액은 추후 앱스토어 및 플레이스토어 등록비로 사용될 예정입니다.</p>
+          <a class="support-link" href="https://ko-fi.com/manbo" target="_blank" rel="noopener noreferrer"><img src="/kofi.png" alt="Ko-fi" width="22" height="18" />후원하러 가기 <Icon name="arrow-up-right" size={16} /></a>
+        </div></div>
+    {/if}
   </section>
   <footer>홍익대학교에서 운영하는 공식 서비스가 아닙니다.</footer>
 </main>
@@ -64,15 +159,18 @@
   .brand { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: 23px; font-weight: 800; }
   .back { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 14px; }
   section { max-width: 560px; margin: 76px auto 60px; }
-  .app-icon { border-radius: 24px; margin-bottom: 28px; }
   .eyebrow { color: var(--primary); font-weight: 750; margin-bottom: 14px; }
-  h1 { font-size: clamp(30px, 6vw, 44px); letter-spacing: -0.04em; line-height: 1.25; }
+  h1 { font-size: clamp(25px, 7.3vw, 44px); letter-spacing: -0.04em; line-height: 1.25; }
   .intro { color: var(--text-2); margin: 22px 0 28px; line-height: 1.7; }
   .download-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
   .download-actions .play-store { border: 1px solid var(--border-strong); opacity: 1; }
   .play-store svg { flex: none; }
   .install { flex: 1; justify-content: center; white-space: nowrap; min-height: 52px; padding: 14px 22px; display: inline-flex; }
-  .version { color: var(--text-3); font-size: 13px; margin-top: 12px; }
+  .version-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 22px; }
+  .version { display: flex; flex-wrap: wrap; gap: 2px 4px; color: var(--text-3); font-size: 13px; line-height: 1.6; }
+  .version span { white-space: nowrap; }
+  .versions-link { flex: none; display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 44px; margin-block: -11px; color: var(--text-2); font-size: 13px; }
+  .versions-link:hover { color: var(--primary-text); }
   .status, .loading-status { line-height: 1.65; margin-bottom: 12px; text-wrap: pretty; }
   .status { padding: 20px; border: 1px dashed var(--border-strong); border-radius: var(--radius); }
   .error-status { display: flex; align-items: center; gap: 14px; }
@@ -80,13 +178,44 @@
   .error-status .icon-btn { flex: none; }
   .details { border-top: 1px solid var(--border); margin-top: 36px; padding-top: 24px; line-height: 1.8; }
   h2 { font-size: 16px; margin-bottom: 10px; }
+  .latest-changes { margin-top: 16px; padding: 6px 0; }
+  .latest-changes + .details { margin-top: 0; padding-top: 16px; }
+  .latest-changes summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; list-style: none; }
+  .latest-changes summary::-webkit-details-marker { display: none; }
+  .latest-changes summary h2 { margin: 0; }
+  .latest-changes summary:hover { color: var(--primary-text); }
+  .latest-chevron { display: inline-flex; color: var(--text-3); }
+  .latest-changes[open] .latest-chevron { transform: rotate(180deg); }
+  .latest-changes .notes { padding: 4px 0 16px; }
   .notes { color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .history-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+  .history-heading h1 { margin: 0; font-size: 16px; letter-spacing: normal; line-height: 1.8; }
+  .history-all { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 13px; }
+  .history-all { white-space: nowrap; }
+  .history-all:hover { color: var(--primary-text); }
+  .release-list { list-style: none; padding: 0; margin: 0; border-bottom: 1px solid var(--border); }
+  .release-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; column-gap: 16px; padding: 12px 0; }
+  .release-entry { border-top: 1px solid var(--border); }
+  .release-info { grid-column: 1; display: block; min-width: 0; }
+  .release-toggle { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: subgrid; align-items: center; min-width: 0; min-height: 44px; text-align: left; color: var(--text); }
+  .release-toggle:hover { color: var(--primary-text); }
+  .release-chevron { grid-column: 3; display: inline-flex; color: var(--text-3); }
+  .release-chevron.expanded { transform: rotate(180deg); }
+  .release-change { padding: 4px 0 16px; font-size: 14px; }
+  .release-number { display: block; font-size: 16px; font-weight: 750; line-height: 1.4; overflow-wrap: anywhere; }
+  .release-meta { display: flex; flex-wrap: wrap; column-gap: 12px; color: var(--text-3); font-size: 12px; margin-top: 4px; }
+  .release-meta time, .release-meta span { white-space: nowrap; }
+  .release-download { grid-column: 2; grid-row: 1; position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 10px 14px; font-size: 13px; }
+  .history-message { color: var(--text-3); font-size: 14px; }
+  .history-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .history-more { display: flex; justify-content: center; align-items: center; gap: 6px; width: 100%; padding: 14px 0 0; color: var(--primary-text); font-size: 13px; font-weight: 650; }
+  .release-history { margin-top: 32px; line-height: 1.8; }
   ol { padding-left: 20px; color: var(--text-2); }
   li { text-wrap: pretty; }
-  .small { font-size: 13px; margin-top: 10px; }
+  .ios-status { font-size: 16px; color: var(--text); margin-top: 20px; }
   .support { margin-top: 20px; color: var(--text-2); font-size: 13px; }
   .support-link { display: flex; align-items: center; gap: 6px; color: var(--primary-text); font-weight: 650; margin-top: 6px; text-decoration: underline; text-underline-offset: 3px; }
   .support-link img { flex: none; object-fit: contain; }
   footer { color: var(--text-3); font-size: 12px; text-align: center; margin-bottom: 24px; }
-  @media(max-width: 639px) { section { margin-top: 48px; } .download-actions { flex-direction: column; } }
+  @media(max-width: 639px) { section { margin-top: 48px; } .download-actions { flex-direction: column; } .release-row { gap: 12px; } }
 </style>

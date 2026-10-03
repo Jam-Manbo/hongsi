@@ -34,6 +34,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/push/preferences", put(crate::background::preferences))
         .route("/api/health", get(|| async { Json(json!({ "ok": true })) }))
         .route("/api/app-update", get(crate::updates::latest))
+        .route("/api/app-releases", get(crate::updates::history))
+        .route("/api/app-releases/{version}", get(crate::updates::detail))
         .route("/api/auth/login", post(login))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/logout-all", post(logout_all))

@@ -1,4 +1,5 @@
 use axum::{
+    extract::Path,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -6,6 +7,7 @@ use axum::{
 use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     sync::OnceLock,
     time::{Duration, Instant},
 };
@@ -29,15 +31,40 @@ struct Release {
     notes: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseSummary {
+    version: String,
+    published_at: Option<String>,
+    url: String,
+    size: u64,
+    notes_url: String,
+    #[serde(skip)]
+    source: GitHubRelease,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseHistory {
+    releases: Vec<ReleaseSummary>,
+    url: String,
+}
+
+#[derive(Clone, Debug)]
+struct Catalog {
+    latest: Option<Release>,
+    history: ReleaseHistory,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 struct GitHubRelease {
     tag_name: String,
+    published_at: Option<String>,
     draft: bool,
     prerelease: bool,
     assets: Vec<Asset>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct Asset {
     name: String,
     browser_download_url: String,
@@ -168,8 +195,8 @@ async fn read_json<T: DeserializeOwned>(
     serde_json::from_slice(&data).map_err(|_| ())
 }
 
-async fn fetch_latest(repository: &str) -> Result<Option<Release>, ()> {
-    let client = Client::builder()
+fn release_client() -> Result<Client, ()> {
+    Client::builder()
         .user_agent("Hongsi-Update/1.0")
         .https_only(true)
         .timeout(Duration::from_secs(10))
@@ -186,7 +213,29 @@ async fn fetch_latest(repository: &str) -> Result<Option<Release>, ()> {
             }
         }))
         .build()
+        .map_err(|_| ())
+}
+
+async fn fetch_manifest(
+    client: &Client,
+    source: &GitHubRelease,
+    repository: &str,
+) -> Result<Release, ()> {
+    let (_, manifest) = source.files(repository).ok_or(())?;
+    let response = client
+        .get(&manifest.browser_download_url)
+        .send()
+        .await
         .map_err(|_| ())?;
+    let release = read_json::<Release>(response, MAX_MANIFEST).await?;
+    if !validate_manifest(&release, source, repository) {
+        return Err(());
+    }
+    Ok(release)
+}
+
+async fn fetch_catalog(repository: &str) -> Result<Catalog, ()> {
+    let client = release_client()?;
     let response = client
         .get(format!(
             "https://api.github.com/repos/{repository}/releases?per_page=100"
@@ -198,19 +247,45 @@ async fn fetch_latest(repository: &str) -> Result<Option<Release>, ()> {
         .map_err(|_| ())?;
     let releases: Vec<GitHubRelease> = read_json(response, 2 * 1024 * 1024).await?;
     let found = candidates(&releases, repository);
+    let mut history = ReleaseHistory {
+        releases: Vec::new(),
+        url: format!("https://github.com/{repository}/releases"),
+    };
     if found.is_empty() {
-        return Ok(None);
+        return Ok(Catalog {
+            latest: None,
+            history,
+        });
     }
-    for source in found.into_iter().take(3) {
-        let (_, manifest) = source.files(repository).ok_or(())?;
-        let Ok(response) = client.get(&manifest.browser_download_url).send().await else {
-            continue;
-        };
-        let Ok(release) = read_json::<Release>(response, MAX_MANIFEST).await else {
-            continue;
-        };
-        if validate_manifest(&release, source, repository) {
-            return Ok(Some(release));
+    for source in found.iter().take(3) {
+        if let Ok(release) = fetch_manifest(&client, source, repository).await {
+            let latest_version = version(&release.version).ok_or(())?;
+            history.releases = found
+                .iter()
+                .filter_map(|previous| {
+                    let (value, number) = previous.stable_version()?;
+                    if number > latest_version {
+                        return None;
+                    }
+                    let (apk, _) = previous.files(repository)?;
+                    Some(ReleaseSummary {
+                        version: value.into(),
+                        source: (*previous).clone(),
+                        published_at: previous.published_at.clone(),
+                        url: apk.browser_download_url.clone(),
+                        size: apk.size,
+                        notes_url: format!(
+                            "https://github.com/{repository}/releases/tag/{}",
+                            previous.tag_name
+                        ),
+                    })
+                })
+                .collect();
+            history.releases.dedup_by(|a, b| a.version == b.version);
+            return Ok(Catalog {
+                latest: Some(release),
+                history,
+            });
         }
     }
     Err(())
@@ -220,13 +295,13 @@ struct Cached {
     repository: String,
     checked_at: Instant,
     succeeded_at: Option<Instant>,
-    result: Result<Option<Release>, ()>,
+    result: Result<Catalog, ()>,
 }
 
 impl Cached {
     fn refreshed(
         repository: String,
-        result: Result<Option<Release>, ()>,
+        result: Result<Catalog, ()>,
         previous: Option<&Self>,
         now: Instant,
     ) -> Self {
@@ -234,7 +309,9 @@ impl Cached {
         if result.is_err() {
             if let Some(old) = previous.filter(|c| {
                 c.repository == repository
-                    && matches!(c.result, Ok(Some(_)))
+                    && c.result
+                        .as_ref()
+                        .is_ok_and(|catalog| catalog.latest.is_some())
                     && c.succeeded_at
                         .is_some_and(|t| now.duration_since(t) < STALE_TTL)
             }) {
@@ -255,7 +332,7 @@ impl Cached {
     }
 }
 
-async fn latest_release() -> Result<Option<Release>, ()> {
+async fn release_catalog() -> Result<Catalog, ()> {
     let repository =
         std::env::var("HONGSI_RELEASE_REPOSITORY").unwrap_or_else(|_| DEFAULT_REPOSITORY.into());
     if !valid_repository(&repository) {
@@ -269,7 +346,7 @@ async fn latest_release() -> Result<Option<Release>, ()> {
     {
         return entry.result.clone();
     }
-    let result = tokio::time::timeout(Duration::from_secs(20), fetch_latest(&repository))
+    let result = tokio::time::timeout(Duration::from_secs(20), fetch_catalog(&repository))
         .await
         .unwrap_or(Err(()));
     if result.is_err() {
@@ -282,11 +359,65 @@ async fn latest_release() -> Result<Option<Release>, ()> {
 }
 
 pub async fn latest() -> Response {
-    let mut response = match latest_release().await {
-        Ok(Some(release)) => Json(release).into_response(),
-        Ok(None) => StatusCode::NO_CONTENT.into_response(),
+    let response = match release_catalog().await {
+        Ok(Catalog {
+            latest: Some(release),
+            ..
+        }) => Json(release).into_response(),
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(()) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    no_store(response)
+}
+
+pub async fn history() -> Response {
+    let response = match release_catalog().await {
+        Ok(catalog) => Json(catalog.history).into_response(),
+        Err(()) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    no_store(response)
+}
+
+async fn previous_release(value: &str) -> Result<Option<Release>, ()> {
+    if version(value).is_none() {
+        return Ok(None);
+    }
+    let catalog = release_catalog().await?;
+    if let Some(release) = catalog.latest.filter(|r| r.version == value) {
+        return Ok(Some(release));
+    }
+    let Some(previous) = catalog.history.releases.iter().find(|r| r.version == value) else {
+        return Ok(None);
+    };
+    let repository =
+        std::env::var("HONGSI_RELEASE_REPOSITORY").unwrap_or_else(|_| DEFAULT_REPOSITORY.into());
+    if !valid_repository(&repository) {
+        return Err(());
+    }
+    static CACHE: OnceLock<Mutex<HashMap<String, (Instant, Release)>>> = OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .await;
+    cache.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
+    if let Some((_, release)) = cache.get(&previous.url) {
+        return Ok(Some(release.clone()));
+    }
+    let release = fetch_manifest(&release_client()?, &previous.source, &repository).await?;
+    cache.insert(previous.url.clone(), (Instant::now(), release.clone()));
+    Ok(Some(release))
+}
+
+pub async fn detail(Path(value): Path<String>) -> Response {
+    let response = match previous_release(&value).await {
+        Ok(Some(release)) => Json(release).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(()) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    no_store(response)
+}
+
+fn no_store(mut response: Response) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
