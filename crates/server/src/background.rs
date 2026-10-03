@@ -543,7 +543,13 @@ async fn enqueue(
     payload: &Value,
     ttl: i64,
 ) -> sqlx::Result<()> {
-    sqlx::query("insert into notification_outbox(device_id,event_key,payload,due_at,expires_at) values($1,$2,$3,to_timestamp($4),to_timestamp($5)) on conflict(device_id,event_key) do update set payload=excluded.payload where notification_outbox.sent_at is null")
+    sqlx::query(
+        "insert into notification_outbox(device_id,event_key,payload,due_at,expires_at)
+         select $1,$2,$3,to_timestamp($4),to_timestamp($5)
+         where $2 not like 'due:%' or to_timestamp($4)>now()
+         on conflict(device_id,event_key) do update set payload=excluded.payload
+         where notification_outbox.sent_at is null"
+    )
         .bind(device).bind(key).bind(payload).bind(at as f64).bind((at+ttl) as f64).execute(db).await?;
     Ok(())
 }
