@@ -2,12 +2,19 @@
   import { slide } from 'svelte/transition';
   import { net, retry, trouble, TROUBLE_TEXT } from '../lib/net.svelte';
   import Icon from './Icon.svelte';
+  import { app } from '../lib/store.svelte';
 
   const t = $derived(trouble());
   const ICON = { offline: 'wifi-off', server: 'cloud-off', school: 'alert' } as const;
 </script>
 
-{#if t}
+{#if app.schoolNeedsLogin && !t}
+  <div class="banner school" role="status">
+    <span class="ico"><Icon name="alert" size={17} /></span>
+    <p><strong>학교에 다시 로그인해 주세요</strong></p>
+    <button class="again" onclick={() => app.schoolLoginOpen = true}>다시 로그인</button>
+  </div>
+{:else if t}
   <div class="banner {t}" role="status" transition:slide={{ duration: 180 }}>
     <span class="ico"><Icon name={ICON[t]} size={17} stroke={2} /></span>
     <p>

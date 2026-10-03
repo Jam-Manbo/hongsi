@@ -114,20 +114,19 @@ pub async fn status(
         json!({"registered":device.is_some(),"classroomAlerts":device.as_ref().is_some_and(|d|d.1),"error":device.and_then(|d|d.0),"consented":bg.is_some(),"expiresAt":bg.as_ref().map(|b|b.0.timestamp()),"lastPollAt":bg.as_ref().and_then(|b|b.1).map(|d|d.timestamp()),"schoolError":bg.and_then(|b|b.2),"scheduled":count.0,"nextAt":count.1.map(|d|d.timestamp()),"pollMinutes":POLL_SECS/60,"available":{"web":st.push.ready("web"),"fcm":st.push.ready("fcm"),"apns":st.push.ready("apns")},"publicKey":st.push.public_key}),
     ))
 }
-async fn verified_cookies(st: &Shared, user: &CurrentUser, supplied: Option<Vec<(String, String)>>) -> Result<Vec<(String, String)>, ApiError> {
-    let cookies = match (&user.session.school, supplied) {
-        (Some(school), _) => school.sso_cookies().to_vec(),
+async fn verified_school(st: &Shared, user: &CurrentUser, supplied: Option<Vec<(String, String)>>) -> Result<std::sync::Arc<hongsi_core::SchoolSession>, ApiError> {
+    let school = match (user.session.school().ok(), supplied) {
+        (Some(school), _) => school,
         (None, Some(cookies)) if !cookies.is_empty() && cookies.len() <= 30
-            && cookies.iter().all(|(k, v)| k.len() <= 100 && v.len() <= 8000) => cookies,
+            && cookies.iter().all(|(k, v)| k.len() <= 100 && v.len() <= 8000) => std::sync::Arc::new(hongsi_core::SchoolSession::from_sso_cookies(cookies)?),
         _ => return Err(ApiError::bad_request("학교 로그인 세션이 필요해요")),
     };
-    let school = hongsi_core::SchoolSession::from_sso_cookies(cookies.clone())?;
     let token = school.moodle_token().await?;
     let (owner, _) = hongsi_core::classroom::token_owner(&st.http, &token).await?;
     if owner != user.session.student_id {
         return Err(ApiError::bad_request("학교 세션의 계정이 현재 계정과 달라요"));
     }
-    Ok(cookies)
+    Ok(school)
 }
 
 pub async fn enable_sync(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Renewal>) -> Result<Json<Value>, ApiError> {
@@ -144,8 +143,8 @@ pub async fn renew(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Re
 
 async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool) -> Result<Json<Value>, ApiError> {
     let uid = user.session.user_id;
-    let cookies = verified_cookies(st, user, b.cookies).await?;
-    let sealed = vault::Sealed { device: false, name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies };
+    let school = verified_school(st, user, b.cookies).await?;
+    let sealed = vault::Sealed { device: false, name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies: school.sso_cookies().to_vec(), school: Some(school.snapshot()) };
     let (nonce, ciphertext) = vault::seal(&st.pepper, &format!("background:{uid}:{}", b.device_id), &sealed)
         .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요"))?;
     let mut tx = st.db.begin().await?;
@@ -171,7 +170,7 @@ async fn notice_baseline(st: &Shared, tx: &mut sqlx::Transaction<'_, sqlx::Postg
     let row = sqlx::query_as::<_, Background>("select d.id,d.nonce,d.ciphertext,b.snapshot from background_devices d join background_sessions b on b.user_id=d.user_id where d.user_id=$1 and d.expires_at>now() order by d.expires_at desc limit 1")
         .bind(uid).fetch_optional(&mut **tx).await.ok()??;
     let sealed = vault::open(&st.pepper, &format!("background:{uid}:{}", row.id), &row.nonce, &row.ciphertext)?;
-    let school = hongsi_core::SchoolSession::from_sso_cookies(sealed.cookies).ok()?;
+    let school = sealed.school_session().ok()?;
     let notices = fetch_notices(&school, None).await.ok()?;
     Some(notices.iter().map(notice_key).collect())
 }
@@ -331,7 +330,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
         return Ok(());
     };
     if poll_due(&st.db, uid).await? {
-        match fetch_calendar(st, uid, sealed.cookies, bg.snapshot.as_ref()).await {
+        match fetch_calendar(st, uid, &sealed, bg.snapshot.as_ref()).await {
             Ok(snapshot) => {
                 queue_notices(st, uid, &sealed.student_id, &snapshot).await?;
                 sqlx::query("update background_sessions set snapshot=$2,last_poll_at=now(),next_poll_at=now()+make_interval(secs=>$3),last_error=null where user_id=$1") .bind(uid).bind(&snapshot).bind(POLL_SECS as f64).execute(&st.db).await?;
@@ -432,10 +431,10 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
 async fn fetch_calendar(
     st: &Shared,
     uid: i64,
-    cookies: Vec<(String, String)>,
+    sealed: &vault::Sealed,
     previous: Option<&Value>,
 ) -> Result<Value, ApiError> {
-    let school = hongsi_core::SchoolSession::from_sso_cookies(cookies)?;
+    let school = sealed.school_session()?;
     let courses = school.courses().await?;
     let (assignments, vods, notices) = tokio::join!(
         school.assignments(&courses), school.vods(&courses), fetch_notices(&school, previous)

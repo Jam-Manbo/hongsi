@@ -16,6 +16,16 @@ impl SchoolSession {
         let mut initial_body = None;
         self.attendance_ready
             .get_or_try_init(|| async {
+                use reqwest::cookie::CookieStore;
+                let origin = reqwest::Url::parse(AT).expect("출결 주소");
+                let has_session = self.cookie_jar.cookies(&origin).and_then(|header| header.to_str().ok().map(|value| value.contains("JSESSIONID="))).unwrap_or(false);
+                if has_session {
+                    let body = self.get_text(&format!("{AT}index.jsp"), None).await?;
+                    if !looks_like_login(&body) && Html::parse_document(&body).select(&sel("table")).next().is_some() {
+                        initial_body = Some(body);
+                        return Ok(());
+                    }
+                }
                 self.client
                     .get(format!("{AT}login.jsp"))
                     .header(REFERER, "https://my.hongik.ac.kr/")

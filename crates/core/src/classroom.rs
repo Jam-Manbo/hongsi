@@ -21,6 +21,23 @@ pub const CN2: &str = "https://cn2.hongik.ac.kr";
 impl SchoolSession {
     async fn ensure_moodle_web(&self) -> Result<()> {
         self.moodle_web_ready.get_or_try_init(|| async {
+            use reqwest::cookie::CookieStore;
+            let origin = url::Url::parse(CN2).expect("클래스룸 주소");
+            let has_session = self.cookie_jar.cookies(&origin).and_then(|header| header.to_str().ok().map(|value| value.contains("MoodleSession="))).unwrap_or(false);
+            if has_session {
+                let body = self.client.get(format!("{CN2}/")).send().await?.text().await?;
+                if body.contains("\"sesskey\"") && !body.contains("loginform") { return Ok(()); }
+            }
+            if let Some(auth) = self.moodle.get().filter(|auth| auth.private_token.is_some()) {
+                match self.autologin_for(auth, &format!("{CN2}/")).await {
+                    Ok(url) => {
+                        let body = self.client.get(url).send().await?.text().await?;
+                        if body.contains("\"sesskey\"") { return Ok(()); }
+                    }
+                    Err(error @ (CoreError::Network(_) | CoreError::ClassroomTokenExpired)) => return Err(error),
+                    Err(_) => {}
+                }
+            }
             let body = self.client.get(format!("{CN2}/login/index.php")).send().await?.text().await?;
             if !body.contains("\"sesskey\"") {
                 return Err(CoreError::SessionExpired);
@@ -95,6 +112,14 @@ impl SchoolSession {
         ws_call(&self.client, &auth.token, function, params).await
     }
 
+    pub fn cached_profile(&self) -> Option<Profile> {
+        self.moodle.get().map(|auth| Profile {
+            name: auth.full_name.clone(),
+            has_picture: auth.picture_url.as_deref().is_some_and(|u| u.contains("pluginfile.php")),
+            department: auth.department.clone(),
+        })
+    }
+
     pub async fn profile(&self) -> Result<Profile> {
         let auth = self.moodle().await?;
         let has_picture = auth.picture_url.as_deref().is_some_and(|u| u.contains("pluginfile.php"));
@@ -106,7 +131,9 @@ impl SchoolSession {
     }
 
     pub async fn refresh_moodle(&self) -> Result<Self> {
-        let session = Self::from_sso_cookies(self.sso_cookies().to_vec())?;
+        let mut snapshot = self.snapshot();
+        snapshot.moodle = None;
+        let session = Self::from_snapshot(snapshot)?;
         session.moodle().await?;
         Ok(session)
     }
@@ -115,7 +142,14 @@ impl SchoolSession {
         if !target.starts_with(&format!("{CN2}/")) {
             return Err(CoreError::NotFound("클래스룸 주소가 아니에요".into()));
         }
-        let auth = self.moodle().await?;
+        self.autologin_for(self.moodle().await?, target).await
+    }
+
+    pub async fn restore_classroom_web(&self) -> Result<()> {
+        self.ensure_moodle_web().await
+    }
+
+    async fn autologin_for(&self, auth: &MoodleAuth, target: &str) -> Result<String> {
         let private = auth
             .private_token
             .as_deref()

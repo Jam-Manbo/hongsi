@@ -62,7 +62,7 @@ impl From<CoreError> for ApiError {
     fn from(err: CoreError) -> Self {
         let message = err.to_string();
         match err {
-            CoreError::ClassroomTokenExpired => Self::new(StatusCode::UNAUTHORIZED, "session_expired", message),
+            CoreError::ClassroomTokenExpired => Self::new(StatusCode::UNAUTHORIZED, "classroom_token_expired", message),
             CoreError::SessionExpired => Self::new(StatusCode::UNAUTHORIZED, "session_expired", message),
             CoreError::LoginRejected(_) => Self::new(StatusCode::UNAUTHORIZED, "login_rejected", message),
             CoreError::Network(e) => {

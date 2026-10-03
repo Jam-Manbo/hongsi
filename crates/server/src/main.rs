@@ -110,6 +110,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .fallback_service(
             ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html"))),
         )
+        .layer(axum::middleware::from_fn_with_state(state.clone(), auth::maintain_session))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 

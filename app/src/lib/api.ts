@@ -1,6 +1,6 @@
 import { isApp } from './env';
 import { reportSchool, reportServer } from './net.svelte';
-import { inSession, sessionUser } from './session';
+import { inSession, sessionUser, sessionVersion } from './session';
 import type {
   ActiveLectures,
   AttendanceCourse,
@@ -61,10 +61,56 @@ function note(path: string, status: number, data: unknown, server?: boolean | nu
   else if (code === 'school_unreachable' || code === 'school_error') reportSchool(false);
 }
 
+const schoolAuthListeners = new Set<() => void>();
+const recoveryJobs = new Map<string, Promise<unknown>>();
+
+export function onSchoolAuthRequired(listener: () => void) {
+  schoolAuthListeners.add(listener);
+  return () => schoolAuthListeners.delete(listener);
+}
+
+export function schoolAuthRequired() {
+  schoolAuthListeners.forEach((listener) => listener());
+}
+
+const schoolAuthError = (e: unknown): e is ApiError => e instanceof ApiError && e.status === 401
+  && (e.code === 'session_expired' || e.code === 'classroom_token_expired');
+
+async function recoverSchoolAuth(e: ApiError, path: string, check: () => void) {
+  const kind = path.startsWith('/api/attendance/') ? 'attendance' : path.startsWith('/api/timetable') ? 'timetable'
+    : e.code === 'classroom_token_expired' ? 'classroom_token' : 'classroom';
+  const key = `${sessionVersion()}:${kind}`;
+  let pending = recoveryJobs.get(key);
+  if (!pending) {
+    pending = sendRequest('POST', '/api/auth/recover', { kind }, check);
+    recoveryJobs.set(key, pending);
+    void pending.finally(() => { if (recoveryJobs.get(key) === pending) recoveryJobs.delete(key); }).catch(() => {});
+  }
+  await pending;
+  check();
+}
+
+async function withSchoolRecovery<T>(method: string, path: string, body: unknown, check: () => void): Promise<T> {
+  try {
+    return await sendRequest<T>(method, path, body, check);
+  } catch (e) {
+    if (isApp || !schoolAuthError(e) || path.startsWith('/api/auth/')) throw e;
+    await recoverSchoolAuth(e, path, check);
+    if (method !== 'GET') throw new ApiError(409, 'school_retry_required', '학교에 다시 연결됐어요. 다시 시도해 주세요.');
+    try {
+      return await sendRequest<T>(method, path, body, check);
+    } catch (retryError) {
+      if (schoolAuthError(retryError)) throw new ApiError(409, 'school_reauth_required', '학교에 다시 로그인해 주세요.');
+      throw retryError;
+    }
+  }
+}
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   try {
-    return await inSession((check) => sendRequest<T>(method, path, body, check));
+    return await inSession((check) => withSchoolRecovery<T>(method, path, body, check));
   } catch (e) {
+    if (!isApp && e instanceof ApiError && e.code === 'school_reauth_required') schoolAuthRequired();
     if (e instanceof ApiError && e.status === 401 && e.code === 'session_revoked') {
       sessionRevokedListeners.forEach((listener) => listener());
     }
@@ -193,7 +239,17 @@ export const api = {
       }
       if (status >= 400) {
         const err = errorOf(data);
-        throw new ApiError(status, err?.code ?? 'error', err?.message ?? `제출하지 못했어요 (${status})`);
+        const error = new ApiError(status, err?.code ?? 'error', err?.message ?? `제출하지 못했어요 (${status})`);
+        if (!isApp && schoolAuthError(error)) {
+          try {
+            await recoverSchoolAuth(error, `/api/assign/${cmid}/submission`, check);
+          } catch (recoveryError) {
+            if (recoveryError instanceof ApiError && recoveryError.code === 'school_reauth_required') schoolAuthRequired();
+            throw recoveryError;
+          }
+          throw new ApiError(409, 'school_retry_required', '학교에 다시 연결됐어요. 제출 상태를 확인한 뒤 다시 시도해 주세요.');
+        }
+        throw error;
       }
       return data as SubmissionView;
     });

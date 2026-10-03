@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use regex::Regex;
-use reqwest::cookie::Jar;
+use reqwest::cookie::{CookieStore, Jar};
 use reqwest::header::{ACCEPT_LANGUAGE, ORIGIN, REFERER};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Url};
@@ -51,14 +51,25 @@ pub(crate) struct MoodleAuth {
     pub department: Option<String>,
 }
 
+const SERVICE_ORIGINS: [&str; 4] = ["https://cn2.hongik.ac.kr/", "https://at.hongik.ac.kr/", "https://my.hongik.ac.kr/", "https://cn.hongik.ac.kr/"];
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct ServiceCookies {
+    origin: String,
+    cookies: Vec<(String, String)>,
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct SchoolSessionSnapshot {
     version: u8,
     sso_cookies: Vec<(String, String)>,
-    moodle: Option<MoodleAuth>,
+    pub(crate) moodle: Option<MoodleAuth>,
+    #[serde(default)]
+    service_cookies: Vec<ServiceCookies>,
 }
 
 pub struct SchoolSession {
+    pub(crate) cookie_jar: Arc<Jar>,
     pub(crate) client: Client,
     pub(crate) no_redirect: Client,
     pub(crate) attendance_ready: OnceCell<()>,
@@ -109,11 +120,12 @@ impl SchoolSession {
         }
         add_sso_cookies(&jar, &cookies);
         tracing::debug!(cookies = cookies.len(), "SSO 로그인 성공");
-        Ok(Self::with_cookies(client, no_redirect, cookies))
+        Ok(Self::with_cookies(jar, client, no_redirect, cookies))
     }
 
-    fn with_cookies(client: Client, no_redirect: Client, sso_cookies: Vec<(String, String)>) -> Self {
+    fn with_cookies(cookie_jar: Arc<Jar>, client: Client, no_redirect: Client, sso_cookies: Vec<(String, String)>) -> Self {
         Self {
+            cookie_jar,
             client,
             no_redirect,
             attendance_ready: OnceCell::new(),
@@ -127,7 +139,7 @@ impl SchoolSession {
     pub fn from_sso_cookies(cookies: Vec<(String, String)>) -> Result<Self> {
         let (jar, client, no_redirect) = clients()?;
         add_sso_cookies(&jar, &cookies);
-        Ok(Self::with_cookies(client, no_redirect, cookies))
+        Ok(Self::with_cookies(jar, client, no_redirect, cookies))
     }
 
     pub fn sso_cookies(&self) -> &[(String, String)] {
@@ -135,16 +147,33 @@ impl SchoolSession {
     }
 
     pub fn snapshot(&self) -> SchoolSessionSnapshot {
-        SchoolSessionSnapshot { version: 1, sso_cookies: self.sso_cookies.clone(), moodle: self.moodle.get().cloned() }
+        let service_cookies = SERVICE_ORIGINS.iter().filter_map(|origin| {
+            let url = Url::parse(origin).ok()?;
+            let header = self.cookie_jar.cookies(&url)?;
+            let mut cookies: Vec<(String, String)> = header.to_str().ok()?.split(';').filter_map(|pair| {
+                let (name, value) = pair.trim().split_once('=')?;
+                if self.sso_cookies.iter().any(|(key, _)| key == name) { return None; }
+                Some((name.to_string(), value.to_string()))
+            }).collect();
+            cookies.sort();
+            (!cookies.is_empty()).then(|| ServiceCookies { origin: origin.to_string(), cookies })
+        }).collect();
+        SchoolSessionSnapshot { version: 1, sso_cookies: self.sso_cookies.clone(), moodle: self.moodle.get().cloned(), service_cookies }
     }
 
     pub fn from_snapshot(snapshot: SchoolSessionSnapshot) -> Result<Self> {
         let valid_token = |token: &str| !token.is_empty() && token.len() <= 128 && token.bytes().all(|b| b.is_ascii_alphanumeric());
+        let invalid_cookie = |(name, value): &(String, String)| {
+            name.is_empty() || name.len() > 100 || value.len() > 8000
+                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+                || value.bytes().any(|b| b.is_ascii_control() || b == b';')
+        };
         if snapshot.version != 1 || snapshot.sso_cookies.is_empty() || snapshot.sso_cookies.len() > 30
-            || snapshot.sso_cookies.iter().any(|(name, value)| {
-                name.is_empty() || name.len() > 100 || value.len() > 8000
-                    || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
-                    || value.bytes().any(|b| b.is_ascii_control() || b == b';')
+            || snapshot.sso_cookies.iter().any(invalid_cookie)
+            || snapshot.service_cookies.len() > SERVICE_ORIGINS.len()
+            || snapshot.service_cookies.iter().any(|service| {
+                !SERVICE_ORIGINS.contains(&service.origin.as_str()) || service.cookies.len() > 50
+                    || service.cookies.iter().any(invalid_cookie)
             })
             || snapshot.moodle.as_ref().is_some_and(|auth| {
                 !valid_token(&auth.token) || auth.private_token.as_deref().is_some_and(|token| !valid_token(token)) || auth.user_id <= 0
@@ -154,6 +183,12 @@ impl SchoolSession {
         }
         let mut session = Self::from_sso_cookies(snapshot.sso_cookies)?;
         session.moodle = OnceCell::new_with(snapshot.moodle);
+        for service in snapshot.service_cookies {
+            let origin = Url::parse(&service.origin).map_err(|_| CoreError::Parse("저장된 학교 주소".into()))?;
+            for (name, value) in service.cookies {
+                session.cookie_jar.add_cookie_str(&format!("{name}={value}; Path=/; Secure"), &origin);
+            }
+        }
         Ok(session)
     }
 

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
@@ -14,12 +14,14 @@ pub const REMEMBER_DAYS: i32 = 14;
 pub const SESSION_HOURS: i64 = 12;
 
 pub struct UserSession {
-    pub school: Option<SchoolSession>,
+    pub school: RwLock<Option<Arc<SchoolSession>>>,
+    pub maintenance: tokio::sync::Mutex<Option<hongsi_core::SchoolSessionSnapshot>>,
+    pub recovery: tokio::sync::Mutex<HashMap<String, (Instant, bool)>>,
     pub user_id: i64,
     pub name: String,
     pub student_id: String,
     pub remembered: bool,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Mutex<DateTime<Utc>>,
     last_used: Mutex<Instant>,
     pub calendar_cache: tokio::sync::Mutex<Option<(Instant, CalendarData)>>,
     pub lectures_cache: tokio::sync::Mutex<Option<(Instant, ActiveLectures)>>,
@@ -31,12 +33,14 @@ pub struct UserSession {
 impl UserSession {
     pub fn new(school: Option<SchoolSession>, user_id: i64, name: String, student_id: String, remembered: bool) -> Self {
         Self {
-            school,
+            school: RwLock::new(school.map(Arc::new)),
+            maintenance: tokio::sync::Mutex::new(None),
+            recovery: tokio::sync::Mutex::new(HashMap::new()),
             user_id,
             name,
             student_id,
             remembered,
-            expires_at: Utc::now() + if remembered { Span::days(REMEMBER_DAYS as i64) } else { Span::hours(SESSION_HOURS) },
+            expires_at: Mutex::new(Utc::now() + if remembered { Span::days(REMEMBER_DAYS as i64) } else { Span::hours(SESSION_HOURS) }),
             last_used: Mutex::new(Instant::now()),
             calendar_cache: tokio::sync::Mutex::new(None),
             lectures_cache: tokio::sync::Mutex::new(None),
@@ -46,10 +50,18 @@ impl UserSession {
         }
     }
 
-    pub fn school(&self) -> Result<&SchoolSession, ApiError> {
-        self.school.as_ref().ok_or_else(|| {
+    pub fn school(&self) -> Result<Arc<SchoolSession>, ApiError> {
+        self.school.read().expect("세션 잠금").clone().ok_or_else(|| {
             ApiError::new(StatusCode::CONFLICT, "device_session", "앱에서는 학교 요청을 기기에서 직접 보내요")
         })
+    }
+
+    pub fn expires_at(&self) -> DateTime<Utc> {
+        *self.expires_at.lock().expect("세션 잠금")
+    }
+
+    pub fn replace_school(&self, school: SchoolSession) {
+        *self.school.write().expect("세션 잠금") = Some(Arc::new(school));
     }
 
     fn touch(&self) {
@@ -103,13 +115,12 @@ impl Sessions {
 
     pub fn restore(&self, token: &str, session: UserSession) -> Arc<UserSession> {
         let session = Arc::new(session);
-        self.inner.lock().expect("세션 잠금").insert(token.to_string(), session.clone());
-        session
+        self.inner.lock().expect("세션 잠금").entry(token.to_string()).or_insert(session).clone()
     }
 
     pub fn get(&self, token: &str) -> Option<Arc<UserSession>> {
         let mut map = self.inner.lock().expect("세션 잠금");
-        if map.get(token).is_some_and(|session| session.expires_at <= Utc::now()) {
+        if map.get(token).is_some_and(|session| session.expires_at() <= Utc::now()) {
             map.remove(token);
             return None;
         }
@@ -128,7 +139,7 @@ impl Sessions {
         let mut map = self.inner.lock().expect("세션 잠금");
         let before = map.len();
         let now = Utc::now();
-        map.retain(|_, s| s.expires_at > now && s.idle() < max_idle);
+        map.retain(|_, s| s.expires_at() > now && s.idle() < max_idle);
         before - map.len()
     }
 }

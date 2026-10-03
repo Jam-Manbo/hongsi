@@ -38,6 +38,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/logout-all", post(logout_all))
         .route("/api/auth/device", post(device_login))
+        .route("/api/auth/recover", post(auth::recover))
+        .route("/api/auth/reconnect", post(auth::reconnect))
         .route("/api/me", get(me))
         .route("/api/me/avatar", get(avatar))
         .route("/api/files/{cmid}/{index}", get(download_file))
@@ -105,9 +107,9 @@ async fn login(State(st): State<Shared>, headers: HeaderMap, Json(body): Json<Lo
     };
     let user_id = db::upsert_user(&st.db, &auth::user_key(&st.pepper, &id)).await?;
     let _account_access = st.sessions.account_access(user_id).read_owned().await;
-    let sealed = vault::Sealed { device: false, name: name.clone(), student_id: id.clone(), cookies: school.sso_cookies().to_vec() };
+    let sealed = vault::Sealed { device: false, name: name.clone(), student_id: id.clone(), cookies: school.sso_cookies().to_vec(), school: Some(school.snapshot()) };
     let session = UserSession::new(Some(school), user_id, name.clone(), id.clone(), body.remember);
-    let expires_at = session.expires_at;
+    let expires_at = session.expires_at();
     let token = st.sessions.insert(session);
     let encrypted = if body.remember {
         let Some(encrypted) = vault::seal(&st.pepper, &token, &sealed) else {
@@ -177,13 +179,15 @@ async fn logout_all(State(st): State<Shared>, LoginToken(token): LoginToken) -> 
 }
 
 async fn me(user: CurrentUser) -> ApiResult<Value> {
-    let Some(school) = user.session.school.as_ref() else {
+    let Ok(school) = user.session.school() else {
         return Ok(Json(json!({
             "profile": { "name": user.session.name, "hasPicture": false, "studentId": user.session.student_id },
             "remembered": user.session.remembered,
         })));
     };
-    let profile = school.profile().await?;
+    let profile = school.cached_profile().unwrap_or_else(|| hongsi_core::models::Profile {
+        name: user.session.name.clone(), has_picture: false, department: None,
+    });
     Ok(Json(json!({
         "profile": {
             "name": if profile.name.is_empty() { user.session.name.clone() } else { profile.name },
@@ -233,9 +237,9 @@ async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Jso
         if record.revoked_at.is_some() { return Err(ApiError::session_revoked()); }
         if record.user_id != user_id { return Err(ApiError::conflict("기존 계정에서 먼저 로그아웃해 주세요")); }
     }
-    let sealed = vault::Sealed { device: true, name: name.clone(), student_id: student_id.clone(), cookies: Vec::new() };
+    let sealed = vault::Sealed { device: true, name: name.clone(), student_id: student_id.clone(), cookies: Vec::new(), school: None };
     let session = UserSession::new(None, user_id, name.clone(), student_id, b.remember);
-    let expires_at = session.expires_at;
+    let expires_at = session.expires_at();
     let token = st.sessions.insert(session);
     let encrypted = if b.remember {
         let Some(encrypted) = vault::seal(&st.pepper, &token, &sealed) else {
@@ -784,7 +788,7 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<Option<chrono::
             .await
             .as_ref()
             .map(|(_, d)| d.courses.iter().any(|c| c.id == course));
-        let known = match (cached, user.session.school.as_ref()) {
+        let known = match (cached, user.session.school().ok()) {
             (Some(k), _) => k,
             (None, Some(school)) => school.courses().await?.iter().any(|c| c.id == course),
             (None, None) => {
