@@ -36,7 +36,6 @@
   import { TABS, go, openSeats, route, toast } from './lib/ui.svelte';
   import Avatar from './components/Avatar.svelte';
   import ConnBanner from './components/ConnBanner.svelte';
-  import SchoolReconnect from './components/SchoolReconnect.svelte';
   import Icon from './components/Icon.svelte';
   import Downloads from './components/Downloads.svelte';
   import Notices from './components/Notices.svelte';
@@ -218,7 +217,6 @@
 </script>
 
 <Toasts />
-{#if app.profile && !isApp}<SchoolReconnect />{/if}
 
 {#if downloadPage}
   <DownloadPage />

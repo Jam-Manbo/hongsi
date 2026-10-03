@@ -1,8 +1,7 @@
-import { ApiError, api, isApp, onSessionRevoked, onSchoolAuthRequired, schoolAuthRequired } from './api';
+import { ApiError, api, isApp, onSessionRevoked, onSchoolAuthRequired } from './api';
 import { normalizeCalendar } from './calendar-data';
 import { errorText, onReconnect, troubleOf, type Trouble } from './net.svelte';
 import { clearLegacyData, clearUserData, isStaleSession, onSessionChange, readUserData, setSessionUser, writeUserData } from './session';
-import { toastOnce } from './ui.svelte';
 import type {
   ActiveLectures,
   AttendanceCourse,
@@ -25,8 +24,6 @@ export const app = $state({
   booting: true,
   notice: '',
   remembered: false,
-  schoolNeedsLogin: false,
-  schoolLoginOpen: false,
   loggingOut: false,
 });
 
@@ -54,16 +51,12 @@ export function startSession(profile: Profile, remembered: boolean, id = profile
   app.account = id.trim().toUpperCase() || null;
   setSessionUser(app.account);
   app.notice = '';
-  app.schoolNeedsLogin = false;
-  app.schoolLoginOpen = false;
   app.remembered = remembered;
   app.profile = profile;
 }
 
 export function endSession() {
   clearUserData();
-  app.schoolNeedsLogin = false;
-  app.schoolLoginOpen = false;
   app.profile = null;
   app.account = null;
   app.remembered = false;
@@ -96,23 +89,29 @@ function handleSessionRevoked() {
   if (app.profile || app.account) endSession();
   app.notice = '로그아웃됐어요. 다시 로그인해 주세요.';
 }
+function handleSchoolSessionExpired() {
+  if (!app.profile || app.loggingOut) return;
+  void logoutSession().catch(() => {
+    if (app.profile || app.account) endSession();
+  }).then(() => {
+    app.notice = '로그인이 만료됐어요. 다시 로그인해 주세요.';
+  });
+}
+
 onSessionRevoked(handleSessionRevoked);
-onSchoolAuthRequired(() => { if (app.profile && !app.loggingOut) app.schoolNeedsLogin = true; });
+onSchoolAuthRequired(handleSchoolSessionExpired);
 
 export function handleAuthError(e: unknown): boolean {
   if (isStaleSession(e)) return true;
-  if (!isApp && e instanceof ApiError && ['session_expired', 'classroom_token_expired', 'school_reauth_required'].includes(e.code)) {
-    schoolAuthRequired();
-    return false;
+  if (e instanceof ApiError && ['session_expired', 'classroom_token_expired', 'school_reauth_required'].includes(e.code)) {
+    handleSchoolSessionExpired();
+    return true;
   }
   if (e instanceof ApiError && e.status === 401 && e.code !== 'login_rejected') {
     if (e.code === 'session_revoked') { handleSessionRevoked(); return true; }
     if (app.loggingOut) return true;
-    if (e.code === 'session_expired') void logoutSession().catch(() => {
-      toastOnce('로그아웃에 실패했어요. 다시 시도해주세요.', 'error', 8000);
-    });
-    else endSession();
-    app.notice = e.code === 'session_expired' ? '학교 로그인이 만료됐어요. 다시 로그인해 주세요.' : '';
+    endSession();
+    app.notice = '';
     return true;
   }
   return false;

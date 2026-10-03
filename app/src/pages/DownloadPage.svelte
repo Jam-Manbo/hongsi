@@ -142,7 +142,7 @@
         </div>
         <details class="details latest-changes"><summary><h2>변경사항</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary><p class="notes">{release.notes || '사용성과 안정성을 개선했어요.'}</p></details>
       {:else}<p class="status">앱 배포를 준비하고 있어요. 먼저 웹에서 이용할 수 있어요.</p>{/if}
-      <div class="details"><h2>APK 설치 방법</h2><ol><li>APK 파일을 다운로드 한 뒤 열어주세요.</li><li>보안 경고가 뜰 경우 '세부정보 더보기' - '무시하고 설치' 순으로 진행해주세요.</li><li>설치 후에는 홍시 앱 내에서 새 버전을 확인하고 자체적으로 업데이트 할 수 있어요.</li></ol><p class="ios-status">iOS 앱은 아직 배포하지 않아요.</p>
+      <div class="details"><h2>APK 설치 방법</h2><ol><li>APK 파일을 다운로드 한 뒤 열어주세요.</li><li>보안 경고가 뜰 경우 '세부정보 더보기' - '무시하고 설치' 순으로 진행해주세요.</li><li>설치 후에는 홍시 앱 내에서 새 버전을 확인하고 자체적으로 업데이트 할 수 있어요.</li></ol><p class="ios-status">iOS 앱은 아직 배포할 수 없어요.</p>
         <div class="support">
           <p>앱이 마음에 드신다면 후원 부탁드립니다!<br />후원 금액은 추후 앱스토어 및 플레이스토어 등록비로 사용될 예정입니다.</p>
           <a class="support-link" href="https://ko-fi.com/manbo" target="_blank" rel="noopener noreferrer"><img src="/kofi.png" alt="Ko-fi" width="22" height="18" />후원하러 가기 <Icon name="arrow-up-right" size={16} /></a>
