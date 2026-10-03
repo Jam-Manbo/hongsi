@@ -81,15 +81,13 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.HONGSI_DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.HONGSI_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.HONGSI_DEPLOY_KNOWN_HOSTS }}
         run: |
-          : "${DEPLOY_HOST:?}" "${DEPLOY_SSH_KEY:?}" "${DEPLOY_KNOWN_HOSTS:?}"
+          : "${DEPLOY_HOST:?}" "${DEPLOY_SSH_KEY:?}"
           install -d -m 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/hongsi_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/hongsi_key
           trap 'rm -f ~/.ssh/hongsi_key' EXIT
-          ssh_options=(-i "$HOME/.ssh/hongsi_key" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          ssh_options=(-i "$HOME/.ssh/hongsi_key" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
           scp "${ssh_options[@]}" release-assets/hongsi-server-ubuntu26-arm64.tar.gz "ubuntu@$DEPLOY_HOST:/home/ubuntu/hongsi/.deploy.tar.gz"
           ssh "${ssh_options[@]}" "ubuntu@$DEPLOY_HOST" 'bash -se' <<'REMOTE'
           cd /home/ubuntu/hongsi
