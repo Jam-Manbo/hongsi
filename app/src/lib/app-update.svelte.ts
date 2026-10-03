@@ -23,7 +23,6 @@ export class AppUpdater {
   configured = $state(true);
   checked = $state(false);
   error = $state('');
-  private attemptedAt = 0;
   constructor(private driver: Driver) {}
   async status() {
     try {
@@ -40,9 +39,6 @@ export class AppUpdater {
     if (this.checking || this.installing) return;
     await this.status();
     if (this.checking || this.installing) return;
-    const now = Date.now();
-    if (!manual && now - Math.max(this.attemptedAt, Number(saved(`checked-at-${this.source}`)) || 0) < 6 * 3600_000) return;
-    this.attemptedAt = now;
     this.checking = true; this.error = ''; this.installerOpened = false;
     try {
       const result = await this.driver<Check>('check');
@@ -51,7 +47,6 @@ export class AppUpdater {
       this.release = result.release; this.configured = result.configured;
       this.permissionsNeeded = !result.canInstall;
       this.checked = true;
-      save(`checked-at-${this.source}`, String(now));
       if (manual || (result.release && saved(`dismissed-${this.source}`) !== String(result.release.versionCode))) this.open = true;
     } catch (e) { this.release = null; this.checked = false; this.error = problem(e); }
     finally { this.checking = false; }
@@ -83,11 +78,10 @@ export const appUpdater = new AppUpdater(async <T>(action: string, versionCode?:
 
 export function watchAppUpdates() {
   if (!canUpdateApp) return () => {};
-  void appUpdater.status();
-  const timer = setTimeout(() => { void appUpdater.check(); }, 3000);
-  const resume = () => { void appUpdater.status(); if (!appUpdater.open) void appUpdater.check(); };
+  void appUpdater.check();
+  const resume = () => { void appUpdater.status(); };
   window.addEventListener('focus', resume);
   const visible = () => { if (document.visibilityState === 'visible') resume(); };
   document.addEventListener('visibilitychange', visible);
-  return () => { clearTimeout(timer); window.removeEventListener('focus', resume); document.removeEventListener('visibilitychange', visible); };
+  return () => { window.removeEventListener('focus', resume); document.removeEventListener('visibilitychange', visible); };
 }
