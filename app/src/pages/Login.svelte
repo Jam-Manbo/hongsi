@@ -7,7 +7,7 @@
   import Icon from '../components/Icon.svelte';
   import Sheet from '../components/Sheet.svelte';
 
-  let id = $state(pref('last-id', ''));
+  let id = $state(pref('last-id', '').toUpperCase());
   let password = $state('');
   let busy = $state(false);
   let error = $state('');
@@ -17,6 +17,22 @@
   let rememberInfoOpen = $state(false);
 
   const REMEMBER_LABEL = isApp ? '자동 로그인' : '로그인 상태 유지';
+
+  function normalizeId(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const value = input.value;
+    const uppercase = value.toUpperCase();
+    if (value === uppercase) return;
+    const { selectionStart, selectionEnd, selectionDirection } = input;
+    input.value = uppercase;
+    if (selectionStart !== null && selectionEnd !== null) {
+      input.setSelectionRange(
+        value.slice(0, selectionStart).toUpperCase().length,
+        value.slice(0, selectionEnd).toUpperCase().length,
+        selectionDirection ?? undefined,
+      );
+    }
+  }
 
 
   async function submit(e: SubmitEvent) {
@@ -68,8 +84,9 @@
         <span>학번</span>
         <input
           bind:value={id}
+          oninput={normalizeId}
           autocomplete="username"
-          autocapitalize="characters"
+          autocapitalize="none"
           spellcheck="false"
           inputmode="text"
           placeholder="예: C123456"
