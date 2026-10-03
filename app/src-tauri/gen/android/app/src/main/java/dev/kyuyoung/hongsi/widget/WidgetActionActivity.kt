@@ -16,6 +16,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import android.os.CancellationSignal
@@ -35,6 +36,11 @@ class WidgetActionActivity : AppCompatActivity() {
     private var started = false
     private var acquired = false
     override fun onCreate(savedInstanceState: Bundle?) {
+        delegate.localNightMode = when (WidgetTheme.mode(this)) {
+            "light" -> AppCompatDelegate.MODE_NIGHT_NO
+            "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
         super.onCreate(savedInstanceState)
         id = intent.getIntExtra("widget", 0)
         kind = WidgetKind.entries.find { it.name == intent.getStringExtra("kind") } ?: run { finish(); return }

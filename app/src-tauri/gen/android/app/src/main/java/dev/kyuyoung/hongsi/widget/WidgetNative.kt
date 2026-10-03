@@ -22,6 +22,7 @@ internal object WidgetNative {
     init { System.loadLibrary("hongsi_lib") }
     private var ready = false
     @Synchronized fun prepare(context: Context) {
+        WidgetTheme.observe(context)
         if (!ready) { initialize(WidgetCredentials(context)); ready = true }
     }
     @JvmStatic private external fun initialize(vault: WidgetCredentials)

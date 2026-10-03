@@ -12,6 +12,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.text.SpannableString
 import android.text.Spanned
@@ -28,21 +29,21 @@ import kotlin.math.min
 
 internal object WidgetViews {
     private fun color(context: Context, resource: Int) = context.getColor(resource)
-    private fun layout(context: Context, resource: Int) = RemoteViews(context.packageName, resource)
+    private fun layout(context: Context, resource: Int) = WidgetTheme.layout(context, resource)
     private fun RemoteViews.text(id: Int, value: String) = setTextViewText(id, value)
     private fun RemoteViews.action(context: Context, id: Int, kind: WidgetKind, view: Int, operation: String) = setOnClickPendingIntent(view, Widgets.pending(context, id, kind, operation))
     private fun RemoteViews.page(context: Context, id: Int, kind: WidgetKind, view: Int, detail: String = "") = setOnClickPendingIntent(view, Widgets.page(context, id, kind, detail))
     private fun RemoteViews.themeText(context: Context, view: Int, resource: Int) {
-        if (Build.VERSION.SDK_INT >= 31) setColor(view, "setTextColor", resource)
+        if (Build.VERSION.SDK_INT >= 31) setColor(view, "setTextColor", WidgetTheme.resource(context, resource))
         else setTextColor(view, color(context, resource))
     }
     private fun RemoteViews.primary(context: Context, title: String) { text(R.id.widget_primary, title); setContentDescription(R.id.widget_primary, title); themeText(context, R.id.widget_primary, R.color.widget_on_primary) }
     private fun keypad(context: Context, id: Int, kind: WidgetKind, height: Int): RemoteViews = layout(context, R.layout.widget_keypad).apply {
         page(context, id, kind, R.id.widget_root)
-        val codeAdapter = Intent(context, WidgetKeyService::class.java).setData(Uri.parse("hongsi-widget://code/$id")).putExtra("widget", id).putExtra("codeDisplay", true)
+        val codeAdapter = Intent(context, WidgetKeyService::class.java).setData(Uri.parse("hongsi-widget://code/$id/${WidgetTheme.mode(context)}")).putExtra("widget", id).putExtra("codeDisplay", true)
         @Suppress("DEPRECATION")
         setRemoteAdapter(R.id.widget_code_host, codeAdapter)
-        val adapter = Intent(context, WidgetKeyService::class.java).setData(Uri.parse("hongsi-widget://keys/$id/$height")).putExtra("height", height)
+        val adapter = Intent(context, WidgetKeyService::class.java).setData(Uri.parse("hongsi-widget://keys/$id/$height/${WidgetTheme.mode(context)}")).putExtra("height", height)
         @Suppress("DEPRECATION")
         setRemoteAdapter(R.id.widget_keys, adapter)
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
@@ -52,7 +53,9 @@ internal object WidgetViews {
         action(context, id, kind, R.id.widget_erase, "erase")
         setOnClickPendingIntent(R.id.widget_submit, Widgets.actionPage(context, id, kind, "submit"))
     }
-    fun render(context: Context, id: Int, kind: WidgetKind): RemoteViews {
+    fun render(base: Context, id: Int, kind: WidgetKind): RemoteViews {
+        WidgetTheme.observe(base)
+        val context = WidgetTheme.context(base)
         val state = WidgetData.state(context, id)
         val data = WidgetData.read(context)
         val resource = if (kind.deadlines) "calendar" else if (kind == WidgetKind.SEAT) "seats" else "timetable"
@@ -105,7 +108,7 @@ internal object WidgetViews {
                     row.page(context, id, kind, R.id.widget_row_root, "class:${slot.text("name")}")
                     row.setViewVisibility(R.id.row_separator, if (index == 0) View.GONE else View.VISIBLE)
                     row.themeText(context, R.id.row_time, if (current) R.color.widget_primary else R.color.widget_text)
-                    row.setInt(R.id.row_badge, "setBackgroundResource", if (current) R.drawable.widget_badge_info else R.drawable.widget_badge_muted)
+                    row.setInt(R.id.row_badge, "setBackgroundResource", WidgetTheme.resource(context, if (current) R.drawable.widget_badge_info else R.drawable.widget_badge_muted))
                     row.themeText(context, R.id.row_badge, if (current) R.color.widget_badge_info_text else R.color.widget_muted)
                     list.addView(R.id.class_rows, row)
                 }
@@ -139,7 +142,7 @@ internal object WidgetViews {
                         else -> R.drawable.widget_badge_muted to R.color.widget_badge_muted_text
                     }
                     row.text(R.id.row_status, status)
-                    row.setInt(R.id.row_status, "setBackgroundResource", tone.first)
+                    row.setInt(R.id.row_status, "setBackgroundResource", WidgetTheme.resource(context, tone.first))
                     row.themeText(context, R.id.row_status, tone.second)
                     row.page(context, id, kind, R.id.widget_row_root, "deadline:${item.text("key")}")
                     view.addView(R.id.widget_body, row)
@@ -149,7 +152,13 @@ internal object WidgetViews {
                 if (WidgetData.slots(context).isEmpty()) return weekStatus(context, id, kind, "등록된 수업이 없어요")
                 else {
                     val grid = layout(context, R.layout.widget_week_grid)
-                    grid.setImageViewBitmap(R.id.widget_grid, weekBitmap(context, max(260, width - 16), max(160, height - 16)))
+                    val gridWidth = max(260, width - 16)
+                    val gridHeight = max(160, height - 16)
+                    if (Build.VERSION.SDK_INT >= 31 && WidgetTheme.mode(context) == "system") {
+                        grid.setIcon(R.id.widget_grid, "setImageIcon",
+                            Icon.createWithBitmap(weekBitmap(WidgetTheme.context(context, "light"), gridWidth, gridHeight)),
+                            Icon.createWithBitmap(weekBitmap(WidgetTheme.context(context, "dark"), gridWidth, gridHeight)))
+                    } else grid.setImageViewBitmap(R.id.widget_grid, weekBitmap(context, gridWidth, gridHeight))
                     grid.page(context, id, kind, R.id.widget_grid, "week")
                     view.addView(R.id.widget_body, grid)
                 }

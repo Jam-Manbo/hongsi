@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { watchAppUpdates } from './lib/app-update.svelte';
-  import { publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
+  import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
   import AppUpdate from './components/AppUpdate.svelte';
   import NotificationPermission from './components/NotificationPermission.svelte';
   import DoneConfirm from './components/DoneConfirm.svelte';
@@ -63,6 +63,11 @@
   let profileOpen = $state(false);
   let bootError = $state('');
   let booting = false;
+
+  $effect(() => {
+    if (!isApp || app.booting) return;
+    void publishWidgetTheme(settings.theme).catch(() => {});
+  });
 
   $effect(() => {
     if (!isApp || app.booting) return;

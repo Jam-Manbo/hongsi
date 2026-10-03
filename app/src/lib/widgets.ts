@@ -8,7 +8,7 @@ import { todoDeadline } from './todos.svelte';
 import { focus, go, toast } from './ui.svelte';
 import type { AttendanceReceipt } from './types';
 import { sessionVersion, isCurrentSession } from './session';
-import { settings } from './settings.svelte';
+import { settings, type Theme } from './settings.svelte';
 import { app, attendanceReceipts, calendar, lectures, seatSession, timetable, todos } from './store.svelte';
 
 export function widgetSnapshot(): string {
@@ -33,6 +33,11 @@ export function widgetSnapshot(): string {
     receipts: (attendanceReceipts.data ?? []).map(({ lecture, date, kind, confirmedAt }) => ({ name: lecture.name, time: lecture.time, date, kind, confirmedAt })),
     seat: seatSession.data?.session ?? null,
   });
+}
+
+export async function publishWidgetTheme(theme: Theme) {
+  if (!isApp || !/Android/i.test(navigator.userAgent)) return;
+  await invoke('set_widget_theme', { value: theme });
 }
 
 export async function publishWidgets(snapshot: string) {

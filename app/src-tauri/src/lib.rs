@@ -35,6 +35,15 @@ async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: Strin
 }
 
 #[tauri::command]
+async fn set_widget_theme(app: AppHandle, value: String) -> Result<(), String> {
+    if !matches!(value.as_str(), "system" | "light" | "dark") { return Err("테마 설정을 확인해 주세요.".into()); }
+    #[cfg(target_os = "android")]
+    return android_external::open(&app, "setWidgetTheme", &value).await;
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, value); Ok(()) }
+}
+
+#[tauri::command]
 async fn widget_intent(app: AppHandle) -> Result<Value, String> {
     #[cfg(target_os = "android")]
     return android_external::take_widget_intent(&app).await;
@@ -673,6 +682,7 @@ pub fn run_app() {
             api,
             app_update,
             sync_widgets,
+            set_widget_theme,
             widget_intent,
             auto_login_enabled,
             avatar,
