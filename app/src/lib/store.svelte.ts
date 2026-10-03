@@ -94,7 +94,7 @@ function handleSchoolSessionExpired() {
   void logoutSession().catch(() => {
     if (app.profile || app.account) endSession();
   }).then(() => {
-    app.notice = '로그인이 만료됐어요. 다시 로그인해 주세요.';
+    app.notice = '로그인이 만료됐어요';
   });
 }
 

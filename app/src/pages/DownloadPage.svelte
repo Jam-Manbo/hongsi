@@ -5,6 +5,12 @@
   type Release = { version: string; versionCode: number; url: string; size: number; notes: string; sha256: string };
   type ReleaseSummary = { version: string; publishedAt: string | null; url: string; size: number; notesUrl: string };
   const versionsPage = location.pathname.replace(/\/$/, '') === '/download/versions';
+  const iosPage = location.pathname.replace(/\/$/, '') === '/download/ios';
+  const iosSteps = [
+    { title: 'Safari에서 공유 메뉴 열기', text: 'Safari에서 홍시에 접속한 뒤 공유 버튼을 눌러 주세요. 공유 버튼이 보이지 않으면 주소창 옆 메뉴에서 찾을 수 있어요.', image: 'safari-share.png', alt: 'Safari의 홍시 화면에서 공유 메뉴를 여는 모습' },
+    { title: '홈 화면에 추가 선택하기', text: '공유 메뉴를 아래로 내려 홈 화면에 추가를 눌러 주세요.', image: 'add-to-home.png', alt: 'Safari 공유 메뉴의 홈 화면에 추가 항목' },
+    { title: '이름을 확인하고 추가하기', text: '이름을 홍시로 정하고 추가를 눌러 주세요. 웹 앱으로 열기 옵션이 보이면 켜 주세요.', image: 'confirm-add.png', alt: '홍시 이름과 웹 앱으로 열기 옵션을 확인한 뒤 추가하는 화면' },
+  ];
   let history = $state<ReleaseSummary[]>([]);
   let historyUrl = $state('');
   let historyLoading = $state(true);
@@ -67,14 +73,42 @@
     } catch { error = '다운로드 정보를 불러오지 못했어요. 잠시 뒤 다시 확인해 주세요.'; }
     finally { loading = false; }
   }
-  onMount(() => { if (versionsPage) void loadHistory(); else void load(); });
+  onMount(() => { if (iosPage) return; if (versionsPage) void loadHistory(); else void load(); });
 </script>
 
-<svelte:head><title>{versionsPage ? '홍시 앱 버전' : '홍시 앱 다운로드'}</title><meta name="description" content="빠른 출석 체크와 과제 일정·마감 알림을 홍시 Android 앱에서 이용하세요." /></svelte:head>
+<svelte:head><title>{iosPage ? '홍시 · iOS' : versionsPage ? '홍시 앱 버전' : '홍시 앱 다운로드'}</title><meta name="description" content={iosPage ? 'iOS 앱 배포를 위한 후원 안내와 Safari에서 홍시를 홈 화면에 추가하는 방법을 알아보세요.' : '빠른 출석 체크와 과제 일정·마감 알림을 홍시 Android 앱에서 이용하세요.'} /></svelte:head>
 <main class="download-page">
-  <header><a class="brand" href="/#/home"><img src="/favicon.svg" alt="" width="36" height="36" />홍시</a>{#if versionsPage}<a class="back" href="/download">앱 다운로드 <Icon name="download" size={17} /></a>{:else}<a class="back" href="/#/home">웹에서 이용하기 <Icon name="right" size={17} /></a>{/if}</header>
-  <section>
-    {#if versionsPage}
+  <header><a class="brand" href="/#/home"><img src="/favicon.svg" alt="" width="36" height="36" />홍시</a>{#if versionsPage || iosPage}<a class="back" href="/download">앱 다운로드 <Icon name="download" size={17} /></a>{:else}<a class="back" href="/#/home">웹에서 이용하기 <Icon name="right" size={17} /></a>{/if}</header>
+  <section class:ios-page={iosPage}>
+    {#if iosPage}
+      <div class="ios-intro">
+        <h1 class="eyebrow">홍시 · iOS</h1>
+        <details class="details latest-changes ios-support">
+          <summary><h2>iOS 앱 배포는 잠시 보류 중이에요</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary>
+          <div class="ios-support-content">
+            <p>앱스토어 배포에는 <a href="https://developer.apple.com/programs/" target="_blank" rel="noopener noreferrer">연간 99달러</a>의 개발자 등록비가 필요해요.</p>
+            <p>후원비는 앱스토어 및 플레이스토어 앱 등록에 사용돼요.</p>
+            <a class="btn btn-primary ios-donate" href="https://ko-fi.com/manbo" target="_blank" rel="noopener noreferrer"><img src="/kofi.png" alt="" width="22" height="18" />후원하러 가기 <Icon name="arrow-up-right" size={17} /></a>
+          </div>
+        </details>
+      </div>
+      <div class="ios-guide">
+        <div class="ios-guide-heading"><h2>Safari에서 홈 화면에 추가하기</h2><a class="ios-web-link" href="/#/home">홍시 웹 열기 <Icon name="arrow-up-right" size={16} /></a></div>
+        <p class="ios-guide-intro">아래 순서대로 추가하면 홈 화면의 홍시 아이콘으로 바로 열 수 있어요.</p>
+        <ol class="ios-steps" role="list">
+          {#each iosSteps as step, index (step.image)}
+            <li>
+              <div class="ios-step-heading"><span class="ios-step-number" aria-hidden="true">{index + 1}</span><h3>{step.title}</h3></div>
+              <p>{step.text}</p>
+              <a class="ios-screenshot" href={`/guides/ios/${step.image}`} target="_blank" rel="noopener noreferrer" aria-label={`${index + 1}단계 화면 크게 보기`}><img src={`/guides/ios/${step.image}`} alt={step.alt} width="1206" height="2622" loading="lazy" decoding="async" /></a>
+            </li>
+          {/each}
+        </ol>
+        <p class="ios-guide-note">iOS 버전과 설정에 따라 메뉴 위치가 조금 다를 수 있어요. 이미지를 누르면 크게 볼 수 있어요.</p>
+        <details class="ios-help"><summary>홈 화면에 추가가 보이지 않아요 <Icon name="down" size={16} /></summary><p>공유 메뉴 맨 아래의 동작 편집에서 홈 화면에 추가를 켜 주세요. 카카오톡 같은 앱 안에서 열었다면 Safari로 다시 열어 주세요.</p></details>
+        <a class="ios-apple-guide" href="https://support.apple.com/ko-kr/guide/iphone/iphea86e5236/ios" target="_blank" rel="noopener noreferrer">Apple의 홈 화면 추가 안내 <Icon name="arrow-up-right" size={15} /></a>
+      </div>
+    {:else if versionsPage}
       <p class="eyebrow">홍시 · Android</p>
       <div class="release-history">
         <div class="history-heading">
@@ -142,7 +176,7 @@
         </div>
         <details class="details latest-changes"><summary><h2>변경사항</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary><p class="notes">{release.notes || '사용성과 안정성을 개선했어요.'}</p></details>
       {:else}<p class="status">앱 배포를 준비하고 있어요. 먼저 웹에서 이용할 수 있어요.</p>{/if}
-      <div class="details"><h2>APK 설치 방법</h2><ol><li>APK 파일을 다운로드 한 뒤 열어주세요.</li><li>보안 경고가 뜰 경우 '세부정보 더보기' - '무시하고 설치' 순으로 진행해주세요.</li><li>설치 후에는 홍시 앱 내에서 새 버전을 확인하고 자체적으로 업데이트 할 수 있어요.</li></ol><p class="ios-status">iOS 앱은 아직 배포할 수 없어요.</p>
+      <div class="details"><h2>APK 설치 방법</h2><ol><li>APK 파일을 다운로드 한 뒤 열어주세요.</li><li>보안 경고가 뜰 경우 '세부정보 더보기' - '무시하고 설치' 순으로 진행해주세요.</li><li>설치 후에는 홍시 앱 내에서 새 버전을 확인하고 자체적으로 업데이트 할 수 있어요.</li></ol><p class="ios-status"><a class="ios-guide-link" href="/download/ios"><strong>iOS 앱은 아직 배포할 수 없어요.</strong><Icon name="arrow-up-right" size={16} /></a></p>
         <div class="support">
           <p>앱이 마음에 드신다면 후원 부탁드립니다!<br />후원 금액은 추후 앱스토어 및 플레이스토어 등록비로 사용될 예정입니다.</p>
           <a class="support-link" href="https://ko-fi.com/manbo" target="_blank" rel="noopener noreferrer"><img src="/kofi.png" alt="Ko-fi" width="22" height="18" />후원하러 가기 <Icon name="arrow-up-right" size={16} /></a>
@@ -159,7 +193,7 @@
   .brand { display: flex; align-items: center; gap: 9px; color: var(--text); font-size: 23px; font-weight: 800; }
   .back { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 14px; }
   section { max-width: 560px; margin: 76px auto 60px; }
-  .eyebrow { color: var(--primary); font-weight: 750; margin-bottom: 14px; }
+  .eyebrow { color: var(--primary); font-size: inherit; font-weight: 750; line-height: inherit; letter-spacing: normal; margin-bottom: 14px; }
   h1 { font-size: clamp(25px, 7.3vw, 44px); letter-spacing: -0.04em; line-height: 1.25; }
   .intro { color: var(--text-2); margin: 22px 0 28px; line-height: 1.7; }
   .download-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
@@ -213,6 +247,44 @@
   ol { padding-left: 20px; color: var(--text-2); }
   li { text-wrap: pretty; }
   .ios-status { font-size: 16px; color: var(--text); margin-top: 20px; }
+  .ios-status strong { font-weight: 750; }
+  .ios-guide-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--text); text-decoration: none; }
+  .ios-guide-link:hover { color: var(--primary-text); }
+  .ios-page { max-width: 720px; }
+  .ios-intro { max-width: 560px; margin: 0 auto; }
+  .ios-support { border-bottom: 1px solid var(--border); }
+  .ios-support-content { padding: 4px 0 16px; }
+  .ios-support p { color: var(--text-2); font-size: 14px; line-height: 1.8; word-break: keep-all; overflow-wrap: anywhere; }
+  .ios-support p a { color: var(--text); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+  .ios-donate { display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 20px; min-height: 46px; }
+  .ios-donate img { object-fit: contain; flex: none; }
+  .ios-guide { margin-top: 48px; }
+  .ios-guide-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+  .ios-guide-heading h2 { font-size: 20px; line-height: 1.5; margin: 0; letter-spacing: -0.025em; }
+  .ios-web-link { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--primary-text); font-size: 13px; font-weight: 650; }
+  .ios-guide-intro { margin-top: 8px; color: var(--text-2); font-size: 14px; line-height: 1.7; word-break: keep-all; }
+  .ios-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; padding: 0; margin: 28px 0 0; list-style: none; }
+  .ios-steps li { display: grid; grid-template-rows: auto 1fr auto; align-content: start; gap: 12px; min-width: 0; }
+  .ios-step-heading { display: flex; align-items: flex-start; gap: 8px; color: var(--text); }
+  .ios-step-number { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--primary-weak); color: var(--primary-text); font-size: 12px; font-weight: 750; }
+  .ios-step-heading h3 { font-size: 14px; line-height: 1.65; font-weight: 750; word-break: keep-all; }
+  .ios-steps li > p { color: var(--text-2); font-size: 13px; line-height: 1.7; word-break: keep-all; overflow-wrap: anywhere; }
+  .ios-screenshot { display: block; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; background: #fff; }
+  .ios-screenshot img { display: block; width: 100%; height: auto; }
+  .ios-guide-note { margin-top: 18px; color: var(--text-3); font-size: 12px; line-height: 1.7; word-break: keep-all; }
+  .ios-help { margin-top: 24px; padding: 16px 0; border-block: 1px solid var(--border); font-size: 14px; }
+  .ios-help summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; color: var(--text); cursor: pointer; list-style: none; }
+  .ios-help summary::-webkit-details-marker { display: none; }
+  .ios-help p { padding-top: 12px; color: var(--text-2); line-height: 1.8; word-break: keep-all; }
+  .ios-apple-guide { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: 8px; color: var(--text-3); font-size: 12px; }
+  @media(max-width: 639px) {
+    .ios-steps { grid-template-columns: 1fr; gap: 32px; }
+    .ios-steps li { grid-template-rows: auto; }
+    .ios-step-heading h3 { font-size: 16px; line-height: 1.5; }
+    .ios-steps li > p { font-size: 14px; }
+    .ios-screenshot { width: min(100%, 264px); justify-self: center; }
+    .ios-donate { width: 100%; }
+  }
   .support { margin-top: 20px; color: var(--text-2); font-size: 13px; }
   .support-link { display: flex; align-items: center; gap: 6px; color: var(--primary-text); font-weight: 650; margin-top: 6px; text-decoration: underline; text-underline-offset: 3px; }
   .support-link img { flex: none; object-fit: contain; }
