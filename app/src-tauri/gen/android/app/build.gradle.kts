@@ -70,7 +70,7 @@ android {
         }
     }
     sourceSets {
-        getByName("main").java.directories.add("src/$distribution/java")
+        getByName("main").kotlin.directories.add("src/$distribution/java")
         getByName("debug").manifest.srcFile("src/$distribution/AndroidManifest.xml")
         getByName("release").manifest.srcFile("src/$distribution/AndroidManifest.xml")
     }
