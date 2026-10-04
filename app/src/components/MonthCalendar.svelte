@@ -35,6 +35,7 @@
 
   const maxShow = 3;
   const narrow = new MediaQuery('max-width: 767px');
+  const small = new MediaQuery('max-width: 374px');
 
   const todosByDay = $derived.by(() => {
     const map = new Map<string, Todo[]>();
@@ -151,14 +152,19 @@
   const weekTitle = $derived.by(() => {
     if (!week) return '';
     const [a, b] = [cells[0].key, cells[6].key].map((k) => k.split('-').map(Number));
-    return a[1] === b[1] ? `${a[1]}월 ${a[2]}일 – ${b[2]}일` : `${a[1]}월 ${a[2]}일 – ${b[1]}월 ${b[2]}일`;
+    return `${a[1]}월 ${a[2]}일 – ${b[1]}월 ${b[2]}일`;
+  });
+  const compactWeekTitle = $derived.by(() => {
+    if (!week) return '';
+    const [a, b] = [cells[0].key, cells[6].key].map((key) => key.split('-').map(Number));
+    return `${a[1]}/${a[2]}–${b[1]}/${b[2]}`;
   });
 </script>
 
 <div class="cal card" class:week use:horizontalSwipe={{ enabled: () => narrow.current, shift }}>
   <div class="head">
     <button class="icon-btn" onclick={() => shift(-1)} aria-label={week ? '이전 주' : '이전 달'}><Icon name="left" /></button>
-    <h2 aria-live="polite">{week ? weekTitle : `${year}년 ${month}월`}</h2>
+    <h2 aria-live="polite" aria-label={week ? weekTitle : undefined}>{week ? (small.current ? compactWeekTitle : weekTitle) : `${year}년 ${month}월`}</h2>
     <button class="icon-btn" onclick={() => shift(1)} aria-label={week ? '다음 주' : '다음 달'}><Icon name="right" /></button>
     {#if week}
       <button class="today-btn" onclick={() => onexpand?.()} aria-label="캘린더 펼치기">
@@ -295,8 +301,8 @@
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    min-height: 58px;
-    padding: 6px 2px 4px;
+    min-height: 54px;
+    padding: 3px 2px 4px;
     border-radius: 12px;
     transition: background 0.15s;
   }
@@ -401,13 +407,16 @@
     .cal {
       touch-action: pan-y pinch-zoom;
     }
+
+    h2 { min-width: 0; flex: 1; white-space: nowrap; }
+    .today-btn { flex-shrink: 0; white-space: nowrap; padding-inline: 8px; }
   }
 
   @media (min-width: 768px) {
     .cal:not(.week) .day {
       align-items: stretch;
-      min-height: 104px;
-      padding: 6px;
+      min-height: 100px;
+      padding: 3px 6px 6px;
     }
 
     .cal:not(.week) .num {
@@ -463,4 +472,8 @@
     }
   }
 
+  @media (max-width: 359px) {
+    h2 { font-size: 16px; }
+    .week h2 { font-size: 15px; }
+  }
 </style>
