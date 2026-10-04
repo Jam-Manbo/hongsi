@@ -35,6 +35,7 @@
   let busy = $state(false);
   const saving = $derived(busy || (todo !== null && pendingTodos.has(todo.id)));
   let discardOpen = $state(false);
+  let deleteOpen = $state(false);
   let initialValues = $state('');
   const formValues = $derived(JSON.stringify({
     title, note, courseId, date, time, parentKey, notify,
@@ -44,6 +45,7 @@
 
   $effect(() => {
     discardOpen = false;
+    deleteOpen = false;
     if (!open) return;
     const due = todo?.dueAt ? fromUnix(todo.dueAt) : null;
     title = todo?.title ?? '';
@@ -63,7 +65,7 @@
   });
 
   function canClose() {
-    if (saving) return false;
+    if (saving || deleteOpen) return false;
     if (formValues === initialValues) return true;
     discardOpen = true;
     return false;
@@ -80,7 +82,7 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (saving || !title.trim() || !date) return;
+    if (saving || deleteOpen || !title.trim() || !date) return;
     busy = true;
     const ok = await saveTodo(todo?.id ?? null, {
       title: title.trim(),
@@ -96,12 +98,20 @@
     if (ok) open = false;
   }
 
+  function requestRemove() {
+    if (!todo || saving || discardOpen) return;
+    deleteOpen = true;
+  }
+
   async function remove() {
-    if (!todo || saving) return;
+    if (!deleteOpen || !todo || saving) return;
     busy = true;
     const ok = await removeTodo(todo);
     busy = false;
-    if (ok) open = false;
+    if (ok) {
+      deleteOpen = false;
+      open = false;
+    }
   }
 </script>
 
@@ -175,7 +185,7 @@
 
   {#snippet footer()}
     {#if todo}
-      <button class="btn btn-danger w1" disabled={saving} onclick={remove} aria-label="할 일 지우기"><Icon name="close" size={18} />지우기</button>
+      <button class="btn btn-danger w1" disabled={saving} onclick={requestRemove} aria-label="할 일 지우기"><Icon name="close" size={18} />지우기</button>
     {:else}
       <button class="btn btn-ghost w1" onclick={requestClose}>취소</button>
     {/if}
@@ -191,7 +201,21 @@
   {/snippet}
 </Sheet>
 
+<Sheet bind:open={deleteOpen} title="할 일을 삭제할까요?" layer={1} showClose={false} onbeforeclose={() => !saving}>
+  <div class="delete-description">
+    <strong>{todo?.title}</strong>
+    <p>삭제하면 되돌릴 수 없어요.</p>
+  </div>
+  {#snippet footer()}
+    <button class="btn btn-ghost w1" disabled={saving} onclick={() => (deleteOpen = false)}>취소</button>
+    <button class="btn btn-danger w1" disabled={saving} onclick={remove}>{saving ? '삭제 중…' : '삭제'}</button>
+  {/snippet}
+</Sheet>
+
 <style>
+  .delete-description { display: grid; gap: 8px; font-size: 14px; line-height: 1.65; }
+  .delete-description strong { overflow-wrap: anywhere; }
+  .delete-description p { margin: 0; color: var(--text-2); }
   .discard-description { font-size: 14px; line-height: 1.65; color: var(--text-2); }
 
   .form {
