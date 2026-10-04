@@ -45,9 +45,12 @@
     attendance.load();
     calendar.load();
     timetable.load();
+  });
+
+  $effect(() => {
     if (focus.timetable) {
       focus.timetable = false;
-      openWeek();
+      weekOpen = true;
     }
   });
 

@@ -22,4 +22,10 @@
     <color name="widget_border">#495563</color>
     <string name="seat_widget_preview_heading"><b>제4공학관</b> <small><font color="#ADB5C1">(T동)</font></small></string>
     <string name="seat_widget_preview_remaining">1시간 30분 <small>남음</small></string>
+    <color name="widget_todo_neutral">#f3f4f6</color>
+    <color name="widget_deadline_soon">#ff6b6f</color>
+    <color name="widget_timetable_surface">#aeb8c6</color>
+    <color name="widget_timetable_text">#1b2433</color>
+    <color name="widget_timetable_text_secondary">#293548</color>
+    <color name="widget_timetable_now">#ff6b6f</color>
 </resources>

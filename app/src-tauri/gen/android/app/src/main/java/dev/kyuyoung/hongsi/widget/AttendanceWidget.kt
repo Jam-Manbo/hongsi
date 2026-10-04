@@ -96,7 +96,7 @@ internal object Widgets {
         val pending = PendingIntent.getBroadcast(context, 0, Intent(context, kind.receiver).setAction(TICK), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val active = when {
             kind == WidgetKind.SEAT -> ids.any { WidgetData.seat(context, WidgetData.state(context, it)) != null }
-            kind.attendance || kind.today || kind.deadlines -> ids.isNotEmpty()
+            kind.attendance || kind.today || kind.deadlines || kind == WidgetKind.WEEK -> ids.isNotEmpty()
             else -> false
         }
         if (active) alarm.set(android.app.AlarmManager.RTC, (System.currentTimeMillis() / 60_000 + 1) * 60_000, pending)
@@ -110,12 +110,12 @@ internal object Widgets {
             }
         }
     }
-    fun actionPage(context: Context, id: Int, kind: WidgetKind, operation: String): PendingIntent = PendingIntent.getActivity(context, 0,
-        Intent(context, WidgetActionActivity::class.java).setData(Uri.parse("hongsi-widget://perform/$id/$operation"))
-            .putExtra("widget", id).putExtra("kind", kind.name).putExtra("operation", operation)
-            .putExtra("owner", WidgetData.read(context).text("owner")).putExtra("seat", WidgetData.read(context).optJSONObject("seat")?.optLong("id") ?: 0)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun act(context: Context, id: Int, kind: WidgetKind, operation: String) {
+        if (kind == WidgetKind.SEAT && operation.startsWith("extend:")) {
+            SeatExtensionJob.enqueue(context, operation)
+            return
+        }
+        if (kind.attendance && WidgetAttendanceService.pending(context)) return
         val state = WidgetData.state(context, id)
         val code = state.text("code")
         val input = state.text("mode") == "input"

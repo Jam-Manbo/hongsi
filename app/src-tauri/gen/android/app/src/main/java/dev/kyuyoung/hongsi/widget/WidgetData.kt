@@ -100,6 +100,18 @@ object WidgetData {
         return dateText(if (previous) due - 60 else due, pattern) + if (previous) " 24:00" else " " + dateText(due, "HH:mm")
     }
     fun deadlineDay(context: Context, due: Long) = Math.floorDiv(due + 32400 - if (previousMidnight(context, due)) 60 else 0, 86400)
+    fun deadlineLabel(context: Context, item: JSONObject): String {
+        if (item.isNull("due")) return "마감 없음"
+        val due = item.optLong("due")
+        if (item.optBoolean("allDay")) {
+            val day = if (item.isNull("dueAt")) due - 86400 else item.optLong("dueAt")
+            return dateText(day, "M/d(E)") + " 하루 종일"
+        }
+        return deadlineLabel(context, due, "M/d(E)") + " 마감"
+    }
+    fun deadlineDay(context: Context, item: JSONObject): Long = if (item.optBoolean("allDay")) {
+        Math.floorDiv(item.optLong("due") - 1 + 32400, 86400)
+    } else deadlineDay(context, item.optLong("due"))
     fun deadlines(context: Context): List<JSONObject> {
         val data = read(context)
         val showUndated = data.optJSONObject("preferences")?.optBoolean("showUndated") == true

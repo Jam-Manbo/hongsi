@@ -106,6 +106,7 @@ rust {
 }
 
 dependencies {
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
     if (distribution == "play") implementation("com.google.android.play:app-update:2.1.0")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")

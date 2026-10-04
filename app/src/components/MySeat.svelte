@@ -7,7 +7,7 @@
   import { ALERT_CHOICES, PERIODS, seatLabel, seatPrefs, syncSeatReminders, toggleAlert } from '../lib/seat.svelte';
   import { handleAuthError, seatSession } from '../lib/store.svelte';
   import { isCurrentSession, sessionVersion } from '../lib/session';
-  import { toast, toastOnce } from '../lib/ui.svelte';
+  import { focus, toast, toastOnce } from '../lib/ui.svelte';
   import type { SeatPeriod, SeatSession } from '../lib/types';
   import Icon from './Icon.svelte';
   import Ring from './Ring.svelte';
@@ -23,6 +23,13 @@
   let adjustTime = $state('');
   let adjustPeriod = $state<SeatPeriod>('semester');
   let notifyOk = $state(true);
+
+  $effect(() => {
+    if (!compact && focus.endSeat === session.id) {
+      confirmEnd = true;
+      focus.endSeat = null;
+    }
+  });
 
   $effect(() => {
     const t = setInterval(() => (now = Date.now()), 1000);

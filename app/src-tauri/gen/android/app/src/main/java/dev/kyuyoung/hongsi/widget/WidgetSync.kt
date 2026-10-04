@@ -26,7 +26,7 @@ internal fun JSONObject.body(): Any {
 internal object WidgetSync {
     val worker = Executors.newFixedThreadPool(2)
     val main = Handler(Looper.getMainLooper())
-    private val locks = ConcurrentHashMap<String, ReentrantLock>()
+    val locks = ConcurrentHashMap<String, ReentrantLock>()
     private const val PERIODIC = 7400
     fun installed(context: Context) = WidgetKind.entries.filter { Widgets.ids(context, it).isNotEmpty() }
     fun schedule(context: Context) {
@@ -78,9 +78,10 @@ internal object WidgetSync {
                             .put("course", course(item.optLong("courseId"))).put("color", colors[item.optLong("courseId")] ?: "#3b82f6").put("status", statuses[item.text("status")] ?: "상태 확인 필요")
                     } + todos.map { todo ->
                         JSONObject().put("key", "todo:${todo.optLong("id")}").put("title", todo.text("title"))
-                            .put("course", course(todo.optLong("courseId")).ifBlank { "내 할 일" }).put("color", colors[todo.optLong("courseId")] ?: "#3b82f6")
+                            .put("course", course(todo.optLong("courseId")).ifBlank { "공통" }).put("color", colors[todo.optLong("courseId")] ?: JSONObject.NULL)
+                            .put("dueAt", todo.opt("dueAt") ?: JSONObject.NULL).put("allDay", todo.optBoolean("allDay"))
                             .put("due", if (todo.isNull("dueAt")) JSONObject.NULL else todo.optLong("dueAt") + if (todo.optBoolean("allDay")) 86400 else 0)
-                            .put("done", !todo.isNull("doneAt")).put("kind", "todo").put("status", if (todo.isNull("doneAt")) "미완료" else "완료")
+                            .put("done", !todo.isNull("doneAt")).put("kind", "todo").put("status", "")
                     }
                     patch.put("deadlines", JSONArray(items))
                     patch.put("slots", JSONArray(before.array("slots").map { slot -> slot.put("color", colors[courses.firstOrNull { sameCourse(it, slot) }?.optLong("id")] ?: slot.text("color", "#3b82f6")) }))

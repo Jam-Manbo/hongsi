@@ -19,6 +19,7 @@ class WidgetKeyService : RemoteViewsService() {
         override fun getItemId(position: Int) = 0L
         override fun getLoadingView(): RemoteViews = getViewAt(0)
         override fun getViewAt(position: Int): RemoteViews = WidgetTheme.layout(context, R.layout.widget_code_value).apply {
+            setOnClickFillInIntent(R.id.widget_code, Intent())
             setTextViewText(R.id.widget_code, WidgetData.state(context, widgetId).text("code").padEnd(4, '–').map { it.toString() }.joinToString(" "))
         }
     }

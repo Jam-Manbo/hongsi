@@ -1,58 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="12dp" android:background="@drawable/widget_attendance_background">
-  <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:orientation="horizontal" android:gravity="center_vertical">
-    <TextView android:layout_width="0dp" android:layout_height="match_parent" android:text="다가오는 마감" android:textSize="20sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:layout_weight="1" android:gravity="center_vertical" android:maxLines="1" android:ellipsize="end" android:textStyle="bold" />
-    <ImageView android:layout_width="40dp" android:layout_height="40dp" android:padding="12dp" android:src="@drawable/ic_widget_refresh" android:tint="@color/widget_muted" android:contentDescription="새로고침" />
-  </LinearLayout>
-  <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:orientation="vertical" android:layout_weight="1">
-    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:paddingBottom="4dp" android:layout_weight="1">
-      <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_deadline_frame" android:scaleType="fitXY" android:importantForAccessibility="no" />
-      <ImageView android:layout_width="3dp" android:layout_height="match_parent" android:layout_marginTop="16dp" android:layout_marginBottom="16dp" android:layout_marginStart="1dp" android:src="@drawable/widget_class_accent" android:scaleType="fitXY" android:importantForAccessibility="no" android:tint="#22c55e" />
-      <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="6dp" android:paddingTop="4dp" android:paddingBottom="4dp">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:orientation="vertical" android:layout_weight="1" android:gravity="center_vertical">
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="실습1" android:textSize="16sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:textStyle="bold" android:maxLines="2" android:ellipsize="end" />
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="논리적사과와글쓰기  3/9 24:00" android:textSize="13sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" />
-        </LinearLayout>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="미제출" android:textSize="13sp" android:textColor="@color/widget_badge_warn_text" android:includeFontPadding="false" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="5dp" android:paddingBottom="5dp" android:layout_marginStart="6dp" android:maxWidth="104dp" android:maxLines="1" android:ellipsize="end" android:gravity="center" android:background="@drawable/widget_badge_warn" />
-        <TextView android:layout_width="54dp" android:layout_height="match_parent" android:text="D-DAY" android:textSize="14sp" android:textColor="@color/widget_error" android:includeFontPadding="false" android:gravity="center" android:textStyle="bold" />
-      </LinearLayout>
-    </FrameLayout>
-    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:paddingBottom="4dp" android:layout_weight="1">
-      <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_deadline_frame" android:scaleType="fitXY" android:importantForAccessibility="no" />
-      <ImageView android:layout_width="3dp" android:layout_height="match_parent" android:layout_marginTop="16dp" android:layout_marginBottom="16dp" android:layout_marginStart="1dp" android:src="@drawable/widget_class_accent" android:scaleType="fitXY" android:importantForAccessibility="no" android:tint="#a855f7" />
-      <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="6dp" android:paddingTop="4dp" android:paddingBottom="4dp">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:orientation="vertical" android:layout_weight="1" android:gravity="center_vertical">
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Video Quiz" android:textSize="16sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:textStyle="bold" android:maxLines="2" android:ellipsize="end" />
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="전공기초영어  3/13 23:59" android:textSize="13sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" />
-        </LinearLayout>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="제출 완료" android:textSize="13sp" android:textColor="@color/widget_badge_ok_text" android:includeFontPadding="false" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="5dp" android:paddingBottom="5dp" android:layout_marginStart="6dp" android:maxWidth="104dp" android:maxLines="1" android:ellipsize="end" android:gravity="center" android:background="@drawable/widget_badge_ok" />
-        <TextView android:layout_width="54dp" android:layout_height="match_parent" android:text="D-4" android:textSize="14sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:gravity="center" android:textStyle="bold" />
-      </LinearLayout>
-    </FrameLayout>
-    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:paddingBottom="4dp" android:layout_weight="1">
-      <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_deadline_frame" android:scaleType="fitXY" android:importantForAccessibility="no" />
-      <ImageView android:layout_width="3dp" android:layout_height="match_parent" android:layout_marginTop="16dp" android:layout_marginBottom="16dp" android:layout_marginStart="1dp" android:src="@drawable/widget_class_accent" android:scaleType="fitXY" android:importantForAccessibility="no" android:tint="#3b82f6" />
-      <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="6dp" android:paddingTop="4dp" android:paddingBottom="4dp">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:orientation="vertical" android:layout_weight="1" android:gravity="center_vertical">
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="8장 단어 퀴즈" android:textSize="16sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:textStyle="bold" android:maxLines="2" android:ellipsize="end" />
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="교양일본어  3/14 00:00" android:textSize="13sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" />
-        </LinearLayout>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="미제출" android:textSize="13sp" android:textColor="@color/widget_badge_warn_text" android:includeFontPadding="false" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="5dp" android:paddingBottom="5dp" android:layout_marginStart="6dp" android:maxWidth="104dp" android:maxLines="1" android:ellipsize="end" android:gravity="center" android:background="@drawable/widget_badge_warn" />
-        <TextView android:layout_width="54dp" android:layout_height="match_parent" android:text="D-5" android:textSize="14sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:gravity="center" android:textStyle="bold" />
-      </LinearLayout>
-    </FrameLayout>
-    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:paddingBottom="4dp" android:layout_weight="1">
-      <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:src="@drawable/widget_deadline_frame" android:scaleType="fitXY" android:importantForAccessibility="no" />
-      <ImageView android:layout_width="3dp" android:layout_height="match_parent" android:layout_marginTop="16dp" android:layout_marginBottom="16dp" android:layout_marginStart="1dp" android:src="@drawable/widget_class_accent" android:scaleType="fitXY" android:importantForAccessibility="no" android:tint="#f59e0b" />
-      <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="6dp" android:paddingTop="4dp" android:paddingBottom="4dp">
-        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:orientation="vertical" android:layout_weight="1" android:gravity="center_vertical">
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="인간심리의이해 3-1" android:textSize="16sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:textStyle="bold" android:maxLines="2" android:ellipsize="end" />
-          <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="인간심리의이해  3/24 23:59" android:textSize="13sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" />
-        </LinearLayout>
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="미시청" android:textSize="13sp" android:textColor="@color/widget_badge_warn_text" android:includeFontPadding="false" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="5dp" android:paddingBottom="5dp" android:layout_marginStart="6dp" android:maxWidth="104dp" android:maxLines="1" android:ellipsize="end" android:gravity="center" android:background="@drawable/widget_badge_warn" />
-        <TextView android:layout_width="54dp" android:layout_height="match_parent" android:text="D-15" android:textSize="14sp" android:textColor="@color/widget_text" android:includeFontPadding="false" android:gravity="center" android:textStyle="bold" />
-      </LinearLayout>
-    </FrameLayout>
-  </LinearLayout>
-  <TextView android:layout_width="match_parent" android:layout_height="20dp" android:text="" android:textSize="13sp" android:textColor="@color/widget_muted" android:includeFontPadding="false" android:gravity="center" android:maxLines="1" android:ellipsize="end" android:visibility="gone" />
-</LinearLayout>
+<ImageView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:src="@drawable/deadlines_large_widget_preview"
+    android:scaleType="fitCenter"
+    android:adjustViewBounds="true"
+    android:contentDescription="@string/deadlines_large_widget_name" />

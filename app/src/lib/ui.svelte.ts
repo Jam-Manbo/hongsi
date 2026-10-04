@@ -29,13 +29,14 @@ export const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'meals', label: '학식', icon: 'bowl' },
 ];
 
-export const focus = $state({ item: null as string | null, todo: null as number | null, notices: false, timetable: false, seatBuilding: null as string | null });
+export const focus = $state({ item: null as string | null, todo: null as number | null, notices: false, timetable: false, seatBuilding: null as string | null, endSeat: null as number | null });
 onSessionChange(() => {
   focus.item = null;
   focus.todo = null;
   focus.notices = false;
   focus.timetable = false;
   focus.seatBuilding = null;
+  focus.endSeat = null;
   toasts.splice(0);
   route.tab = 'home';
   if (typeof window !== 'undefined') {

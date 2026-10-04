@@ -21,9 +21,10 @@ import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.view.View
 import android.widget.RemoteViews
+import android.widget.FrameLayout
 import dev.kyuyoung.hongsi.R
 import org.json.JSONObject
-import kotlin.math.ceil
+import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
 
@@ -43,6 +44,8 @@ internal object WidgetViews {
         val codeAdapter = Intent(context, WidgetKeyService::class.java).setData(Uri.parse("hongsi-widget://code/$id/${WidgetTheme.mode(context)}")).putExtra("widget", id).putExtra("codeDisplay", true)
         @Suppress("DEPRECATION")
         setRemoteAdapter(R.id.widget_code_host, codeAdapter)
+        setPendingIntentTemplate(R.id.widget_code_host, Widgets.page(context, id, kind))
+        page(context, id, kind, R.id.widget_code_label)
         val adapter = Intent(context, WidgetKeyService::class.java).setData(Uri.parse("hongsi-widget://keys/$id/$height/${WidgetTheme.mode(context)}")).putExtra("height", height)
         @Suppress("DEPRECATION")
         setRemoteAdapter(R.id.widget_keys, adapter)
@@ -51,7 +54,7 @@ internal object WidgetViews {
             Intent(context, kind.receiver).setAction(Widgets.ACTION).setData(Uri.parse("hongsi-widget://keys-action/$id")).putExtra("widget", id).addFlags(Intent.FLAG_RECEIVER_FOREGROUND), flags))
         action(context, id, kind, R.id.widget_back, "back")
         action(context, id, kind, R.id.widget_erase, "erase")
-        setOnClickPendingIntent(R.id.widget_submit, Widgets.actionPage(context, id, kind, "submit"))
+        setOnClickPendingIntent(R.id.widget_submit, WidgetAttendanceService.intent(context, id))
     }
     fun render(base: Context, id: Int, kind: WidgetKind): RemoteViews {
         WidgetTheme.observe(base)
@@ -65,6 +68,7 @@ internal object WidgetViews {
         val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, kind.height)
         val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 340)
         if (kind == WidgetKind.SEAT) return seatView(context, id, kind, state)
+        if (kind.attendance && WidgetAttendanceService.pending(context)) return attendanceView(context, id, kind, state, height)
         if (kind.attendance && mode == "input" && data.length() > 0 && System.currentTimeMillis() - state.optLong("inputAt") < 600_000) return keypad(context, id, kind, height)
         val weekOnly = kind == WidgetKind.WEEK
         val view = layout(context, if (weekOnly) R.layout.widget_week else R.layout.widget_list_card)
@@ -117,22 +121,27 @@ internal object WidgetViews {
             WidgetKind.DEADLINES, WidgetKind.DEADLINES_LARGE -> {
                 val items = WidgetData.deadlines(context)
                 if (items.isEmpty()) view.addView(R.id.widget_body, empty(context, "남은 일정이 없어요"))
-                val capacity = max(1, (height - 52) / 66)
-                val visibleCount = if (items.size > capacity) max(1, (height - 72) / 66) else capacity
-                val hiddenCount = max(0, items.size - visibleCount)
-                view.setViewVisibility(R.id.widget_more, if (hiddenCount > 0) View.VISIBLE else View.GONE)
-                view.text(R.id.widget_more, if (hiddenCount > 0) "+ ${hiddenCount}개의 마감" else "")
-                items.take(visibleCount).forEach { item ->
+                val density = context.resources.displayMetrics.density
+                val available = (height * density).toInt() - (40 * density).roundToInt() - 2 * (6 * density).toInt()
+                val rowWidth = ((width * density).toInt() - 2 * (12 * density).toInt()).coerceAtLeast(1)
+                var used = 0
+                var visibleCount = 0
+                for (item in items) {
                     val due = if (item.isNull("due")) 0 else item.optLong("due")
-                    val difference = WidgetData.deadlineDay(context, due) - Math.floorDiv(nowSeconds() + 32400, 86400)
-                    val deadline = if (due == 0L) "날짜 없음" else WidgetData.deadlineLabel(context, due)
+                    val difference = WidgetData.deadlineDay(context, item) - Math.floorDiv(nowSeconds() + 32400, 86400)
+                    val deadline = WidgetData.deadlineLabel(context, item)
+                    val todo = item.text("kind") == "todo"
                     val row = layout(context, R.layout.widget_deadline_row)
-                    val accent = runCatching { Color.parseColor(item.text("color")) }.getOrDefault(color(context, R.color.widget_primary))
+                    val accent = runCatching { Color.parseColor(item.text("color")) }.getOrDefault(color(context, if (todo) R.color.widget_todo_neutral else R.color.widget_muted))
                     row.setInt(R.id.deadline_accent, "setColorFilter", accent)
+                    val icon = when (item.text("kind")) { "todo" -> R.drawable.ic_widget_todo; "vod" -> R.drawable.ic_widget_vod; else -> R.drawable.ic_widget_assignment }
+                    row.setImageViewResource(R.id.deadline_kind, WidgetTheme.resource(context, icon))
+                    row.setInt(R.id.deadline_kind, "setColorFilter", accent)
                     row.text(R.id.row_title, item.text("title"))
-                    row.text(R.id.row_subtitle, listOf(item.text("course"), deadline).filter(String::isNotBlank).joinToString("  "))
+                    row.text(R.id.row_subtitle, item.text("course").ifBlank { if (todo) "공통" else "" })
+                    row.text(R.id.row_deadline, deadline.replace(" 하루 종일", " 하루\u00a0종일").replace(" 마감", "\u00a0마감"))
                     row.text(R.id.row_badge, if (due == 0L) "미정" else if (difference <= 0) "D-DAY" else "D-$difference")
-                    row.themeText(context, R.id.row_badge, if (difference <= 0 && due != 0L) R.color.widget_error else R.color.widget_text)
+                    row.themeText(context, R.id.row_badge, if (difference <= 3 && due != 0L) R.color.widget_deadline_soon else R.color.widget_muted)
                     val status = item.text("status").ifBlank { "상태 확인 필요" }
                     val tone = when (status) {
                         "제출 완료", "출석 인정", "완료" -> R.drawable.widget_badge_ok to R.color.widget_badge_ok_text
@@ -141,12 +150,22 @@ internal object WidgetViews {
                         "시청 전" -> R.drawable.widget_badge_info to R.color.widget_badge_info_text
                         else -> R.drawable.widget_badge_muted to R.color.widget_badge_muted_text
                     }
+                    row.setViewVisibility(R.id.row_status, if (todo) View.GONE else View.VISIBLE)
                     row.text(R.id.row_status, status)
                     row.setInt(R.id.row_status, "setBackgroundResource", WidgetTheme.resource(context, tone.first))
                     row.themeText(context, R.id.row_status, tone.second)
                     row.page(context, id, kind, R.id.widget_row_root, "deadline:${item.text("key")}")
+                    val measured = row.apply(context, FrameLayout(context))
+                    measured.measure(View.MeasureSpec.makeMeasureSpec(rowWidth, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    val footer = if (visibleCount + 1 < items.size) (20 * density).toInt() else 0
+                    if (visibleCount > 0 && used + measured.measuredHeight + footer > available) break
+                    used += measured.measuredHeight
+                    visibleCount++
                     view.addView(R.id.widget_body, row)
                 }
+                val hiddenCount = items.size - visibleCount
+                view.setViewVisibility(R.id.widget_more, if (hiddenCount > 0) View.VISIBLE else View.GONE)
+                view.text(R.id.widget_more, if (hiddenCount > 0) "+ ${hiddenCount}개의 마감" else "")
             }
             WidgetKind.WEEK -> {
                 if (WidgetData.slots(context).isEmpty()) return weekStatus(context, id, kind, "등록된 수업이 없어요")
@@ -168,7 +187,9 @@ internal object WidgetViews {
         return view
     }
     private fun attendanceView(context: Context, id: Int, kind: WidgetKind, state: JSONObject, height: Int): RemoteViews {
-        val value = AttendanceState.read(context, state)
+        val value = if (WidgetAttendanceService.pending(context)) WidgetAttendance(
+            state.optJSONObject("lecture")?.text("name").orEmpty(), "출석을 확인하고 있어요", "", tone = "primary"
+        ) else AttendanceState.read(context, state)
         return layout(context, R.layout.widget_card).apply {
             page(context, id, kind, R.id.widget_root)
             text(R.id.widget_title, "빠른 출결")
@@ -202,6 +223,7 @@ internal object WidgetViews {
                 }
                 page(context, id, kind, R.id.attendance_course)
                 page(context, id, kind, R.id.attendance_message)
+                page(context, id, kind, R.id.attendance_detail)
             }
             addView(R.id.widget_body, content)
             setViewVisibility(R.id.widget_primary_area, if (value.available) View.VISIBLE else View.GONE)
@@ -232,7 +254,7 @@ internal object WidgetViews {
         val view = layout(context, R.layout.widget_seat)
         view.page(context, id, kind, R.id.widget_root)
         val seconds = max(0L, seat.optLong("expiresAt") - nowSeconds())
-        val left = ceil(seconds / 60.0).toInt()
+        val left = (seconds / 60.0).roundToInt()
         val hours = left / 60
         val minutes = left % 60
         val duration = if (hours == 0) "${minutes}분" else if (minutes == 0) "${hours}시간" else "${hours}시간 ${minutes}분"
@@ -254,8 +276,13 @@ internal object WidgetViews {
             setSpan(RelativeSizeSpan(.8f), remaining.length - 2, remaining.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         })
         refresh(context, id, kind, view)
-        view.setOnClickPendingIntent(R.id.seat_extend, Widgets.actionPage(context, id, kind, "extend"))
-        view.setOnClickPendingIntent(R.id.seat_end, Widgets.actionPage(context, id, kind, "endSeat"))
+        val extending = SeatExtensionJob.pending(context)
+        view.text(R.id.seat_extend, if (extending) "연장 중…" else "연장")
+        view.setBoolean(R.id.seat_extend, "setEnabled", !extending)
+        view.setBoolean(R.id.seat_end, "setEnabled", !extending)
+        val operation = "extend:${WidgetData.read(context).text("owner")}:${seat.optLong("id")}:${seat.optInt("extendCount")}"
+        view.setOnClickPendingIntent(R.id.seat_extend, Widgets.pending(context, id, kind, operation))
+        view.setOnClickPendingIntent(R.id.seat_end, Widgets.page(context, id, kind, "endSeat:${seat.optLong("id")}"))
         view.page(context, id, kind, R.id.seat_number)
         view.page(context, id, kind, R.id.seat_building)
         view.page(context, id, kind, R.id.seat_room, "seat")
@@ -273,6 +300,8 @@ internal object WidgetViews {
         val canvas = Canvas(bitmap); canvas.scale(scale, scale)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val slots = WidgetData.slots(context)
+        val today = weekday()
+        val now = minuteOfDay()
         val days = max(5, (slots.maxOfOrNull { it.optInt("weekday") } ?: 4) + 1)
         val starts = slots.map { minutes(it.text("start")) }
         val fit = WidgetData.read(context).optJSONObject("preferences")?.text("timetableDisplay", "fit") != "full" && slots.isNotEmpty()
@@ -299,15 +328,13 @@ internal object WidgetViews {
             val box = RectF(left + day * col + 2, top + (minute - start) * unit + 1, left + (day + 1) * col - 2, top + (finish - start) * unit - 2)
             val base = runCatching { Color.parseColor(slot.text("color")) }.getOrDefault(Color.rgb(88, 144, 222))
             val dark = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-            fun blend(a: Int, b: Int, f: Float) = (a * (1 - f) + b * f).toInt()
-            val factor = if (dark) .40f else .73f
-            paint.color = Color.rgb(blend(Color.red(base), 255, factor), blend(Color.green(base), 255, factor), blend(Color.blue(base), 255, factor))
+            val surface = color(context, R.color.widget_timetable_surface)
+            val factor = if (dark) .24f else .16f
+            fun blend(a: Int, b: Int) = (a * factor + b * (1 - factor)).roundToInt()
+            paint.color = Color.rgb(blend(Color.red(base), Color.red(surface)), blend(Color.green(base), Color.green(surface)), blend(Color.blue(base), Color.blue(surface)))
             paint.style = Paint.Style.FILL; canvas.drawRoundRect(box, 5f, 5f, paint)
-            if (day == weekday() && minuteOfDay() in minute until finish) {
-                paint.style = Paint.Style.STROKE; paint.color = color(context, R.color.widget_primary); paint.strokeWidth = 2f; canvas.drawRoundRect(box, 5f, 5f, paint); paint.style = Paint.Style.FILL
-            }
             canvas.save(); canvas.clipRect(box)
-            paint.color = Color.rgb(36, 43, 53); paint.textSize = if (days > 5) 11f else 12f; paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            paint.color = color(context, R.color.widget_timetable_text); paint.textSize = if (days > 5) 11f else 12f; paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
             val maxLines = ((box.height() - 19) / 14).toInt().coerceIn(1, 3)
             var rest = slot.text("name"); var y = box.top + 14; var line = 0
             while (rest.isNotEmpty() && line < maxLines) {
@@ -318,9 +345,18 @@ internal object WidgetViews {
                 val text = rest.take(n); rest = rest.drop(n)
                 canvas.drawText(text + if (clipped) "…" else "", box.left + 4, y, paint); y += 14; line++
             }
-            paint.textSize = 10f; paint.typeface = Typeface.DEFAULT
+            paint.color = color(context, R.color.widget_timetable_text_secondary); paint.textSize = 10f; paint.typeface = Typeface.DEFAULT
             canvas.drawText(slot.text("room").take(10), box.left + 4, min(y + 2, box.bottom - 4), paint)
             canvas.restore()
+        }
+        if (today < days && now in start until end) {
+            val x = left + today * col
+            val y = top + (now - start) * unit
+            paint.color = color(context, R.color.widget_timetable_now)
+            paint.style = Paint.Style.FILL
+            paint.strokeWidth = 2f
+            canvas.drawLine(x, y, x + col, y, paint)
+            canvas.drawCircle(x, y, 3f, paint)
         }
         return bitmap
     }
