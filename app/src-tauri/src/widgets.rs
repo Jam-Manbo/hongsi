@@ -8,7 +8,12 @@ use crate::{call, credentials, ensure_login, shared_shell, Reply, SHARED_SHELL};
 pub struct Vault { vm: JavaVM, object: GlobalRef }
 impl Vault {
     fn invoke(&self, method: &str, secret: Option<&str>) -> Result<Option<String>, String> {
-        let mut env = self.vm.attach_current_thread().map_err(|_| "보안 저장소를 열지 못했어요.")?;
+        let failure = match method {
+            "save" => credentials::SAVE_ERROR,
+            "clear" => credentials::DELETE_ERROR,
+            _ => credentials::READ_ERROR,
+        };
+        let mut env = self.vm.attach_current_thread().map_err(|_| failure)?;
         let result = (|| -> jni::errors::Result<Option<String>> {
             if let Some(secret) = secret {
                 let value = env.new_string(secret)?;
@@ -23,7 +28,7 @@ impl Vault {
             }
         })();
         if result.is_err() { let _ = env.exception_clear(); }
-        result.map_err(|_| "보안 저장소를 처리하지 못했어요. 기기 잠금을 해제한 뒤 다시 시도해 주세요.".into())
+        result.map_err(|_| failure.into())
     }
     pub fn load(&self) -> Result<Option<String>, String> { self.invoke("load", None) }
     pub fn save(&self, secret: &str) -> Result<(), String> { self.invoke("save", Some(secret)).map(|_| ()) }
@@ -49,7 +54,7 @@ async fn request(r: Request) -> Value {
         .and_then(|s| s["student_id"].as_str().map(str::to_string)).unwrap_or_default();
     let owner = format!("{:x}", Sha256::digest(account.as_bytes()));
     if account.is_empty() || (!r.owner.is_empty() && owner != r.owner) {
-        return json!({"status":409,"body":{"error":{"code":"account_changed","message":"계정이 변경됐어요. 새로고침해 주세요."}}});
+        return json!({"status":409,"body":{"error":{"code":"account_changed","message":"위젯을 새로고침해 주세요."}}});
     }
     let mut body = r.body;
     if r.path == "/api/attendance/receipts" && r.method == "PUT" {
@@ -77,7 +82,7 @@ pub extern "system" fn Java_dev_kyuyoung_hongsi_widget_WidgetNative_request(mut 
         let r: Request = serde_json::from_str(&input).ok()?;
         Some(tauri::async_runtime::block_on(async {
             tokio::time::timeout(std::time::Duration::from_secs(90), request(r)).await.unwrap_or_else(|_| {
-                let reply = Reply::error(504, "timeout", "응답이 늦어지고 있어요. 처리 결과를 다시 확인해 주세요.");
+                let reply = Reply::error(504, "timeout", "처리 결과를 확인해 주세요.");
                 json!({"status":reply.status,"body":reply.body})
             })
         }))

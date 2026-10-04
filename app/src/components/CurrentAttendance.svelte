@@ -76,7 +76,7 @@
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (!target || busy || submitted || geo.state !== 'ok' || !code.trim()) return;
-    if (writeBlocked('school', '출결번호를 전송할')) return;
+    if (writeBlocked('school', '출결할')) return;
     result = '';
     busy = true;
     try {
@@ -95,7 +95,7 @@
       attendance.load(true);
     } catch (err) {
       if (!handleAuthError(err)) result = err instanceof ApiError && (err.status === 0 || err.status >= 500)
-        ? '학교 응답을 처리하지 못했습니다.'
+        ? '출석 결과를 확인하지 못했어요. 출석 상태를 확인해 주세요.'
         : errorText(err, '학교 응답을 처리하지 못했습니다.');
     } finally {
       busy = false;

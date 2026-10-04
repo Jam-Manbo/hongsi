@@ -1,6 +1,5 @@
 import { clearReminders, scheduleReminders } from './notify';
 import { pref, setPref } from './store.svelte';
-import { time } from './format';
 import type { SeatPeriod, SeatSession } from './types';
 
 export const PERIODS: { id: SeatPeriod; label: string; hours: number }[] = [
@@ -45,10 +44,7 @@ export function syncSeatReminders(session: SeatSession | null) {
       target: { kind: 'seat' as const, id: session.id },
       at: end - min * 60_000,
       title: min === 0 ? '좌석 이용 시간이 끝났어요' : `좌석 이용 종료까지 ${min}분 남았어요`,
-      body:
-        min === 0
-          ? `${seatLabel(session)} · 좌석배정기에서 연장하지 않으면 자동 반납돼요`
-          : `${seatLabel(session)} · ${time(session.expiresAt)}까지 · 필요하면 좌석배정기에서 연장하세요`,
+      body: '',
     })),
   );
 }

@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api';
-  import { downloadFile, downloads, fileId } from '../lib/actions.svelte';
-  import { errorText } from '../lib/net.svelte';
+  import { downloadFile, downloads, fileErrorText, fileId } from '../lib/actions.svelte';
   import { calendar, handleAuthError, notices } from '../lib/store.svelte';
   import { readUserData, writeUserData } from '../lib/session';
   import { focus, go, toastOnce } from '../lib/ui.svelte';
@@ -81,7 +80,7 @@
       else view(n);
     } catch (e) {
       if (!handleAuthError(e)) {
-        toastOnce(errorText(e, '파일을 받지 못했어요'), 'error');
+        toastOnce(fileErrorText(e, '다운로드에 실패했어요.'), 'error');
         view(n);
       }
     } finally {

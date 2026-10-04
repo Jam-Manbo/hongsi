@@ -24,7 +24,7 @@ internal object DownloadFiles {
     fun checked(context: Context, path: String): File {
         val file = File(path).canonicalFile
         if (file.parentFile != directory(context) || !file.isFile) {
-            throw FileNotFoundException("파일이 없어요. 옮겼거나 지웠을 수 있어요.")
+            throw FileNotFoundException("파일이 없어요.")
         }
         return file
     }

@@ -79,11 +79,11 @@ class CredentialsPlugin(activity: Activity) : Plugin(activity) {
 
     @Command fun load(invoke: Invoke) { worker.execute {
         try { invoke.resolve(JSObject().put("secret", vault.load() ?: JSONObject.NULL)) }
-        catch (_: Exception) { invoke.reject("보안 저장소를 읽지 못했어요.") }
+        catch (_: Exception) { invoke.reject("자동 로그인 정보를 읽지 못했어요.") }
     } }
     @Command fun save(invoke: Invoke) { worker.execute {
         try { vault.save(invoke.parseArgs(SaveCredentialsArgs::class.java).secret); invoke.resolve() }
-        catch (_: Exception) { invoke.reject("보안 저장소에 저장하지 못했어요.") }
+        catch (_: Exception) { invoke.reject("자동 로그인 정보를 저장하지 못했어요.") }
     } }
     @Command fun clear(invoke: Invoke) { worker.execute {
         try { vault.clear(); invoke.resolve() }

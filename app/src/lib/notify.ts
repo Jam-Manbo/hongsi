@@ -31,7 +31,7 @@ export function takeNotificationIntent() {
 export function notificationToast(title: string, body: string, raw: unknown) {
   const intent = parseIntent(raw);
   if (!intent || intent.account !== sessionUser()) return;
-  toast(`${title} · ${body}`, 'alarm', 8000, () => queueNotificationIntent(intent));
+  toast(intent.target.kind === 'seat' || !body.trim() ? title : `${title} · ${body}`, 'alarm', 8000, () => queueNotificationIntent(intent));
 }
 
 const driver: NotificationDriver = {

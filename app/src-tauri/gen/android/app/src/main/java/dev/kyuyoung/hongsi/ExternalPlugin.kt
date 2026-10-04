@@ -68,7 +68,8 @@ class ExternalPlugin(private val host: Activity) : Plugin(host) {
         host.runOnUiThread {
             try { action(); invoke.resolve(JSObject()) }
             catch (_: ActivityNotFoundException) { invoke.reject(message) }
-            catch (_: Exception) { invoke.reject("파일이나 링크를 열지 못했어요. 다시 시도해 주세요.") }
+            catch (_: java.io.FileNotFoundException) { invoke.reject("파일이 없어요.") }
+            catch (_: Exception) { invoke.reject("파일이나 링크를 열지 못했어요.") }
         }
     }
     @Command fun openUrl(invoke: Invoke) {

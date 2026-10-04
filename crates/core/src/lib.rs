@@ -1,4 +1,5 @@
 
+pub mod api_error;
 pub mod attendance;
 pub mod calendar;
 pub mod classroom;

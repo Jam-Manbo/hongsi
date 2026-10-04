@@ -177,10 +177,11 @@ impl SchoolSession {
             return Err(CoreError::ClassroomTokenExpired);
         }
         if !response.status().is_success() {
-            return Err(CoreError::Upstream(format!("파일을 받지 못했어요 ({})", response.status().as_u16())));
+            crate::api_error::report("GET", "/api/files/:id", response.status().as_u16(), "school_error", crate::api_error::response_format(response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("")));
+            return Err(CoreError::Upstream("다운로드에 실패했어요.".into()));
         }
         if response.content_length().is_some_and(|n| n > max_bytes) {
-            return Err(CoreError::Upstream("파일이 너무 커서 클래스룸에서 직접 받아 주세요".into()));
+            return Err(CoreError::Upstream("파일을 다운받을 수 없어요.".into()));
         }
         let mime = response
             .headers()
@@ -193,7 +194,7 @@ impl SchoolSession {
         }
         let bytes = response.bytes().await?;
         if bytes.len() as u64 > max_bytes {
-            return Err(CoreError::Upstream("파일이 너무 커서 클래스룸에서 직접 받아 주세요".into()));
+            return Err(CoreError::Upstream("파일을 다운받을 수 없어요.".into()));
         }
         Ok((mime, bytes.to_vec()))
     }
@@ -204,7 +205,7 @@ impl SchoolSession {
     }
 
     pub async fn module_contents(&self, cmid: i64) -> Result<ModuleContents> {
-        let not_found = || CoreError::NotFound("활동을 찾지 못했어요. 지워졌거나 아직 열리지 않았을 수 있어요".into());
+        let not_found = || CoreError::NotFound("활동을 찾지 못했어요".into());
         let cm = self.ws("core_course_get_course_module", &[("cmid".into(), cmid.to_string())]).await?;
         let course_id = cm["cm"]["course"].as_i64().ok_or_else(not_found)?;
         let contents = self
@@ -257,7 +258,7 @@ impl SchoolSession {
     pub async fn board_article(&self, cmid: i64, bwid: i64) -> Result<BoardArticle> {
         let body = self.moodle_page(&format!("{CN2}/mod/ubboard/article.php?id={cmid}&bwid={bwid}")).await?;
         let mut article = parse_article(&body, cmid, bwid)
-            .ok_or_else(|| CoreError::NotFound("글을 찾지 못했어요. 지워졌거나 볼 수 없는 글일 수 있어요".into()))?;
+            .ok_or_else(|| CoreError::NotFound("글을 찾지 못했어요.".into()))?;
         article.html = self.inline_images(&article.html).await;
         Ok(article)
     }

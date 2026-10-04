@@ -1,5 +1,9 @@
 use tauri::{plugin::{Builder, TauriPlugin}, Manager, Wry};
 
+pub const READ_ERROR: &str = "자동 로그인 정보를 읽지 못했어요.";
+pub const SAVE_ERROR: &str = "자동 로그인 정보를 저장하지 못했어요.";
+pub const DELETE_ERROR: &str = "자동 로그인 정보를 삭제하지 못했어요.";
+
 #[cfg(target_os = "android")]
 #[derive(Clone)]
 pub enum Store {
@@ -29,41 +33,41 @@ impl Store {
         struct Loaded { secret: Option<String> }
         let Self::Plugin(plugin) = self else { unreachable!() };
         plugin.run_mobile_plugin_async::<Loaded>("load", ()).await
-            .map(|r| r.secret).map_err(|_| "자동 로그인 정보를 읽지 못했어요. 기기 잠금을 해제한 뒤 다시 시도해 주세요.".into())
+            .map(|r| r.secret).map_err(|_| READ_ERROR.into())
     }
     pub async fn save(&self, secret: &str) -> Result<(), String> {
         if let Self::Native(vault) = self { return vault.save(secret); }
         let Self::Plugin(plugin) = self else { unreachable!() };
         plugin.run_mobile_plugin_async::<serde_json::Value>("save", serde_json::json!({"secret": secret})).await
-            .map(|_| ()).map_err(|_| "자동 로그인 정보를 보안 저장소에 저장하지 못했어요.".into())
+            .map(|_| ()).map_err(|_| SAVE_ERROR.into())
     }
     pub async fn clear(&self) -> Result<(), String> {
         if let Self::Native(vault) = self { return vault.clear(); }
         let Self::Plugin(plugin) = self else { unreachable!() };
         plugin.run_mobile_plugin_async::<serde_json::Value>("clear", ()).await
-            .map(|_| ()).map_err(|_| "자동 로그인 정보를 삭제하지 못했어요. 다시 시도해 주세요.".into())
+            .map(|_| ()).map_err(|_| DELETE_ERROR.into())
     }
 }
 
 #[cfg(not(target_os = "android"))]
 impl Store {
-    fn entry(&self) -> Result<keyring::Entry, String> {
-        keyring::Entry::new("hongsi-app", "auto-login").map_err(|_| "보안 저장소를 열지 못했어요.".into())
+    fn entry(&self) -> Result<keyring::Entry, keyring::Error> {
+        keyring::Entry::new("hongsi-app", "auto-login")
     }
     pub async fn load(&self) -> Result<Option<String>, String> {
-        match self.entry()?.get_password() {
+        match self.entry().and_then(|entry| entry.get_password()) {
             Ok(secret) => Ok(Some(secret)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(_) => Err("자동 로그인 정보를 읽지 못했어요. 기기의 보안 저장소를 확인해 주세요.".into()),
+            Err(_) => Err(READ_ERROR.into()),
         }
     }
     pub async fn save(&self, secret: &str) -> Result<(), String> {
-        self.entry()?.set_password(secret).map_err(|_| "자동 로그인 정보를 저장하지 못했어요.".into())
+        self.entry().and_then(|entry| entry.set_password(secret)).map_err(|_| SAVE_ERROR.into())
     }
     pub async fn clear(&self) -> Result<(), String> {
-        match self.entry()?.delete_credential() {
+        match self.entry().and_then(|entry| entry.delete_credential()) {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(_) => Err("자동 로그인 정보를 삭제하지 못했어요. 다시 시도해 주세요.".into()),
+            Err(_) => Err(DELETE_ERROR.into()),
         }
     }
 }

@@ -122,7 +122,7 @@ async fn saved_login(shell: &Shell) -> Result<Option<Saved>, String> {
             .await?
             .map(|s| {
                 serde_json::from_str(&s).map_err(|_| {
-                    "자동 로그인 정보를 읽지 못했어요. 다시 로그인해 주세요.".to_string()
+                    credentials::READ_ERROR.to_string()
                 })
             })
             .transpose()?;
@@ -134,7 +134,7 @@ async fn saved_login(shell: &Shell) -> Result<Option<Saved>, String> {
 async fn save_credentials(shell: &Shell, saved: Option<Saved>) -> Result<(), String> {
     let mut cached = shell.saved.lock().await;
     if let Some(saved) = &saved {
-        let encoded = serde_json::to_string(saved).map_err(|e| e.to_string())?;
+        let encoded = serde_json::to_string(saved).map_err(|_| credentials::SAVE_ERROR.to_string())?;
         shell.credentials.save(&encoded).await?;
     } else {
         shell.credentials.clear().await?;
@@ -195,7 +195,7 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
         return Err(Reply::error(
             401,
             "session_revoked",
-            "로그아웃됐어요. 다시 로그인해 주세요.",
+            "다시 로그인해 주세요.",
         ));
     }
     if shell.direct.generation() != seen && shell.direct.logged_in().await {
@@ -218,7 +218,7 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
         _ if reply.code() == Some("login_rejected") => Err(Reply::error(
             401,
             "session_expired",
-            "저장된 비밀번호로 로그인하지 못했어요. 다시 로그인해 주세요",
+            "저장된 비밀번호로 로그인하지 못했어요.",
         )),
         _ if reply.code() == Some("session_revoked") => Err(reply),
         s if s >= 500 => Err(reply),
@@ -232,7 +232,7 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
         return Err(Reply::error(
             401,
             "session_revoked",
-            "로그아웃됐어요. 다시 로그인해 주세요.",
+            "다시 로그인해 주세요.",
         ));
     }
     if shell.direct.logged_in().await {
@@ -244,7 +244,7 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
             return Err(Reply::error(
                 401,
                 "session_revoked",
-                "로그아웃됐어요. 다시 로그인해 주세요.",
+                "다시 로그인해 주세요.",
             ));
         }
         if shell.direct.logged_in().await {
@@ -274,7 +274,7 @@ async fn refresh_classroom(shell: &Shell, seen: u64) -> Result<(), Reply> {
             return Err(Reply::error(
                 401,
                 "session_revoked",
-                "로그아웃됐어요. 다시 로그인해 주세요.",
+                "다시 로그인해 주세요.",
             ));
         }
         if shell.direct.generation() != seen && shell.direct.logged_in().await {
@@ -326,7 +326,7 @@ where
         return Reply::error(
             401,
             "session_revoked",
-            "로그아웃됐어요. 다시 로그인해 주세요.",
+            "다시 로그인해 주세요.",
         );
     } else {
         persist_auth(shell).await;
@@ -466,9 +466,9 @@ fn download_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let base = app
         .path()
         .download_dir()
-        .map_err(|_| "다운로드 폴더를 찾지 못했어요".to_string())?;
+        .map_err(|_| "다운로드 폴더를 찾지 못했어요.".to_string())?;
     let dir = base.join("홍시");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("폴더를 만들지 못했어요: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|_| "폴더를 만들지 못했어요.".to_string())?;
     Ok(dir)
 }
 
@@ -554,19 +554,19 @@ async fn download(
     let (_, bytes) = result.map_err(|r| message(&r))?;
     let name = name.rsplit('/').next().unwrap_or(&name).to_string();
     let path = unique_path(&download_dir(&app)?, &safe_name(&name));
-    std::fs::write(&path, &bytes).map_err(|e| format!("파일을 저장하지 못했어요: {e}"))?;
+    std::fs::write(&path, &bytes).map_err(|_| "파일을 저장하지 못했어요.".to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
 fn checked(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     let dir = download_dir(app)?
         .canonicalize()
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "다운로드 폴더를 열지 못했어요.".to_string())?;
     let file = Path::new(path)
         .canonicalize()
-        .map_err(|_| "파일이 없어요. 옮겼거나 지웠을 수 있어요".to_string())?;
+        .map_err(|_| "파일이 없어요.".to_string())?;
     if !file.starts_with(&dir) {
-        return Err("열 수 없는 경로예요".into());
+        return Err("열 수 없는 경로예요.".into());
     }
     Ok(file)
 }
@@ -577,7 +577,7 @@ fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
         .args(args)
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("열지 못했어요: {e}"))
+        .map_err(|_| "파일이나 링크를 열지 못했어요.".to_string())
 }
 
 #[cfg(not(target_os = "android"))]

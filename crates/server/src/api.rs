@@ -79,10 +79,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/seats/session/end", post(seat_end))
 }
 
-async fn api_not_found() -> (axum::http::StatusCode, Json<Value>) {
-    (axum::http::StatusCode::NOT_FOUND, Json(json!({ "error": {
-        "code": "api_not_found", "message": "현재 서버에서는 이 기능을 사용할 수 없어요."
-    } })))
+async fn api_not_found() -> ApiError {
+    ApiError::new(axum::http::StatusCode::NOT_FOUND, "api_not_found", "현재 서버에서는 이 기능을 사용할 수 없어요.")
 }
 
 
@@ -783,7 +781,7 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTim
     }
     let title = t.title.trim();
     if title.is_empty() || title.chars().count() > 200 || t.note.chars().count() > 2000 {
-        return Err(ApiError::bad_request("할 일 제목은 1~200자, 메모는 2000자까지예요"));
+        return Err(ApiError::bad_request("제목은 1~200자, 메모는 2000자까지예요"));
     }
     let timestamp = t.due_at.ok_or_else(|| ApiError::bad_request("날짜를 선택해 주세요"))?;
     let due = Utc.timestamp_opt(timestamp, 0).single()
@@ -942,7 +940,7 @@ struct StartBody {
 async fn seat_start(State(st): State<Shared>, user: CurrentUser, Json(b): Json<StartBody>) -> ApiResult<Value> {
     let user_id = user.session.user_id;
     if db::active_seat_session(&st.db, user_id).await?.is_some() {
-        return Err(ApiError::conflict("이미 사용 중인 좌석이 있어요. 퇴실한 뒤 다시 입실해 주세요"));
+        return Err(ApiError::conflict("이미 사용 중인 좌석이 있어요."));
     }
     ensure_snapshot(&st).await?;
     let (room_name, _) = seat_info(&st, &b.building, b.room_no, b.seat_no)

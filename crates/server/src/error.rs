@@ -1,8 +1,14 @@
+use axum::body::Body;
+use axum::extract::Request;
+use axum::middleware::Next;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use hongsi_core::CoreError;
+use hongsi_core::{api_error, CoreError};
 use serde_json::json;
+
+#[derive(Clone)]
+struct ErrorCode(&'static str);
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -29,7 +35,7 @@ impl ApiError {
     }
 
     pub fn session_revoked() -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, "session_revoked", "로그아웃됐어요. 다시 로그인해 주세요.")
+        Self::new(StatusCode::UNAUTHORIZED, "session_revoked", "다시 로그인해 주세요.")
     }
 
     pub fn bad_request(message: impl Into<String>) -> Self {
@@ -48,6 +54,7 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let mut response = (self.status, Json(json!({ "error": { "code": self.code, "message": self.message } }))).into_response();
+        response.extensions_mut().insert(ErrorCode(self.code));
         if self.code == "session_revoked" {
             response.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_static("hsid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"));
         }
@@ -66,13 +73,10 @@ impl From<CoreError> for ApiError {
             CoreError::SessionExpired => Self::new(StatusCode::UNAUTHORIZED, "session_expired", message),
             CoreError::LoginRejected(_) => Self::new(StatusCode::UNAUTHORIZED, "login_rejected", message),
             CoreError::Network(e) => {
-                tracing::warn!("학교 서버 연결 실패: {e}");
+                tracing::warn!(timeout = e.is_timeout(), connect = e.is_connect(), "학교 서버 연결 실패");
                 Self::new(StatusCode::BAD_GATEWAY, "school_unreachable", message)
             }
-            CoreError::Parse(_) => {
-                tracing::warn!("{message}");
-                Self::new(StatusCode::BAD_GATEWAY, "school_changed", message)
-            }
+            CoreError::Parse(_) => Self::new(StatusCode::BAD_GATEWAY, "school_changed", "학교 응답을 확인하지 못했어요."),
             CoreError::Upstream(_) => Self::new(StatusCode::BAD_GATEWAY, "school_error", message),
             CoreError::NotFound(_) => Self::new(StatusCode::NOT_FOUND, "not_found", message),
         }
@@ -81,7 +85,26 @@ impl From<CoreError> for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
-        tracing::error!("DB 오류: {err}");
+        tracing::error!(code = ?err.as_database_error().and_then(|error| error.code()), "DB 오류");
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", "서버에서 데이터를 처리하지 못했어요")
     }
+}
+
+pub async fn normalize_response(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_owned();
+    let method = request.method().as_str().to_owned();
+    let mut response = next.run(request).await;
+    if (path != "/api" && !path.starts_with("/api/")) || response.status().as_u16() < 400 { return response; }
+    let status = response.status();
+    let format = api_error::response_format(response.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or(""));
+    let (fallback_code, message) = api_error::fallback(status.as_u16());
+    let code = response.extensions().get::<ErrorCode>().map(|value| value.0).unwrap_or(fallback_code);
+    api_error::report(&method, &path, status.as_u16(), code, format);
+    if format != "json" {
+        *response.body_mut() = Body::from(json!({ "error": { "code": fallback_code, "message": message } }).to_string());
+        response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        response.headers_mut().remove(header::CONTENT_LENGTH);
+        response.headers_mut().remove(header::CONTENT_ENCODING);
+    }
+    response
 }

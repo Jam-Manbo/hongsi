@@ -42,7 +42,7 @@ class SeatExtensionJob : JobService() {
             }
             val job = JobInfo.Builder(JOB, ComponentName(context, SeatExtensionJob::class.java)).setExtras(extras).setOverrideDeadline(0).build()
             val accepted = context.getSystemService(JobScheduler::class.java).schedule(job) == JobScheduler.RESULT_SUCCESS
-            if (!accepted) result(context, "연장을 시작하지 못했어요. 잠시 후 다시 시도해 주세요.")
+            if (!accepted) result(context, "다시 시도해 주세요.")
             Widgets.updateAll(context, preserveInput = true)
         }
         internal fun result(context: Context, message: String) {
@@ -68,7 +68,7 @@ class SeatExtensionJob : JobService() {
                 if (schedule.date.time <= System.currentTimeMillis()) continue
                 intent.put("at", schedule.date.time)
                 notification.extra?.put("intent", intent.toString())
-                notification.body = notification.body?.replace(dateText(before.optLong("expiresAt"), "HH:mm"), dateText(after.optLong("expiresAt"), "HH:mm"))
+                notification.body = ""
                 val at = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(schedule.date)
                 notification.sourceJson = JSONObject().put("id", notification.id).put("title", notification.title).put("body", notification.body)
                     .put("icon", "ic_notification").put("iconColor", "#FF7A3D").put("autoCancel", true).put("extra", notification.extra)
@@ -89,22 +89,22 @@ class SeatExtensionJob : JobService() {
         WidgetSync.worker.execute {
             val outcome = runCatching {
                 WidgetSync.locks.getOrPut("seats") { ReentrantLock() }.withLock {
-                    if (owner.isBlank() || WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "계정이 변경됐어요. 다시 확인해 주세요.")
-                    if (System.currentTimeMillis() - extras.getLong("created") !in 0..120_000) throw WidgetFailure(408, "요청 시간이 지났어요. 다시 눌러 주세요.")
+                    if (owner.isBlank() || WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "위젯을 새로고침해 주세요.")
+                    if (System.currentTimeMillis() - extras.getLong("created") !in 0..120_000) throw WidgetFailure(408, "다시 시도해 주세요.")
                     val marker = context.getSharedPreferences("widget-seat-actions", Context.MODE_PRIVATE)
                     val request = extras.getString("request") ?: throw WidgetFailure(400, "다시 시도해 주세요.")
-                    if (marker.getString("claimed", null) == request) throw WidgetFailure(409, "처리 결과를 새로고침해서 확인해 주세요.")
+                    if (marker.getString("claimed", null) == request) throw WidgetFailure(409, "위젯을 새로고침해 주세요.")
                     if (!marker.edit().putString("claimed", request).commit()) throw WidgetFailure(500, "잠시 후 다시 시도해 주세요.")
                     val current = (WidgetNative.api(context, "/api/seats/session", owner = owner).body() as JSONObject).optJSONObject("session")
-                    if (current == null || current.optLong("id") != extras.getLong("seat") || current.optInt("extendCount") != extras.getInt("count")) throw WidgetFailure(409, "좌석 정보가 변경됐어요. 새로고침해 주세요.")
-                    if (stopped || WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "요청이 중단됐어요. 다시 확인해 주세요.")
+                    if (current == null || current.optLong("id") != extras.getLong("seat") || current.optInt("extendCount") != extras.getInt("count")) throw WidgetFailure(409, "현재 이용 중인 좌석을 확인해 주세요.")
+                    if (stopped || WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "위젯을 새로고침해 주세요.")
                     val response = WidgetNative.api(context, "/api/seats/session/extend", "POST", owner = owner).body() as JSONObject
-                    val seat = response.optJSONObject("session") ?: throw WidgetFailure(500, "처리 결과를 새로고침해서 확인해 주세요.")
-                    if (seat.optLong("id") != current.optLong("id")) throw WidgetFailure(409, "좌석 정보가 변경됐어요. 새로고침해 주세요.")
+                    val seat = response.optJSONObject("session") ?: throw WidgetFailure(500, "위젯을 새로고침해 주세요.")
+                    if (seat.optLong("id") != current.optLong("id")) throw WidgetFailure(409, "현재 이용 중인 좌석을 확인해 주세요.")
                     val applied = WidgetData.merge(context, owner, JSONObject().put("seat", seat).put("updatedAt", JSONObject().put("seats", System.currentTimeMillis())).put("errors", JSONObject().put("seats", "")))
-                    if (!applied) throw WidgetFailure(409, "계정이 변경됐어요.")
+                    if (!applied) throw WidgetFailure(409, "위젯을 새로고침해 주세요.")
                     val moved = runCatching { moveReminders(context, owner, current, seat) }.isSuccess
-                    if (moved) "이용 시간을 연장했어요." else "연장했지만 퇴실 알림을 갱신하지 못했어요."
+                    if (moved) "이용 시간을 연장했어요." else "연장했지만 알림을 갱신하지 못했어요."
                 }
             }
             WidgetSync.main.post {
@@ -112,7 +112,7 @@ class SeatExtensionJob : JobService() {
                 if (!stopped) jobFinished(params, false)
                 if (WidgetData.read(context).text("owner") == owner) {
                     outcome.onSuccess { result(context, it) }
-                        .onFailure { result(context, (it as? WidgetFailure)?.message ?: "처리 결과를 새로고침해서 확인해 주세요.") }
+                        .onFailure { result(context, (it as? WidgetFailure)?.message ?: "위젯을 새로고침해 주세요.") }
                     WidgetNavigation.changed = true
                     WidgetSync.enqueue(context, WidgetKind.SEAT)
                 }

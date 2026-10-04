@@ -1,4 +1,5 @@
 import { ApiError, isApp, request } from './api';
+import { contextMessage } from './api-error';
 import { mobileNotifications, notificationsAllowed, requestNotificationPermission, setRemoteNotifications } from './notify';
 import { isCurrentSession, onSessionChange, readUserData, sessionUser, sessionVersion, writeUserData } from './session';
 import { seatPrefs } from './seat.svelte';
@@ -53,7 +54,15 @@ function prefs() {
 }
 const pushPlatform = () => !isApp ? 'web' : /Android/i.test(navigator.userAgent) ? 'fcm' : mobileNotifications ? 'apns' : null;
 const pushSupported = () => isApp ? mobileNotifications : 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;
-const problem = (e: unknown) => e instanceof Error ? e.message : '동기화 서버에 연결하지 못했어요.';
+class SyncError extends Error {}
+type SyncStep = 'status' | 'connect' | 'settings' | 'disconnect';
+const failures: Record<SyncStep, string> = {
+  status: '알림 연결 상태를 확인하지 못했어요.',
+  connect: '백그라운드 동기화에 연결하지 못했어요.',
+  settings: '알림 설정을 적용하지 못했어요.',
+  disconnect: '백그라운드 동기화를 끄지 못했어요. 자동으로 다시 시도할게요.',
+};
+const problem = (e: unknown, step: SyncStep) => e instanceof SyncError ? e.message : contextMessage(e, failures[step]);
 function clearRetry() { clearTimeout(retryTimer); retryTimer = undefined; }
 function scheduleRetry() {
   clearRetry();
@@ -66,7 +75,7 @@ async function destination(publicKey: string | null) {
     const n = await import('@choochmeque/tauri-plugin-notifications-api');
     return { token: await n.registerForPushNotifications() };
   }
-  if (!publicKey) throw new Error('알림 서버의 설정을 확인하지 못했어요. 다시 시도해 주세요.');
+  if (!publicKey) throw new SyncError('알림 서버의 설정을 확인하지 못했어요. 다시 시도해 주세요.');
   const registration = await navigator.serviceWorker.register('/notification-sw.js', { scope: '/' });
   await navigator.serviceWorker.ready;
   const decoded = atob(publicKey.replace(/-/g, '+').replace(/_/g, '/'));
@@ -84,8 +93,9 @@ async function readStatus(): Promise<Status> {
   }
   return status;
 }
-async function reconcile(renewToken: boolean, check: () => void) {
+async function reconcile(renewToken: boolean, check: () => void, step: (value: SyncStep) => void) {
   if (removal) {
+    step('disconnect');
     const target = removal;
     await request('DELETE', `/api/background/session?device=${target === 'all' ? 'all' : encodeURIComponent(deviceId())}`);
     check();
@@ -98,9 +108,11 @@ async function reconcile(renewToken: boolean, check: () => void) {
     check();
     return;
   }
+  step('status');
   let status = await readStatus();
   check();
   background.status = status;
+  step('connect');
   let consented = status.consented;
   if (consented && (renewToken || Date.now() - renewedAt > 60 * 60_000)) {
     try {
@@ -119,11 +131,12 @@ async function reconcile(renewToken: boolean, check: () => void) {
     check();
     status = await readStatus();
     check();
-    if (!status.consented) throw new Error('동기화에 실패했어요.');
+    if (!status.consented) throw new SyncError('백그라운드 동기화에 연결하지 못했어요.');
     renewedAt = Date.now();
     prefSignature = '';
   }
   background.status = status;
+  step('settings');
   const allowed = await notificationsAllowed();
   check();
   const kind = pushPlatform();
@@ -141,7 +154,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
   if (!status.available[kind]) {
     await setRemoteNotifications(false);
     check();
-    throw new Error('서버에 연결하지 못했어요.');
+    throw new SyncError('서버의 알림 발송 설정을 확인하지 못했어요.');
   }
   const values = prefs(), signature = JSON.stringify(values);
   if (!status.registered || renewToken) {
@@ -151,7 +164,7 @@ async function reconcile(renewToken: boolean, check: () => void) {
     check();
     status = await readStatus();
     check();
-    if (!status.registered) throw new Error('알림 수신 설정을 완료하지 못했어요. 자동으로 다시 시도할게요.');
+    if (!status.registered) throw new SyncError('알림 수신 설정을 완료하지 못했어요. 자동으로 다시 시도할게요.');
   } else if (signature !== prefSignature || status.classroomAlerts !== values.classroomAlerts) {
     await request('PUT', '/api/push/preferences', values);
     check();
@@ -177,15 +190,16 @@ function synchronize(renewToken = false): Promise<boolean> {
       tokenRequested = false;
       const current = () => isCurrentSession(version) && revision === attempt && !app.loggingOut;
       const check = () => { if (!current()) throw new Error('설정이 변경됐어요.'); };
+      let step: SyncStep = 'connect';
       try {
-        await reconcile(renew, check);
+        await reconcile(renew, check, (value) => { step = value; });
         check();
         background.error = '';
         retries = 0;
         ok = true;
       } catch (e) {
         ok = false;
-        if (current()) background.error = background.choice ? problem(e) : `백그라운드 동기화를 끄지 못했어요. 자동으로 다시 시도할게요. ${problem(e)}`;
+        if (current()) background.error = problem(e, background.choice ? step : 'disconnect');
       }
     }
     return ok;

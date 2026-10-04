@@ -1,4 +1,6 @@
 import { isApp } from './env';
+import { ApiError, connectionError, errorOf, invalidResponse, reportApiFailure, responseError, responseFormat, submissionError, type ResponseFormat } from './api-error';
+export { ApiError } from './api-error';
 import { ReadTimeoutError, withReadTimeout } from './http';
 import { reportSchool, reportServer } from './net.svelte';
 import { inSession, sessionUser, sessionVersion } from './session';
@@ -27,16 +29,6 @@ import type {
   TodoInput,
 } from './types';
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
 export { isApp };
 
 type Envelope = { status: number; body: unknown; server?: boolean | null };
@@ -48,10 +40,6 @@ export function onSessionRevoked(listener: () => void) {
 }
 
 const SCHOOL_PATH = /^\/api\/(calendar(\?|$)|calendar\/items\/[^/]+\/verify|attendance\/|timetable|notifications|assign\/|modules\/|board\/)/;
-
-function errorOf(data: unknown) {
-  return (data as { error?: { code?: string; message?: string } } | null)?.error;
-}
 
 function note(path: string, status: number, data: unknown, server?: boolean | null) {
   if (isApp) {
@@ -100,7 +88,7 @@ async function withSchoolRecovery<T>(method: string, path: string, body: unknown
   } catch (e) {
     if (isApp || !schoolAuthError(e) || path.startsWith('/api/auth/')) throw e;
     await recoverSchoolAuth(e, path, check);
-    if (method !== 'GET') throw new ApiError(409, 'school_retry_required', '학교에 다시 연결됐어요. 다시 시도해 주세요.');
+    if (method !== 'GET') throw new ApiError(409, 'school_retry_required', '다시 시도해 주세요.');
     try {
       return await sendRequest<T>(method, path, body, check);
     } catch (retryError) {
@@ -118,21 +106,23 @@ export async function request<T>(method: string, path: string, body?: unknown): 
     if (e instanceof ApiError && e.status === 401 && e.code === 'session_revoked') {
       sessionRevokedListeners.forEach((listener) => listener());
     }
-    throw e;
+    throw method === 'POST' && path === '/api/attendance/submit' ? submissionError(e, 'attendance') : e;
   }
 }
 
 async function sendRequest<T>(method: string, path: string, body: unknown, check: () => void): Promise<T> {
   let status = 0;
   let data: unknown = null;
+  let format: ResponseFormat = isApp ? 'native' : 'none';
   if (isApp) {
     const { invoke } = await import('@tauri-apps/api/core');
     check();
     let res: Envelope;
     try {
       res = await invoke<Envelope>('api', { method, path, body: body ?? null });
-    } catch (e) {
-      throw new ApiError(0, 'native', String(e));
+    } catch {
+      reportApiFailure(0, 'native', { method, path, format });
+      throw new ApiError(0, 'native', '앱에서 요청을 처리하지 못했어요.');
     }
     status = res.status;
     data = res.body;
@@ -147,6 +137,7 @@ async function sendRequest<T>(method: string, path: string, body: unknown, check
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,
       });
+      format = responseFormat(res.headers.get('content-type'));
       return { status: res.status, data: await res.json().catch(() => null) };
     };
     try {
@@ -156,20 +147,19 @@ async function sendRequest<T>(method: string, path: string, body: unknown, check
     } catch (e) {
       check();
       if (e instanceof ReadTimeoutError) {
-        throw new ApiError(0, 'timeout', '응답이 늦어지고 있어요. 다시 시도해 주세요.');
+        throw connectionError(true, { method, path, format });
       }
       reportServer(false);
-      throw new ApiError(0, 'offline', '서버에 연결하지 못했어요');
+      throw connectionError(false, { method, path, format });
     }
     check();
     note(path, status, data);
   }
   if (status >= 400) {
-    const err = errorOf(data);
-    throw new ApiError(status, err?.code ?? 'error', err?.message ?? `요청을 처리하지 못했어요 (${status})`);
+    throw responseError(status, data, { method, path, format });
   }
   if (data === null || typeof data !== 'object') {
-    throw new ApiError(status, 'invalid_response', '서버 응답을 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요.');
+    throw invalidResponse(status, { method, path, format });
   }
   return data as T;
 }
@@ -225,47 +215,52 @@ export const api = {
     return inSession(async (check) => {
       let status = 0;
       let data: unknown = null;
-      if (isApp) {
-        const encoded = await Promise.all(files.map(async (f) => ({ name: f.name, data: await toBase64(f) })));
-        check();
-        const res = await native.call<Envelope>('submit_assignment', { cmid, keep, files: encoded, lateConfirmed, acceptStatement });
-        status = res.status;
-        data = res.body;
-        note(`/api/assign/${cmid}/submission`, status, data, res.server);
-      } else {
-        const form = new FormData();
-        keep.forEach((k) => form.append('keep', k));
-        form.append('lateConfirmed', lateConfirmed ? '1' : '0');
-        form.append('acceptStatement', acceptStatement ? '1' : '0');
-        files.forEach((f) => form.append('file', f, f.name));
-        let res: Response;
-        try {
-          res = await fetch(`/api/assign/${cmid}/submission`, { method: 'POST', body: form, credentials: 'same-origin' });
-        } catch {
+      let format: ResponseFormat = isApp ? 'native' : 'none';
+      const path = `/api/assign/${cmid}/submission`, method = 'POST';
+      try {
+        if (isApp) {
+          const encoded = await Promise.all(files.map(async (f) => ({ name: f.name, data: await toBase64(f) })));
           check();
-          reportServer(false);
-          throw new ApiError(0, 'offline', '서버에 연결하지 못했어요');
-        }
-        status = res.status;
-        data = await res.json().catch(() => null);
-        check();
-        note(`/api/assign/${cmid}/submission`, status, data);
-      }
-      if (status >= 400) {
-        const err = errorOf(data);
-        const error = new ApiError(status, err?.code ?? 'error', err?.message ?? `제출하지 못했어요 (${status})`);
-        if (!isApp && schoolAuthError(error)) {
+          const res = await native.call<Envelope>('submit_assignment', { cmid, keep, files: encoded, lateConfirmed, acceptStatement });
+          status = res.status;
+          data = res.body;
+          note(`/api/assign/${cmid}/submission`, status, data, res.server);
+        } else {
+          const form = new FormData();
+          keep.forEach((k) => form.append('keep', k));
+          form.append('lateConfirmed', lateConfirmed ? '1' : '0');
+          form.append('acceptStatement', acceptStatement ? '1' : '0');
+          files.forEach((f) => form.append('file', f, f.name));
+          let res: Response;
           try {
-            await recoverSchoolAuth(error, `/api/assign/${cmid}/submission`, check);
-          } catch (recoveryError) {
-            if (recoveryError instanceof ApiError && recoveryError.code === 'school_reauth_required') schoolAuthRequired();
-            throw recoveryError;
+            res = await fetch(`/api/assign/${cmid}/submission`, { method: 'POST', body: form, credentials: 'same-origin' });
+          } catch {
+            check();
+            reportServer(false);
+            throw connectionError(false, { method, path, format });
           }
-          throw new ApiError(409, 'school_retry_required', '학교에 다시 연결됐어요. 제출 상태를 확인한 뒤 다시 시도해 주세요.');
+          status = res.status;
+          format = responseFormat(res.headers.get('content-type'));
+          data = await res.json().catch(() => null);
+          check();
+          note(`/api/assign/${cmid}/submission`, status, data);
         }
-        throw error;
-      }
-      return data as SubmissionView;
+        if (status >= 400) {
+          const error = responseError(status, data, { method, path, format });
+          if (!isApp && schoolAuthError(error)) {
+            try {
+              await recoverSchoolAuth(error, `/api/assign/${cmid}/submission`, check);
+            } catch (recoveryError) {
+              if (recoveryError instanceof ApiError && recoveryError.code === 'school_reauth_required') schoolAuthRequired();
+              throw recoveryError;
+            }
+            throw new ApiError(409, 'school_retry_required', '학교에 다시 연결됐어요. 제출 상태를 확인한 뒤 다시 시도해 주세요.');
+          }
+          throw error;
+        }
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw invalidResponse(status, { method, path, format });
+        return data as SubmissionView;
+      } catch (e) { throw submissionError(e, 'assignment'); }
     });
   },
 

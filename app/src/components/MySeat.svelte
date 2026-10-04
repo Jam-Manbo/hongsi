@@ -68,13 +68,13 @@
 
   async function extend() {
     busy = 'extend';
-    await apply(api.extendSeat, '이용 시간을 연장하고 퇴실 알림 시간도 변경했어요');
+    await apply(api.extendSeat, '이용 시간을 연장했어요.');
   }
 
   async function end() {
     busy = 'end';
     confirmEnd = false;
-    await apply(api.checkOut, '퇴실 처리했어요. 좌석배정기에서 반납도 잊지 마세요.');
+    await apply(api.checkOut, '퇴실 처리했어요.');
   }
 
   function openAdjust() {

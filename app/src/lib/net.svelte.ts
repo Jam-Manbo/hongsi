@@ -11,7 +11,7 @@ export const net = $state({
   checking: false,
 });
 
-const SERVER = isApp ? '동기화 서버' : '홍시 서버';
+const SERVER = '홍시 서버';
 
 export const TROUBLE_TEXT: Record<Trouble, { title: string; detail: string }> = {
   offline: { title: '인터넷에 연결되어 있지 않아요', detail: '마지막으로 받은 내용을 보여주고 있어요' },
@@ -134,8 +134,8 @@ export async function retry() {
 
 export function writeBlocked(kind: 'sync' | 'school' = 'sync', action = '저장할'): boolean {
   let text = '';
-  if (!net.online) text = `인터넷에 연결되어 있지 않아 지금은 ${action} 수 없어요`;
-  else if (!net.server && (kind === 'sync' || !isApp)) text = `${SERVER}에 연결할 수 없어 지금은 ${action} 수 없어요`;
+  if (!net.online) text = `인터넷에 연결되어 있지 않아 ${action} 수 없어요`;
+  else if (!net.server && (kind === 'sync' || !isApp)) text = `${SERVER}에 연결할 수 없어 ${action} 수 없어요`;
   if (!text) return false;
   toastOnce(text, 'error');
   void retry();

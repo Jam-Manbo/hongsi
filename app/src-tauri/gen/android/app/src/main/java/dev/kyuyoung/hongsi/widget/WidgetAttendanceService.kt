@@ -51,7 +51,7 @@ class WidgetAttendanceService : Service() {
     private var working = false
     private var finished = false
     private val locationTimeout = Runnable {
-        if (locating) finish("위치를 확인하지 못했어요. 위치 기능을 확인한 뒤 다시 시도해 주세요.")
+        if (locating) finish("위치를 찾지 못했어요.")
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -70,14 +70,14 @@ class WidgetAttendanceService : Service() {
         state = WidgetData.state(this, id)
         if (state.text("mode") != "input" || state.optLong("inputAt") != intent?.getLongExtra("inputAt", 0) ||
             System.currentTimeMillis() - state.optLong("inputAt") !in 0..600_000) {
-            finish("출석 정보를 새로고침한 뒤 다시 입력해 주세요."); return START_NOT_STICKY
+            finish("위젯을 새로고침해 주세요."); return START_NOT_STICKY
         }
         if (!Regex("[0-9]{4}").matches(state.text("code"))) {
             finish("출석번호 네 자리를 입력해 주세요."); return START_NOT_STICKY
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            finish("앱의 출결 화면에서 위치 권한을 허용해 주세요."); return START_NOT_STICKY
+            finish("앱에서 위치 권한을 허용해 주세요."); return START_NOT_STICKY
         }
         try {
             foreground(id, location = true)
@@ -85,7 +85,7 @@ class WidgetAttendanceService : Service() {
             refreshWidgets()
             locate()
         } catch (_: Exception) {
-            finish("출석을 시작하지 못했어요. 위치 권한을 확인한 뒤 다시 시도해 주세요.")
+            finish("다시 시도해 주세요.")
         }
         return START_NOT_STICKY
     }
@@ -127,10 +127,10 @@ class WidgetAttendanceService : Service() {
                 if (!locating || finished) return@getCurrentLocation
                 locating = false
                 WidgetSync.main.removeCallbacks(locationTimeout)
-                if (location == null) finish("위치를 확인하지 못했어요. 다시 시도해 주세요.") else perform(location)
+                if (location == null) finish("위치를 찾지 못했어요.") else perform(location)
             }
         } catch (_: Exception) {
-            finish("위치를 확인하지 못했어요. 기기 설정을 확인해 주세요.")
+            finish("위치를 찾지 못했어요.")
         }
     }
     private fun perform(location: Location) {
@@ -139,11 +139,11 @@ class WidgetAttendanceService : Service() {
         val context = applicationContext
         WidgetSync.worker.execute {
             val result = runCatching {
-                val target = state.optJSONObject("lecture") ?: throw WidgetFailure(400, "출석 정보를 새로고침해 주세요.")
-                if (WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "계정이 변경됐어요. 다시 확인해 주세요.")
+                val target = state.optJSONObject("lecture") ?: throw WidgetFailure(400, "위젯을 새로고침해 주세요.")
+                if (WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "위젯을 새로고침해 주세요.")
                 val active = (WidgetNative.api(context, "/api/attendance/active", owner = owner).body() as JSONObject).array("items")
-                if (active.none { it.text("key") == target.text("key") }) throw WidgetFailure(409, "출석할 수 있는 시간이 아니에요. 새로고침해 주세요.")
-                if (WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "계정이 변경됐어요. 다시 확인해 주세요.")
+                if (active.none { it.text("key") == target.text("key") }) throw WidgetFailure(409, "출석할 수 있는 시간이 아니에요.")
+                if (WidgetData.read(context).text("owner") != owner) throw WidgetFailure(409, "위젯을 새로고침해 주세요.")
                 val body = JSONObject().put("lectureKey", target.text("key")).put("code", state.text("code"))
                     .put("latitude", location.latitude).put("longitude", location.longitude)
                 val response = WidgetNative.api(context, "/api/attendance/submit", "POST", body, owner).body() as JSONObject
@@ -156,7 +156,7 @@ class WidgetAttendanceService : Service() {
             WidgetSync.main.post {
                 if (finished) return@post
                 if (WidgetData.read(context).text("owner") != owner) {
-                    finish("계정이 변경됐어요. 현재 계정을 확인해 주세요.")
+                    finish("위젯을 새로고침해 주세요.")
                     return@post
                 }
                 result.onSuccess { receipt ->
@@ -173,10 +173,10 @@ class WidgetAttendanceService : Service() {
                     finish(when (receipt.text("kind")) {
                         "late" -> "지각으로 처리됐어요."
                         "excused" -> "공결로 처리됐어요."
-                        else -> "출석확인이 완료되었습니다."
+                        else -> "출석 확인이 완료되었습니다."
                     })
                 }.onFailure {
-                    finish((it as? WidgetFailure)?.message ?: "처리 결과를 확인하지 못했어요. 새로고침해서 확인해 주세요.")
+                    finish((it as? WidgetFailure)?.message ?: "위젯을 새로고침해 주세요.")
                 }
                 WidgetNavigation.changed = true
                 WidgetSync.enqueue(context, WidgetKind.ATTENDANCE)
@@ -198,7 +198,7 @@ class WidgetAttendanceService : Service() {
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
-    override fun onTimeout(startId: Int) { finish("처리 결과를 확인하지 못했어요. 새로고침해서 확인해 주세요.") }
+    override fun onTimeout(startId: Int) { finish("위젯을 새로고침해 주세요.") }
     override fun onTimeout(startId: Int, fgsType: Int) { onTimeout(startId) }
     override fun onDestroy() {
         finished = true

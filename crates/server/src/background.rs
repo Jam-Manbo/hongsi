@@ -406,7 +406,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
                     format!("due:seat:{}:{}:{lead}", s.id, s.expires_at.timestamp()),
                     s.expires_at.timestamp() - i64::from(*lead) * 60,
                     &format!("좌석 이용 종료까지 {lead}분 남았어요"),
-                    &format!("{} {}번", s.room_name, s.seat_no),
+                    "",
                     &sealed.student_id,
                     json!({"kind":"seat","id":s.id}),
                 ));

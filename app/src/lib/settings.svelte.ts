@@ -112,7 +112,7 @@ function changeAccountPreferences(changes: AccountPreferenceChanges) {
         if (!isCurrentSession(version)) return;
         if (handleAuthError(e)) return;
         apply(confirmed, pending);
-        accountPreferences.error = '설정을 저장하지 못했어요. 다시 선택해 주세요.';
+        accountPreferences.error = '설정을 저장하지 못했어요.';
         toastOnce(accountPreferences.error, 'error');
       }
     }

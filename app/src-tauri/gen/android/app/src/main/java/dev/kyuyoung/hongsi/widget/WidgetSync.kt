@@ -19,7 +19,17 @@ import java.util.concurrent.locks.ReentrantLock
 
 internal class WidgetFailure(val status: Int, override val message: String) : Exception(message)
 internal fun JSONObject.body(): Any {
-    if (optInt("status") !in 200..299) throw WidgetFailure(optInt("status"), optJSONObject("body")?.optJSONObject("error")?.text("message").orEmpty().ifBlank { "정보를 불러오지 못했어요" })
+    if (optInt("status") !in 200..299) {
+        val error = optJSONObject("body")?.optJSONObject("error")
+        val message = when (error?.text("code")) {
+            "account_changed" -> "위젯을 새로고침해 주세요."
+            "attendance_result_unknown" -> "출석 결과를 확인해 주세요."
+            "timeout" -> "처리 결과를 확인해 주세요."
+            "school_error", "school_unreachable" -> "학교 서버가 응답하지 않아요."
+            else -> error?.text("message").orEmpty().ifBlank { "정보를 불러오지 못했어요." }
+        }
+        throw WidgetFailure(optInt("status"), message)
+    }
     return get("body")
 }
 

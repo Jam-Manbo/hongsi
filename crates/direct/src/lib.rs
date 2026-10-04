@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use hongsi_core::calendar::{self, CalendarData, SnapshotInfo, SubmitRejection};
 use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SubmissionInfo, Timetable};
-use hongsi_core::{CoreError, SchoolSession, SchoolSessionSnapshot};
+use hongsi_core::{api_error, CoreError, SchoolSession, SchoolSessionSnapshot};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -48,10 +48,10 @@ impl From<CoreError> for Reply {
             CoreError::ClassroomTokenExpired => Reply::error(401, "classroom_token_expired", message),
             CoreError::LoginRejected(_) => Reply::error(401, "login_rejected", message),
             CoreError::Network(e) => {
-                tracing::warn!("학교 서버 연결 실패: {e}");
+                tracing::warn!(timeout = e.is_timeout(), connect = e.is_connect(), "학교 서버 연결 실패");
                 Reply::error(502, "school_unreachable", message)
             }
-            CoreError::Parse(_) => Reply::error(502, "school_changed", message),
+            CoreError::Parse(_) => Reply::error(502, "school_changed", "학교 응답을 확인하지 못했어요."),
             CoreError::Upstream(_) => Reply::error(502, "school_error", message),
             CoreError::NotFound(_) => Reply::error(404, "not_found", message),
         }
@@ -161,7 +161,7 @@ impl Direct {
     }
 
     fn revoked_reply() -> Reply {
-        Reply::error(401, "session_revoked", "로그아웃됐어요. 다시 로그인해 주세요.")
+        Reply::error(401, "session_revoked", "다시 로그인해 주세요.")
     }
 
     async fn current(&self) -> R<Arc<School>> {
@@ -375,7 +375,18 @@ impl Direct {
             Ok(response) => {
                 self.server_ok.store(1, Ordering::Relaxed);
                 let status = response.status().as_u16();
-                let reply = Reply { status, body: response.json().await.unwrap_or(Value::Null) };
+                let format = api_error::response_format(response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or(""));
+                let body = response.json::<Value>().await.unwrap_or(Value::Null);
+                let reply = if status >= 400 {
+                    let (code, message) = api_error::fallback(status);
+                    let code = body["error"]["code"].as_str().filter(|value| !value.trim().is_empty()).unwrap_or(code);
+                    let message = body["error"]["message"].as_str().filter(|value| !value.trim().is_empty()).unwrap_or(message);
+                    api_error::report(method.as_str(), path, status, code, format);
+                    Reply::error(status, code, message)
+                } else if !body.is_object() && !body.is_array() {
+                    api_error::report(method.as_str(), path, status, "invalid_response", format);
+                    Reply::error(502, "invalid_response", "서버 응답을 확인하지 못했어요.")
+                } else { Reply { status, body } };
                 if reply.status == 401 && reply.code() == Some("session_revoked") {
                     let auth = self.server_auth.lock().ok();
                     if token.is_none() || auth.as_ref().and_then(|auth| auth.as_ref().map(|auth| auth.token.as_str())) != token {
@@ -387,8 +398,10 @@ impl Direct {
             }
             Err(e) => {
                 self.server_ok.store(2, Ordering::Relaxed);
-                tracing::warn!("홍시 서버 연결 실패: {e}");
-                Reply::error(503, "server_unreachable", "동기화 서버에 연결하지 못했어요")
+                let (code, message) = if e.is_timeout() { ("timeout", "응답이 늦어지고 있어요.") }
+                    else { ("server_unreachable", "서버에 연결하지 못했어요.") };
+                api_error::report(method.as_str(), path, 503, code, "none");
+                Reply::error(503, code, message)
             }
         }
     }
@@ -558,7 +571,11 @@ impl Direct {
         if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
             return Err(Reply::error(400, "bad_request", "위치 정보가 올바르지 않아요"));
         }
-        let submission = s.session.submit_attendance(key, code, lat, lon).await?;
+        let submission = s.session.submit_attendance(key, code, lat, lon).await.map_err(|error| {
+            let mut reply = Reply::from(error);
+            if reply.status >= 500 { reply.body["error"]["message"] = json!("출석 결과를 확인하지 못했어요. 출석 상태를 확인해 주세요."); }
+            reply
+        })?;
         if self.generation() != generation { return Err(Reply::error(409, "account_changed", "이전 계정의 출석 요청이에요")); }
         *s.lectures.lock().await = None;
         s.courses.lock().await.clear();

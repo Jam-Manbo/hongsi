@@ -84,9 +84,7 @@
       if (!isCurrentSession(version)) return;
       syncSeatReminders(res.session);
       toast(
-        res.session.startSource === 'detected'
-          ? `입실 완료 · 배정 시각 ${time(res.session.startedAt)} · ${time(res.session.expiresAt)}까지 이용 가능`
-          : `입실 완료 · ${time(res.session.expiresAt)}까지`,
+        `입실 완료 · ${time(res.session.expiresAt)}까지 이용 가능`,
         'success',
         4500,
       );

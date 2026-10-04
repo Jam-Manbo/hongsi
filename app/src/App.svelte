@@ -221,8 +221,8 @@
       await logoutSession(scope);
       profileOpen = false;
       toast(scope === 'all' ? '모든 기기에서 로그아웃했어요' : '로그아웃했어요', 'success');
-    } catch (e) {
-      toast(`${scope === 'all' ? '모든 기기 로그아웃을' : '로그아웃을'} 완료하지 못했어요. ${errorText(e, '연결을 확인한 뒤 다시 시도해 주세요.')}`, 'error', 7000);
+    } catch {
+      toast('로그아웃을 완료하지 못했어요.', 'error', 7000);
     }
   }
 </script>

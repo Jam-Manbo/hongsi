@@ -3,7 +3,7 @@ import { focus, go, toast } from './ui.svelte';
 import { sessionVersion, isCurrentSession } from './session';
 import type { NotificationIntent } from './notification-model';
 export async function openNotification(intent: NotificationIntent) {
-  if (intent.account !== app.account) { toast('다른 계정의 알림이에요. 해당 계정으로 로그인해 주세요.', 'error'); return; }
+  if (intent.account !== app.account) { toast('다른 계정의 알림이에요.', 'error'); return; }
   const version = sessionVersion(), target = intent.target;
   if (target.kind === 'notices') { focus.notices = true; return; }
   const resource = target.kind === 'item' ? calendar : target.kind === 'todo' ? todos : seatSession;
