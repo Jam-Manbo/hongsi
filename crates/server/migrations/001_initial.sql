@@ -1,12 +1,11 @@
-
-create table if not exists users (
+create table users (
     id            bigserial primary key,
     user_key      text not null unique,
     created_at    timestamptz not null default now(),
     last_login_at timestamptz not null default now()
 );
 
-create table if not exists account_preferences (
+create table account_preferences (
     user_id bigint primary key references users(id) on delete cascade,
     meal_place text not null default 'dorm' check (meal_place in ('dorm', 'staff')),
     timetable_display text not null default 'fit' check (timetable_display in ('full', 'fit')),
@@ -14,7 +13,7 @@ create table if not exists account_preferences (
     updated_at timestamptz not null default now()
 );
 
-create table if not exists attendance_receipts (
+create table attendance_receipts (
     user_id      bigint not null references users(id) on delete cascade,
     school_date  date not null,
     lecture_key  text not null,
@@ -25,9 +24,9 @@ create table if not exists attendance_receipts (
     confirmed_at timestamptz not null,
     primary key (user_id, school_date, lecture_key)
 );
-create index if not exists attendance_receipts_date on attendance_receipts(school_date);
+create index attendance_receipts_date on attendance_receipts(school_date);
 
-create table if not exists assignment_snapshots (
+create table assignment_snapshots (
     user_id          bigint not null references users (id) on delete cascade,
     cmid             bigint not null,
     course_id        bigint not null,
@@ -42,7 +41,7 @@ create table if not exists assignment_snapshots (
     primary key (user_id, cmid)
 );
 
-create table if not exists item_checks (
+create table item_checks (
     user_id    bigint not null references users (id) on delete cascade,
     item_key   text not null,
     done       boolean not null,
@@ -50,7 +49,7 @@ create table if not exists item_checks (
     primary key (user_id, item_key)
 );
 
-create table if not exists seat_sessions (
+create table seat_sessions (
     id           bigserial primary key,
     user_id      bigint not null references users (id) on delete cascade,
     building     text not null,
@@ -66,9 +65,9 @@ create table if not exists seat_sessions (
     end_source   text,
     created_at   timestamptz not null default now()
 );
-create unique index if not exists seat_sessions_one_active on seat_sessions (user_id) where ended_at is null;
+create unique index seat_sessions_one_active on seat_sessions (user_id) where ended_at is null;
 
-create table if not exists seat_state (
+create table seat_state (
     building    text not null,
     room_no     integer not null,
     seat_no     integer not null,
@@ -78,7 +77,7 @@ create table if not exists seat_state (
     primary key (building, room_no, seat_no)
 );
 
-create table if not exists seat_events (
+create table seat_events (
     id         bigserial primary key,
     building   text not null,
     room_no    integer not null,
@@ -87,14 +86,14 @@ create table if not exists seat_events (
     to_state   text not null,
     at         timestamptz not null default now()
 );
-create index if not exists seat_events_room_at on seat_events (building, room_no, at desc);
+create index seat_events_room_at on seat_events (building, room_no, at desc);
 
-create table if not exists seat_watch_meta (
+create table seat_watch_meta (
     id           integer primary key default 1 check (id = 1),
     last_poll_at timestamptz not null
 );
 
-create table if not exists auth_sessions (
+create table auth_sessions (
     token_hash text primary key,
     family_hash text not null,
     user_id bigint not null references users(id) on delete cascade,
@@ -102,10 +101,10 @@ create table if not exists auth_sessions (
     revoked_at timestamptz,
     logout_all_at timestamptz
 );
-create index if not exists auth_sessions_user on auth_sessions(user_id);
-create index if not exists auth_sessions_family on auth_sessions(family_hash);
+create index auth_sessions_user on auth_sessions(user_id);
+create index auth_sessions_family on auth_sessions(family_hash);
 
-create table if not exists remembered_sessions (
+create table remembered_sessions (
     token_hash text primary key references auth_sessions(token_hash) on delete cascade,
     user_id    bigint not null references users (id) on delete cascade,
     nonce      bytea not null,
@@ -113,9 +112,9 @@ create table if not exists remembered_sessions (
     created_at timestamptz not null default now(),
     expires_at timestamptz not null
 );
-create index if not exists remembered_sessions_user on remembered_sessions (user_id);
+create index remembered_sessions_user on remembered_sessions (user_id);
 
-create table if not exists todos (
+create table todos (
     id         bigserial primary key,
     user_id    bigint not null references users (id) on delete cascade,
     course_id  bigint,
@@ -130,37 +129,37 @@ create table if not exists todos (
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
-create index if not exists todos_user_due on todos (user_id, due_at);
+create index todos_user_due on todos (user_id, due_at);
 
-create table if not exists item_alerts_off (
+create table item_alerts_off (
     user_id    bigint not null references users (id) on delete cascade,
     item_key   text not null,
     created_at timestamptz not null default now(),
     primary key (user_id, item_key)
 );
 
-create table if not exists item_alert_leads (
+create table item_alert_leads (
     user_id    bigint not null references users (id) on delete cascade,
     item_key   text not null,
     leads      integer[] not null check (cardinality(leads) <= 5 and leads <@ array[1440, 180, 60, 10, 0]),
     primary key (user_id, item_key)
 );
 
-create table if not exists notices_seen (
+create table notices_seen (
     user_id bigint not null references users (id) on delete cascade,
     url     text not null,
     seen_at timestamptz not null default now(),
     primary key (user_id, url)
 );
 
-create table if not exists background_sessions (
+create table background_sessions (
     user_id bigint primary key references users(id) on delete cascade,
     last_poll_at timestamptz,
     next_poll_at timestamptz not null default now(),
     last_error text,
     snapshot jsonb
 );
-create table if not exists background_devices (
+create table background_devices (
     id text primary key,
     user_id bigint not null references background_sessions(user_id) on delete cascade,
     session_hash text not null references auth_sessions(token_hash) on delete cascade,
@@ -169,10 +168,10 @@ create table if not exists background_devices (
     expires_at timestamptz not null default now() + interval '14 days',
     unique (id, session_hash)
 );
-create index if not exists background_devices_user on background_devices(user_id);
-create index if not exists background_devices_login on background_devices(session_hash);
+create index background_devices_user on background_devices(user_id);
+create index background_devices_login on background_devices(session_hash);
 
-create table if not exists notification_devices (
+create table notification_devices (
     id text primary key,
     user_id bigint not null references users(id) on delete cascade,
     session_hash text not null,
@@ -186,9 +185,9 @@ create table if not exists notification_devices (
     last_error text,
     foreign key (id, session_hash) references background_devices(id, session_hash) on update cascade on delete cascade
 );
-create index if not exists notification_devices_user on notification_devices(user_id);
-create index if not exists notification_devices_login on notification_devices(session_hash);
-create table if not exists notification_outbox (
+create index notification_devices_user on notification_devices(user_id);
+create index notification_devices_login on notification_devices(session_hash);
+create table notification_outbox (
     device_id text not null references notification_devices(id) on delete cascade,
     event_key text not null,
     payload jsonb not null,
@@ -199,4 +198,4 @@ create table if not exists notification_outbox (
     sent_at timestamptz,
     primary key (device_id, event_key)
 );
-create index if not exists notification_outbox_due on notification_outbox(due_at) where sent_at is null;
+create index notification_outbox_due on notification_outbox(due_at) where sent_at is null;

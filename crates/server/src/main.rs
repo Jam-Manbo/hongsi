@@ -60,9 +60,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .acquire_timeout(Duration::from_secs(5))
         .connect(&config.database_url)
         .await?;
-    sqlx::raw_sql(include_str!("../schema.sql"))
-        .execute(&db)
-        .await?;
+    sqlx::migrate!("./migrations").run(&db).await?;
 
     let push = push::Push::from_env()?;
     tracing::info!(
