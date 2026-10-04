@@ -2,6 +2,8 @@ import { isApp } from './env';
 import { reportSchool, reportServer } from './net.svelte';
 import { inSession, sessionUser, sessionVersion } from './session';
 import type {
+  AccountPreferences,
+  AccountPreferenceChanges,
   ActiveLectures,
   AttendanceCourse,
   AttendanceReceipt,
@@ -164,6 +166,8 @@ async function sendRequest<T>(method: string, path: string, body: unknown, check
 }
 
 export const api = {
+  preferences: () => request<AccountPreferences>('GET', '/api/preferences'),
+  updatePreferences: (changes: AccountPreferenceChanges) => request<AccountPreferences>('PATCH', '/api/preferences', changes),
   login: (id: string, password: string, remember: boolean) =>
     request<{ profile: Profile }>('POST', '/api/auth/login', { id, password, remember }),
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),

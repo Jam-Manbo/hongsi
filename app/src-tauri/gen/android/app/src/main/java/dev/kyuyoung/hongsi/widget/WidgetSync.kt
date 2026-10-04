@@ -88,7 +88,17 @@ internal object WidgetSync {
                 "seats" -> patch.put("seat", (get("/api/seats/session") as JSONObject).opt("session") ?: JSONObject.NULL)
                 else -> patch.put("slots", JSONArray(colorSlots((get("/api/timetable?refresh=1") as JSONObject).array("slots"), before.array("slots"))))
             }
-            patch.put("updatedAt", JSONObject().put(resource, System.currentTimeMillis()))
+            val updated = JSONObject().put(resource, System.currentTimeMillis())
+            if (resource == "timetable") {
+                runCatching { get("/api/preferences") as JSONObject }.onSuccess { preferences ->
+                    val display = preferences.text("timetableDisplay")
+                    if (display in listOf("full", "fit")) {
+                        patch.put("preferences", JSONObject().put("timetableDisplay", display))
+                        updated.put("preferences", preferences.optLong("updatedAt"))
+                    }
+                }.onFailure { if (it is WidgetFailure && it.status == 401) throw it }
+            }
+            patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, ""))
         } catch (e: Exception) {
             if (e is WidgetFailure && e.status == 401) {

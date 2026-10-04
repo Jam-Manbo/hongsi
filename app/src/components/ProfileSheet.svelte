@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
   import { appUpdater, canUpdateApp } from '../lib/app-update.svelte';
   import {
+    accountPreferences,
+    refreshAccountPreferences,
     setMealPlace,
     setTimetableDisplay,
     setShowUndatedAssignments,
@@ -22,7 +25,7 @@
   let { open = $bindable(false), onlogout, onlogoutall }: { open: boolean; onlogout: () => Promise<void>; onlogoutall: () => Promise<void> } = $props();
   let confirmLogoutAll = $state(false);
 
-  $effect(() => { if (!open) confirmLogoutAll = false; });
+  $effect(() => { if (!open) confirmLogoutAll = false; else untrack(() => { void refreshAccountPreferences(true); }); });
 
   const THEMES: { id: Theme; label: string }[] = [
     { id: 'system', label: '시스템' },
@@ -57,6 +60,9 @@
   </div>
 
   <h4 class="section-title">설정</h4>
+  {#if accountPreferences.error}
+    <p class="set-hint muted">{accountPreferences.error} <button class="link" onclick={() => refreshAccountPreferences(true)}>다시 확인</button></p>
+  {/if}
   <div class="settings card">
     <div class="set">
       <span class="set-label">화면 테마</span>
@@ -79,15 +85,15 @@
       <span class="set-label">학식 기본 식당</span>
       <div class="seg" role="radiogroup" aria-label="학식 기본 식당">
         {#each PLACES as m (m.id)}
-          <button role="radio" aria-checked={settings.mealPlace === m.id} class:on={settings.mealPlace === m.id} onclick={() => setMealPlace(m.id)}>{m.label}</button>
+          <button role="radio" aria-checked={settings.mealPlace === m.id} class:on={settings.mealPlace === m.id} disabled={!accountPreferences.loaded} onclick={() => setMealPlace(m.id)}>{m.label}</button>
         {/each}
       </div>
     </div>
     <div class="set">
       <span class="set-label">주간 시간표</span>
       <div class="seg" role="radiogroup" aria-label="주간 시간표">
-        <button role="radio" aria-checked={settings.timetableDisplay === 'full'} class:on={settings.timetableDisplay === 'full'} onclick={() => setTimetableDisplay('full')}>전체 표시</button>
-        <button role="radio" aria-checked={settings.timetableDisplay === 'fit'} class:on={settings.timetableDisplay === 'fit'} onclick={() => setTimetableDisplay('fit')}>최적화 표시</button>
+        <button role="radio" aria-checked={settings.timetableDisplay === 'full'} class:on={settings.timetableDisplay === 'full'} disabled={!accountPreferences.loaded} onclick={() => setTimetableDisplay('full')}>전체 표시</button>
+        <button role="radio" aria-checked={settings.timetableDisplay === 'fit'} class:on={settings.timetableDisplay === 'fit'} disabled={!accountPreferences.loaded} onclick={() => setTimetableDisplay('fit')}>최적화 표시</button>
       </div>
       <p class="set-hint muted">{settings.timetableDisplay === 'full'
         ? '앞뒤 공강을 포함하여 전체 시간표를 표시합니다.'

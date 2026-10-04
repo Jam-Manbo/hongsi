@@ -1,7 +1,7 @@
 <script lang="ts">
   import { sentenceLines } from '../lib/format';
   import { onMount } from 'svelte';
-  import { ALERT_LEADS, settings, toggleAlertLead } from '../lib/settings.svelte';
+  import { ALERT_LEADS, settings, toggleAlertLead, accountPreferences } from '../lib/settings.svelte';
   import { notificationsAllowed, notificationState as notifications } from '../lib/notify';
   import { background, setBackgroundEnabled, setClassroomAlerts, refreshBackground, configureNotificationPermission } from '../lib/background.svelte';
   import { app } from '../lib/store.svelte';
@@ -29,7 +29,7 @@
   </div>
   <strong class="label">마감 알림</strong>
   <div class="leads" role="group" aria-label="마감 알림 시간">
-    {#each ALERT_LEADS as l (l.min)}<button class="filter" aria-pressed={settings.alertLeads.includes(l.min)} onclick={() => toggleAlertLead(l.min)}>{l.label}</button>{/each}
+    {#each ALERT_LEADS as l (l.min)}<button class="filter" aria-pressed={settings.alertLeads.includes(l.min)} disabled={!accountPreferences.loaded} onclick={() => toggleAlertLead(l.min)}>{l.label}</button>{/each}
   </div>
   <p class="hint">과제, 강의와 할 일에 기본으로 적용해요.</p>
   <div class="background">

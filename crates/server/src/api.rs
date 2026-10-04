@@ -43,6 +43,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/auth/recover", post(auth::recover))
         .route("/api/auth/reconnect", post(auth::reconnect))
         .route("/api/me", get(me))
+        .route("/api/preferences", get(crate::preferences::get).patch(crate::preferences::patch))
         .route("/api/me/avatar", get(avatar))
         .route("/api/files/{cmid}/{index}", get(download_file))
         .route("/api/modules/{cmid}", get(module_get))

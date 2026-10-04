@@ -50,6 +50,12 @@ object WidgetData {
                     times.put(resource, oldTimes.optLong(resource))
                 }
             }
+            if (oldTimes.optLong("preferences") > times.optLong("preferences")) {
+                val preferences = next.optJSONObject("preferences") ?: JSONObject()
+                preferences.put("timetableDisplay", current.optJSONObject("preferences")?.text("timetableDisplay", "fit") ?: "fit")
+                next.put("preferences", preferences)
+                times.put("preferences", oldTimes.optLong("preferences"))
+            }
             next.put("updatedAt", times)
             next.put("pendingReceipts", current.optJSONArray("pendingReceipts") ?: JSONArray())
         }
@@ -59,8 +65,12 @@ object WidgetData {
     @Synchronized fun merge(context: Context, owner: String, patch: JSONObject): Boolean {
         val next = read(context)
         if (owner.isBlank() || next.text("owner") != owner) return false
+        if (patch.has("preferences") && (patch.optJSONObject("updatedAt")?.optLong("preferences") ?: 0) < (next.optJSONObject("updatedAt")?.optLong("preferences") ?: 0)) {
+            patch.remove("preferences")
+            patch.optJSONObject("updatedAt")?.remove("preferences")
+        }
         patch.keys().forEach { key ->
-            if (key in listOf("updatedAt", "errors")) {
+            if (key in listOf("updatedAt", "errors", "preferences")) {
                 val values = next.optJSONObject(key) ?: JSONObject()
                 val changes = patch.getJSONObject(key)
                 changes.keys().forEach { values.put(it, changes.get(it)) }

@@ -23,7 +23,6 @@ pub struct DeviceInput {
     device_id: String,
     kind: String,
     destination: Value,
-    leads: Vec<i32>,
     seat_leads: Vec<i32>,
     classroom_alerts: bool,
     classroom_epoch: String,
@@ -32,7 +31,6 @@ pub struct DeviceInput {
 #[serde(rename_all = "camelCase")]
 pub struct Preferences {
     device_id: String,
-    leads: Vec<i32>,
     seat_leads: Vec<i32>,
     classroom_alerts: bool,
     classroom_epoch: String,
@@ -55,7 +53,6 @@ struct Device {
     id: String,
     kind: String,
     destination: Value,
-    leads: Vec<i32>,
     seat_leads: Vec<i32>,
 }
 #[derive(FromRow)]
@@ -76,9 +73,8 @@ struct Job {
 fn valid_id(id: &str) -> bool {
     (20..=80).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
-fn valid_leads(leads: &[i32], seats: &[i32]) -> bool {
-    calendar::valid_alert_leads(leads)
-        && seats.len() <= 4
+fn valid_seat_leads(seats: &[i32]) -> bool {
+    seats.len() <= 4
         && seats.iter().all(|l| [60, 30, 10, 0].contains(l))
 }
 fn valid_destination(kind: &str, destination: &Value) -> bool {
@@ -176,7 +172,7 @@ async fn notice_baseline(st: &Shared, tx: &mut sqlx::Transaction<'_, sqlx::Postg
 }
 
 pub async fn register(State(st): State<Shared>, user: CurrentUser, Json(b): Json<DeviceInput>) -> Result<Json<Value>, ApiError> {
-    if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_leads(&b.leads, &b.seat_leads) || !valid_destination(&b.kind, &b.destination) {
+    if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_seat_leads(&b.seat_leads) || !valid_destination(&b.kind, &b.destination) {
         return Err(ApiError::bad_request("알림 설정과 기기 정보를 확인해 주세요"));
     }
     if !st.push.ready(&b.kind) { return Err(ApiError::conflict("알림 서버에 연결하지 못했어요. 다시 시도해 주세요.")); }
@@ -186,21 +182,21 @@ pub async fn register(State(st): State<Shared>, user: CurrentUser, Json(b): Json
     let eligible: bool = sqlx::query_scalar("select exists(select 1 from background_devices d join background_sessions b on b.user_id=d.user_id where d.id=$1 and d.user_id=$2 and d.session_hash=$3 and d.expires_at>now())")
         .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).fetch_one(&mut *tx).await?;
     if !eligible { return Err(ApiError::conflict("백그라운드 동기화를 먼저 켜 주세요.")); }
-    sqlx::query("insert into notification_devices(id,user_id,session_hash,kind,destination,leads,seat_leads,classroom_epoch) values($1,$2,$3,$4,$5,$6,$7,$8) on conflict(id) do update set session_hash=excluded.session_hash,kind=excluded.kind,destination=excluded.destination,leads=excluded.leads,seat_leads=excluded.seat_leads,expires_at=now()+interval '90 days',last_error=null where notification_devices.user_id=excluded.user_id")
-        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(&b.kind).bind(&b.destination).bind(&b.leads).bind(&b.seat_leads).bind(&b.classroom_epoch).execute(&mut *tx).await?;
+    sqlx::query("insert into notification_devices(id,user_id,session_hash,kind,destination,seat_leads,classroom_epoch) values($1,$2,$3,$4,$5,$6,$7) on conflict(id) do update set session_hash=excluded.session_hash,kind=excluded.kind,destination=excluded.destination,seat_leads=excluded.seat_leads,expires_at=now()+interval '90 days',last_error=null where notification_devices.user_id=excluded.user_id")
+        .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(&b.kind).bind(&b.destination).bind(&b.seat_leads).bind(&b.classroom_epoch).execute(&mut *tx).await?;
     apply_classroom(&st, &mut tx, uid, &b.device_id, b.classroom_alerts, &b.classroom_epoch).await?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true})))
 }
 
 pub async fn preferences(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Preferences>) -> Result<Json<Value>, ApiError> {
-    if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_leads(&b.leads, &b.seat_leads) {
+    if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_seat_leads(&b.seat_leads) {
         return Err(ApiError::bad_request("알림 설정을 확인해 주세요"));
     }
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
-    let saved = sqlx::query("update notification_devices set leads=$3,seat_leads=$4 where id=$1 and user_id=$2 and expires_at>now()")
-        .bind(&b.device_id).bind(user.session.user_id).bind(&b.leads).bind(&b.seat_leads).execute(&mut *tx).await?;
+    let saved = sqlx::query("update notification_devices set seat_leads=$3 where id=$1 and user_id=$2 and expires_at>now()")
+        .bind(&b.device_id).bind(user.session.user_id).bind(&b.seat_leads).execute(&mut *tx).await?;
     if saved.rows_affected() != 1 { return Err(ApiError::conflict("알림 설정을 다시 적용해 주세요.")); }
     apply_classroom(&st, &mut tx, user.session.user_id, &b.device_id, b.classroom_alerts, &b.classroom_epoch).await?;
     tx.commit().await?;
@@ -347,13 +343,14 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
             }
         }
     }
-    let devices: Vec<Device> = sqlx::query_as("select id,user_id,kind,destination,leads,seat_leads from notification_devices where user_id=$1 and expires_at>now()").bind(uid).fetch_all(&st.db).await?;
+    let devices: Vec<Device> = sqlx::query_as("select id,kind,destination,seat_leads from notification_devices where user_id=$1 and expires_at>now()").bind(uid).fetch_all(&st.db).await?;
     let items = bg
         .snapshot
         .as_ref()
         .and_then(|v| v["items"].as_array())
         .cloned()
         .unwrap_or_default();
+    let preferences = crate::preferences::load(&st.db, uid).await?;
     let tasks = todos::list(&st.db, uid).await?;
     let seat = db::active_seat_session(&st.db, uid).await?;
     let checks = db::item_checks(&st.db, uid).await?;
@@ -373,7 +370,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
                 continue;
             }
             if let Some(due) = item["due"].as_i64() {
-                for lead in alert_leads.get(key).unwrap_or(&device.leads) {
+                for lead in alert_leads.get(key).unwrap_or(&preferences.alert_leads) {
                     reminders.push(event(
                         format!("due:{key}:{due}:{lead}"),
                         due - i64::from(*lead) * 60,
@@ -391,7 +388,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
             }
             if let Some(due) = todo.due_at {
                 let due = due.timestamp() + if todo.all_day { 86400 } else { 0 };
-                for lead in todo.alert_leads.as_ref().unwrap_or(&device.leads) {
+                for lead in todo.alert_leads.as_ref().unwrap_or(&preferences.alert_leads) {
                     reminders.push(event(
                         format!("due:todo:{}:{due}:{lead}", todo.id),
                         due - i64::from(*lead) * 60,

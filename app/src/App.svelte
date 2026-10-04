@@ -17,7 +17,7 @@
   import { openNotification } from './lib/notification-navigation';
   import { seatPrefs } from './lib/seat.svelte';
   import { refreshState, refreshTab } from './lib/refresh.svelte';
-  import { settings } from './lib/settings.svelte';
+  import { settings, accountPreferences, watchAccountPreferences } from './lib/settings.svelte';
   import {
     app,
     attendance,
@@ -154,7 +154,7 @@
 
   $effect(() => {
     if (!app.profile || app.loggingOut) return;
-    settings.alertLeads; seatPrefs.alerts;
+    seatPrefs.alerts;
     void untrack(syncBackgroundPreferences);
   });
 
@@ -175,6 +175,11 @@
     };
   });
 
+  $effect(() => {
+    if (!app.account || app.loggingOut) return;
+    return untrack(watchAccountPreferences);
+  });
+
   let topH = $state(64);
 
   $effect(() => {
@@ -183,6 +188,7 @@
 
   $effect(() => {
     const on = !!app.profile;
+    if (on && !accountPreferences.loaded) return;
     syncDueReminders(
       on ? (calendar.data?.items ?? []) : [],
       on ? (todos.data ?? []) : [],

@@ -1,7 +1,6 @@
 import { ApiError, isApp, request } from './api';
 import { mobileNotifications, notificationsAllowed, requestNotificationPermission, setRemoteNotifications } from './notify';
 import { isCurrentSession, onSessionChange, readUserData, sessionUser, sessionVersion, writeUserData } from './session';
-import { settings } from './settings.svelte';
 import { seatPrefs } from './seat.svelte';
 import { app, onBeforeLogout, pref, setPref } from './store.svelte';
 
@@ -50,7 +49,7 @@ function prefs() {
     classroomEpoch = crypto.randomUUID();
     setPref(userKey('classroom-cycle-v2'), classroomEpoch);
   }
-  return { deviceId: deviceId(), leads: [...settings.alertLeads], seatLeads: [...seatPrefs.alerts], classroomAlerts: background.classroomAlerts, classroomEpoch };
+  return { deviceId: deviceId(), seatLeads: [...seatPrefs.alerts], classroomAlerts: background.classroomAlerts, classroomEpoch };
 }
 const pushPlatform = () => !isApp ? 'web' : /Android/i.test(navigator.userAgent) ? 'fcm' : mobileNotifications ? 'apns' : null;
 const pushSupported = () => isApp ? mobileNotifications : 'serviceWorker' in navigator && 'PushManager' in window && window.isSecureContext;

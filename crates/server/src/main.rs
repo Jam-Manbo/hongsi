@@ -8,6 +8,7 @@ mod environment;
 mod error;
 mod login_limit;
 mod push;
+mod preferences;
 mod seat_watch;
 mod sessions;
 mod state;

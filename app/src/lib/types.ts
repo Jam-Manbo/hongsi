@@ -1,3 +1,11 @@
+export type AccountPreferences = {
+  mealPlace: 'dorm' | 'staff';
+  timetableDisplay: 'full' | 'fit';
+  alertLeads: number[];
+  updatedAt: number;
+};
+export type AccountPreferenceChanges = Partial<Omit<AccountPreferences, 'updatedAt'>>;
+
 export type Profile = { name: string; hasPicture?: boolean; studentId?: string; department?: string | null };
 
 export type ActiveLecture = { key: string; name: string; time: string; code?: string | null };
