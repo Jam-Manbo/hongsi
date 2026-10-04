@@ -98,6 +98,12 @@ pub struct Snapshot {
 
 pub async fn sync_assignments(db: &PgPool, user_id: i64, items: &[Assignment]) -> sqlx::Result<HashMap<i64, Snapshot>> {
     let mut tx = db.begin().await?;
+    let out = sync_assignments_in(&mut tx, user_id, items).await?;
+    tx.commit().await?;
+    Ok(out)
+}
+
+pub async fn sync_assignments_in(db: &mut sqlx::PgConnection, user_id: i64, items: &[Assignment]) -> sqlx::Result<HashMap<i64, Snapshot>> {
     let mut out = HashMap::new();
     for a in items {
         let row = sqlx::query(
@@ -122,7 +128,7 @@ pub async fn sync_assignments(db: &PgPool, user_id: i64, items: &[Assignment]) -
         .bind(ts(a.due))
         .bind(&a.intro_html)
         .bind(ts(Some(a.modified)))
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *db)
         .await?;
         out.insert(
             a.cmid,
@@ -134,11 +140,10 @@ pub async fn sync_assignments(db: &PgPool, user_id: i64, items: &[Assignment]) -
             },
         );
     }
-    tx.commit().await?;
     Ok(out)
 }
 
-pub async fn item_checks(db: &PgPool, user_id: i64) -> sqlx::Result<HashMap<String, bool>> {
+pub async fn item_checks(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<HashMap<String, bool>> {
     let rows: Vec<(String, bool)> = sqlx::query_as("select item_key, done from item_checks where user_id = $1")
         .bind(user_id)
         .fetch_all(db)
@@ -165,7 +170,7 @@ pub async fn clear_item_check(db: &PgPool, user_id: i64, key: &str) -> sqlx::Res
     Ok(())
 }
 
-pub async fn item_alerts_off(db: &PgPool, user_id: i64) -> sqlx::Result<HashSet<String>> {
+pub async fn item_alerts_off(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<HashSet<String>> {
     let rows: Vec<(String,)> = sqlx::query_as("select item_key from item_alerts_off where user_id = $1")
         .bind(user_id)
         .fetch_all(db)
@@ -184,7 +189,7 @@ pub async fn set_item_alert(db: &PgPool, user_id: i64, key: &str, on: bool) -> s
 }
 
 
-pub async fn item_alert_leads(db: &PgPool, user_id: i64) -> sqlx::Result<HashMap<String, Vec<i32>>> {
+pub async fn item_alert_leads(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<HashMap<String, Vec<i32>>> {
     let rows: Vec<(String, Vec<i32>)> = sqlx::query_as("select item_key, leads from item_alert_leads where user_id = $1")
         .bind(user_id).fetch_all(db).await?;
     Ok(rows.into_iter().collect())
@@ -248,7 +253,7 @@ pub struct SeatSession {
 const SESSION_COLUMNS: &str =
     "id, building, room_no, room_name, seat_no, period, started_at, start_source, expires_at, extend_count, ended_at";
 
-pub async fn active_seat_session(db: &PgPool, user_id: i64) -> sqlx::Result<Option<SeatSession>> {
+pub async fn active_seat_session(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<Option<SeatSession>> {
     sqlx::query_as(&format!("select {SESSION_COLUMNS} from seat_sessions where user_id = $1 and ended_at is null"))
         .bind(user_id)
         .fetch_optional(db)

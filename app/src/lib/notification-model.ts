@@ -2,7 +2,7 @@ export type NotificationTarget =
   | { kind: 'item'; key: string }
   | { kind: 'todo'; id: number }
   | { kind: 'seat'; id: number }
-  | { kind: 'notices' };
+  | { kind: 'notices'; url?: string };
 export type NotificationIntent = { version: 1; account: string; target: NotificationTarget; at: number };
 export type Reminder = { key: string; at: number; title: string; body: string; target: NotificationTarget };
 export type Channel = 'seat' | 'due';
@@ -17,7 +17,7 @@ export function parseIntent(value: unknown): NotificationIntent | null {
   if (!value || typeof value !== 'object') return null;
   const x = value as NotificationIntent, t = x.target;
   if (x.version !== 1 || typeof x.account !== 'string' || !x.account || x.account.length > 128 || !Number.isFinite(x.at) || !t) return null;
-  if (t.kind === 'notices') return x;
+  if (t.kind === 'notices' && (t.url === undefined || (typeof t.url === 'string' && t.url.length > 0 && t.url.length <= 2048))) return x;
   if (t.kind === 'item' && typeof t.key === 'string' && /^(assign|vod):\d+$/.test(t.key)) return x;
   if ((t.kind === 'todo' || t.kind === 'seat') && Number.isSafeInteger(t.id) && t.id > 0) return x;
   return null;

@@ -11,7 +11,13 @@ class MainActivity : TauriActivity() {
   private var widgetWebView = WeakReference<WebView>(null)
   override fun onWebViewCreate(webView: WebView) { super.onWebViewCreate(webView); widgetWebView = WeakReference(webView) }
   private fun notifyWidgets() { widgetWebView.get()?.evaluateJavascript("window.dispatchEvent(new Event('hongsi-widget'))", null) }
-  override fun onNewIntent(intent: Intent) { WidgetNavigation.accept(intent); super.onNewIntent(intent); notifyWidgets() }
+  override fun onNewIntent(intent: Intent) {
+    // A restored activity can receive the click before notification plugins load.
+    setIntent(intent)
+    WidgetNavigation.accept(intent)
+    super.onNewIntent(intent)
+    notifyWidgets()
+  }
   override fun onResume() { super.onResume(); notifyWidgets() }
 
   override fun onCreate(savedInstanceState: Bundle?) {

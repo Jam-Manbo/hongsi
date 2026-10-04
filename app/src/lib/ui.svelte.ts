@@ -1,3 +1,5 @@
+import type { ClassNotification } from './types';
+
 export type Toast = { id: number; text: string; tone: 'info' | 'success' | 'error' | 'alarm'; action?: () => void };
 
 let nextId = 1;
@@ -29,11 +31,12 @@ export const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'meals', label: '학식', icon: 'bowl' },
 ];
 
-export const focus = $state({ item: null as string | null, todo: null as number | null, notices: false, timetable: false, seatBuilding: null as string | null, endSeat: null as number | null });
+export const focus = $state({ item: null as string | null, todo: null as number | null, notices: false, notice: null as ClassNotification | null, timetable: false, seatBuilding: null as string | null, endSeat: null as number | null });
 onSessionChange(() => {
   focus.item = null;
   focus.todo = null;
   focus.notices = false;
+  focus.notice = null;
   focus.timetable = false;
   focus.seatBuilding = null;
   focus.endSeat = null;

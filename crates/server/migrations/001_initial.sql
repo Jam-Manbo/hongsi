@@ -156,6 +156,8 @@ create table background_sessions (
     user_id bigint primary key references users(id) on delete cascade,
     last_poll_at timestamptz,
     next_poll_at timestamptz not null default now(),
+    poll_token text,
+    poll_until timestamptz,
     last_error text,
     snapshot jsonb
 );
@@ -196,6 +198,8 @@ create table notification_outbox (
     attempts integer not null default 0,
     next_try_at timestamptz not null default now(),
     sent_at timestamptz,
+    claim_token text,
+    claim_until timestamptz,
     primary key (device_id, event_key)
 );
 create index notification_outbox_due on notification_outbox(due_at) where sent_at is null;

@@ -112,19 +112,22 @@
     const stopUpdates = watchAppUpdates();
     let disposed = false;
     let cleanup = () => {};
-    const notificationReady = initNotifications().then((fn) => { if (disposed) fn(); else cleanup = fn; });
-    void boot().then(async () => {
+    const bootReady = boot();
+    // Native plugins must be ready; browser push messages need a listener during boot.
+    const notificationReady = (isApp ? bootReady : Promise.resolve())
+      .then(() => initNotifications())
+      .then((fn) => { if (disposed) fn(); else cleanup = fn; });
+    void bootReady.then(async () => {
       await notificationReady;
-      if (!disposed) {
-        await showFirstNotificationPermission();
-        if (!disposed && app.profile && !app.loggingOut) await refreshBackground();
-      }
+      if (disposed) return;
+      await showFirstNotificationPermission();
+      if (!disposed && app.profile && !app.loggingOut) await refreshBackground();
     });
     return () => { disposed = true; cleanup(); stopUpdates(); };
   });
 
   $effect(() => {
-    if (!app.profile || !notificationState.pending) return;
+    if (app.booting || app.loggingOut || !app.profile || !notificationState.pending) return;
     const intent = untrack(takeNotificationIntent);
     if (intent) void untrack(() => openNotification(intent));
   });

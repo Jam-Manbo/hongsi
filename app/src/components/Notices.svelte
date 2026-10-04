@@ -52,6 +52,12 @@
   const kind = (n: ClassNotification) => KIND[n.kind] ?? { icon: 'bell', label: '알림' };
 
   $effect(() => {
+    if (focus.notice) {
+      const notice = focus.notice;
+      focus.notice = null;
+      untrack(() => view(notice));
+      return;
+    }
     if (!focus.notices) return;
     focus.notices = false;
     untrack(show);
@@ -115,8 +121,7 @@
   const busyFor = (n: ClassNotification) =>
     pending === n.url || downloads.busy === fileId({ kind: 'module', cmid: Number(/[?&]id=(\d+)/.exec(n.url)?.[1] ?? 0), index: 0 });
 
-  function markSeen() {
-    const urls = list.map((n) => n.url);
+  function markSeen(urls = list.map((n) => n.url)) {
     seen = new Set([...urls, ...seen].slice(0, 300));
     writeUserData('notices-seen', [...seen]);
     if (urls.length) void api.markNoticesSeen(urls.slice(0, 200)).catch(() => {});
@@ -183,7 +188,14 @@
   {/if}
 </Sheet>
 
-<NoticeSheet bind:open={viewOpen} notice={viewing} />
+<NoticeSheet bind:open={viewOpen} notice={viewing}
+  onclose={() => { if (viewing) markSeen([viewing.url]); }}
+  onmissing={() => {
+    viewOpen = false;
+    show();
+    toastOnce('삭제됐거나 열 수 없는 글이에요. 알림 목록에서 확인해 주세요.', 'info');
+  }}
+/>
 
 <style>
   .bell {

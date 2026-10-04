@@ -41,7 +41,7 @@ fn yes() -> bool {
 
 const COLUMNS: &str = "id, course_id, parent_key, title, note, due_at, all_day, done_at, notify, alert_leads";
 
-pub async fn list(db: &PgPool, user_id: i64) -> sqlx::Result<Vec<Todo>> {
+pub async fn list(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<Vec<Todo>> {
     sqlx::query_as(&format!(
         "select {COLUMNS} from todos
          where user_id = $1 and (done_at is null or done_at > now() - interval '30 days')

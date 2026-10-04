@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { api } from '../lib/api';
+  import { beginCalendarChange } from '../lib/calendar-sync.svelte';
   import { dueDateTime, sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
   import { calendar, handleAuthError } from '../lib/store.svelte';
+  import { isCurrentSession, sessionVersion } from '../lib/session';
   import { toast } from '../lib/ui.svelte';
   import type { CalendarItem, SubmissionView } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -20,11 +23,15 @@
   let step = $state<'edit' | 'confirm'>('edit');
   let busy = $state(false);
   let picker: HTMLInputElement | undefined = $state();
+  let generation = 0;
+  onDestroy(() => { generation += 1; });
 
   const cmid = $derived(item ? Number(item.key.split(':')[1]) : 0);
 
   $effect(() => {
+    const request = ++generation;
     if (!open || !cmid) return;
+    const version = sessionVersion();
     view = null;
     error = '';
     added = [];
@@ -34,12 +41,15 @@
     api
       .submission(cmid)
       .then((v) => {
+        if (request !== generation || !isCurrentSession(version)) return;
         view = v;
         keep = new Set(v.info.files.map((f) => f.name));
       })
       .catch((e) => {
+        if (request !== generation || !isCurrentSession(version)) return;
         if (!handleAuthError(e)) error = errorText(e, '제출 정보를 읽지 못했어요.');
       });
+    return () => { generation += 1; };
   });
 
   const total = $derived(keep.size + added.length);
@@ -81,32 +91,39 @@
   }
 
   async function send() {
-    if (!view || !item) return;
+    if (busy || !view || !item) return;
     if (writeBlocked('school', '제출할')) return;
+    const key = item.key, target = cmid, wasEdited = edited;
+    const request = generation, version = sessionVersion();
+    const isCurrentView = () => request === generation && open && item?.key === key;
+    const finishMutation = calendar.beginMutation();
+    const finishChange = beginCalendarChange();
     busy = true;
     try {
-      const v = await api.submit(cmid, [...keep], added, view.late && lateChecked, statement);
-      view = v;
+      const v = await api.submit(target, [...keep], added, view.late && lateChecked, statement);
+      if (!isCurrentSession(version)) return;
       if (calendar.data) {
         calendar.set({
           ...calendar.data,
-          items: calendar.data.items.map((i) => (i.key === item!.key ? { ...i, status: 'submitted', done: true } : i)),
+          items: calendar.data.items.map((i) => (i.key === key ? { ...i, status: 'submitted', done: true } : i)),
         });
       }
-      toast(edited ? '제출한 파일을 수정했어요.' : '과제를 제출했어요.', 'success', 4000);
-      open = false;
+      toast(wasEdited ? '제출한 파일을 수정했어요.' : '과제를 제출했어요.', 'success', 4000);
+      if (isCurrentView()) { view = v; open = false; }
     } catch (e) {
-      if (!handleAuthError(e)) {
+      if (isCurrentSession(version) && !handleAuthError(e) && isCurrentView()) {
         error = errorText(e, '제출하지 못했어요.');
         step = 'edit';
       }
     } finally {
+      finishMutation();
+      finishChange();
       busy = false;
     }
   }
 </script>
 
-<Sheet bind:open title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요.' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
+<Sheet bind:open onbeforeclose={() => !busy} title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요.' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
   {#if error}<div class="error-box"><Icon name="alert" size={18} /><span class="sentence-message">{sentenceLines(error)}</span></div>{/if}
   {#if !view && !error}
     <Skeleton rows={3} height={52} />
@@ -187,8 +204,8 @@
 
   {#snippet footer()}
     {#if step === 'edit'}
-      <button class="btn btn-ghost w1" onclick={() => (open = false)}>닫기</button>
-      <button class="btn btn-primary w2" disabled={!canSend} onclick={() => (step = 'confirm')}>
+      <button class="btn btn-ghost w1" disabled={busy} onclick={() => (open = false)}>닫기</button>
+      <button class="btn btn-primary w2" disabled={busy || !canSend} onclick={() => (step = 'confirm')}>
         <Icon name="check" size={18} />{edited ? '제출 파일 수정' : '제출하기'}
       </button>
     {:else}

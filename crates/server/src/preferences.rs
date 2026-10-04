@@ -1,6 +1,6 @@
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow};
 
 use crate::{auth::CurrentUser, calendar, error::ApiError, state::Shared};
 
@@ -27,7 +27,7 @@ pub struct Changes {
     alert_leads: Option<Vec<i32>>,
 }
 
-pub async fn load(db: &PgPool, uid: i64) -> sqlx::Result<Preferences> {
+pub async fn load(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, uid: i64) -> sqlx::Result<Preferences> {
     Ok(sqlx::query_as("select meal_place,timetable_display,alert_leads,floor(extract(epoch from updated_at)*1000)::bigint as updated_at from account_preferences where user_id=$1")
         .bind(uid).fetch_optional(db).await?.unwrap_or_default())
 }

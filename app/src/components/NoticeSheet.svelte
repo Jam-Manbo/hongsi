@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api } from '../lib/api';
+  import { ApiError, api } from '../lib/api';
+  import { classroomDestination } from '../lib/classroom-notice';
   import { dateTime } from '../lib/format';
   import { cleanHtml } from '../lib/html';
   import { handleAuthError } from '../lib/store.svelte';
@@ -9,25 +10,36 @@
   import Sheet from './Sheet.svelte';
   import Skeleton from './Skeleton.svelte';
 
-  let { open = $bindable(false), notice }: { open: boolean; notice: ClassNotification | null } = $props();
+  let { open = $bindable(false), notice, onmissing, onclose }: {
+    open: boolean; notice: ClassNotification | null; onmissing?: () => void; onclose?: () => void;
+  } = $props();
 
   let article = $state<BoardArticle | null>(null);
   let module = $state<ModuleContents | null>(null);
   let error = $state('');
 
-  const board = $derived(notice ? /\/mod\/ubboard\/article\.php\?id=(\d+)&(?:amp;)?bwid=(\d+)/.exec(notice.url) : null);
-  const cmid = $derived(Number(board?.[1] ?? /[?&]id=(\d+)/.exec(notice?.url ?? '')?.[1] ?? 0));
-  const bwid = $derived(Number(board?.[2] ?? 0));
+  let retry = $state(0);
+  const destination = $derived(notice ? classroomDestination(notice.url) : null);
+  const board = $derived(destination?.kind === 'board');
+  const cmid = $derived(destination && destination.kind !== 'item' ? destination.cmid : 0);
+  const bwid = $derived(destination?.kind === 'board' ? destination.bwid : 0);
 
   $effect(() => {
+    retry;
     if (!open || !notice || !cmid) return;
+    let cancelled = false;
     article = null;
     module = null;
     error = '';
-    const job = board ? api.article(cmid, bwid).then((a) => (article = a)) : api.module(cmid).then((m) => (module = m));
+    const job = board
+      ? api.article(cmid, bwid).then((a) => { if (!cancelled) article = a; })
+      : api.module(cmid).then((m) => { if (!cancelled) module = m; });
     job.catch((e) => {
-      if (!handleAuthError(e)) error = e instanceof Error ? e.message : '내용을 불러오지 못했어요.';
+      if (cancelled || handleAuthError(e)) return;
+      if (e instanceof ApiError && e.status === 404 && onmissing) { onmissing(); return; }
+      error = e instanceof Error ? e.message : '내용을 불러오지 못했어요.';
     });
+    return () => { cancelled = true; };
   });
 
   const host = (url: string) => {
@@ -39,7 +51,7 @@
   };
 </script>
 
-<Sheet bind:open title={board ? (article?.board || '게시판') : module?.modname === 'url' ? '링크' : '자료'}>
+<Sheet bind:open {onclose} title={board ? (article?.board || '게시판') : module?.modname === 'url' ? '링크' : '자료'}>
   {#if notice}
     <div class="head">
       <span class="course">{notice.course}{notice.section ? ` · ${notice.section}` : ''}</span>
@@ -55,6 +67,7 @@
 
     {#if error}
       <div class="error-box"><Icon name="alert" size={18} />{error}</div>
+      <button class="btn btn-ghost btn-block" onclick={() => retry += 1}>다시 시도</button>
     {:else if !article && !module}
       <Skeleton rows={1} height={28} />
       <div style="height: 10px"></div>

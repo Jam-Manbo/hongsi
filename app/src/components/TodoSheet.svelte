@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
   import { settings } from '../lib/settings.svelte';
-  import { removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
+  import { pendingTodos, removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
   import TimeWheel from './TimeWheel.svelte';
   import DateField from './DateField.svelte';
   import type { Course, Todo } from '../lib/types';
@@ -33,6 +33,7 @@
   let notify = $state(true);
   let alertLeads = $state<number[] | null>(null);
   let busy = $state(false);
+  const saving = $derived(busy || (todo !== null && pendingTodos.has(todo.id)));
   let discardOpen = $state(false);
   let initialValues = $state('');
   const formValues = $derived(JSON.stringify({
@@ -62,7 +63,7 @@
   });
 
   function canClose() {
-    if (busy) return false;
+    if (saving) return false;
     if (formValues === initialValues) return true;
     discardOpen = true;
     return false;
@@ -79,7 +80,7 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!title.trim() || !date) return;
+    if (saving || !title.trim() || !date) return;
     busy = true;
     const ok = await saveTodo(todo?.id ?? null, {
       title: title.trim(),
@@ -96,9 +97,11 @@
   }
 
   async function remove() {
-    if (!todo) return;
-    open = false;
-    await removeTodo(todo);
+    if (!todo || saving) return;
+    busy = true;
+    const ok = await removeTodo(todo);
+    busy = false;
+    if (ok) open = false;
   }
 </script>
 
@@ -143,7 +146,7 @@
             <button type="button" role="radio" aria-checked={!time} class:on={!time} onclick={() => (time = '')}>하루 종일</button>
             <button type="button" role="radio" aria-checked={!!time} class:on={!!time} onclick={() => (time = time || '09:00')}>시간 정하기</button>
           </div>
-          {#if time}<TimeWheel bind:value={time} />{/if}
+          {#if time}<TimeWheel bind:value={time} minuteStep={1} />{/if}
         </div>
       {/if}
     {:else}
@@ -172,11 +175,11 @@
 
   {#snippet footer()}
     {#if todo}
-      <button class="btn btn-danger w1" onclick={remove} aria-label="할 일 지우기"><Icon name="close" size={18} />지우기</button>
+      <button class="btn btn-danger w1" disabled={saving} onclick={remove} aria-label="할 일 지우기"><Icon name="close" size={18} />지우기</button>
     {:else}
       <button class="btn btn-ghost w1" onclick={requestClose}>취소</button>
     {/if}
-    <button class="btn btn-primary w2" form="todo-form" disabled={busy || !title.trim() || !date}>{busy ? '저장 중…' : '저장'}</button>
+    <button class="btn btn-primary w2" form="todo-form" disabled={saving || !title.trim() || !date}>{saving ? '처리 중…' : '저장'}</button>
   {/snippet}
 </Sheet>
 

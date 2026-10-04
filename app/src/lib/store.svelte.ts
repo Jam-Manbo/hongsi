@@ -125,6 +125,8 @@ export class Resource<T> {
   trouble = $state<Trouble | 'other' | null>(null);
   private lastStart = 0;
   private revision = 0;
+  private generation = 0;
+  private mutations = 0;
   private pending: Promise<void> | null = null;
 
   constructor(
@@ -148,7 +150,7 @@ export class Resource<T> {
   }
 
   load(force = false): Promise<void> {
-    if (app.loggingOut) return Promise.resolve();
+    if (app.loggingOut || this.mutations) return Promise.resolve();
     if (this.pending) return this.pending;
     if (!force && this.data !== null && !this.stale) return Promise.resolve();
     if (Date.now() - this.lastStart < 3000) return Promise.resolve();
@@ -186,7 +188,25 @@ export class Resource<T> {
     writeCache(this.key, data, this.at);
   }
 
+  beginMutation() {
+    const generation = this.generation;
+    this.mutations += 1;
+    this.revision += 1;
+    this.pending = null;
+    this.loading = false;
+    let finished = false;
+    return () => {
+      if (finished || generation !== this.generation) return;
+      finished = true;
+      this.mutations -= 1;
+      this.revision += 1;
+      this.lastStart = 0;
+    };
+  }
+
   reset() {
+    this.generation += 1;
+    this.mutations = 0;
     this.revision += 1;
     this.pending = null;
     this.lastStart = 0;

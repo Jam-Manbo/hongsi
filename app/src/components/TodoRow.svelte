@@ -1,6 +1,6 @@
 <script lang="ts">
   import { dday, shortDate, time } from '../lib/format';
-  import { toggleTodo } from '../lib/todos.svelte';
+  import { pendingTodos, toggleTodo } from '../lib/todos.svelte';
   import type { Todo } from '../lib/types';
   import Icon from './Icon.svelte';
 
@@ -13,14 +13,15 @@
   }: { todo: Todo; color: string; course: string; showDate?: boolean; onopen: (t: Todo) => void } = $props();
 
   const done = $derived(todo.doneAt !== null);
+  const busy = $derived(pendingTodos.has(todo.id));
   const d = $derived(todo.dueAt && !done ? dday(todo.dueAt + (todo.allDay ? 86_399 : 0)) : null);
 </script>
 
 <div class="row" class:done style:--c={color}>
-  <button class="check" class:on={done} onclick={() => toggleTodo(todo)} aria-label={done ? '할 일 완료 취소' : '할 일 완료'} aria-pressed={done}>
+  <button class="check" class:on={done} disabled={busy} aria-busy={busy} onclick={() => toggleTodo(todo)} aria-label={done ? '할 일 완료 취소' : '할 일 완료'} aria-pressed={done}>
     {#if done}<Icon name="tick" size={15} stroke={2.6} />{/if}
   </button>
-  <button class="main" onclick={() => onopen(todo)}>
+  <button class="main" disabled={busy} onclick={() => onopen(todo)}>
     <span class="copy">
       <span class="title"><span class="text"><span class="kind" role="img" aria-label="할 일"><Icon name="checklist" size={15} /></span>{todo.title}</span></span>
       <span class="course">{course}</span>
