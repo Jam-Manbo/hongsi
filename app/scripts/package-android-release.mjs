@@ -3,12 +3,13 @@ import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { assetStem, releaseVersion, urlSegment } from './release-version.mjs';
 
-export function releaseIdentity(repository, tag, version) {
+export function releaseIdentity(repository, tag, version, prerelease = false) {
   if (!/^[A-Za-z0-9_-][A-Za-z0-9_.-]*\/[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(repository)) throw new Error('Release repository must be OWNER/REPO.');
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) || ![version, `v${version}`].includes(tag)) throw new Error('A stable release tag must match the app version.');
-  const name = `hongsi-${version}.apk`;
-  return { name, url: `https://github.com/${repository}/releases/download/${tag}/${name}` };
+  if (version !== releaseVersion(tag, prerelease)) throw new Error('Release tag and version do not match.');
+  const stem = assetStem(tag, prerelease), name = `${stem}.apk`;
+  return { name, stem, url: `https://github.com/${repository}/releases/download/${urlSegment(tag)}/${name}` };
 }
 
 export async function sha256(file) {
@@ -17,13 +18,13 @@ export async function sha256(file) {
   return digest.digest('hex');
 }
 
-export async function packageRelease({ apk, versionCode, output, version, tag = `v${version}`, repository, notes = '' }) {
+export async function packageRelease({ apk, versionCode, output, version, tag = `v${version}`, repository, notes = '', prerelease = false }) {
   if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 2147483647) throw new Error('Android versionCode is invalid.');
-  const { name, url } = releaseIdentity(repository, tag, version);
+  const { name, url } = releaseIdentity(repository, tag, version, prerelease);
   const size = (await stat(apk)).size;
   if (size < 1 || size > 256 * 1024 * 1024) throw new Error('APK size is invalid.');
   if (Buffer.byteLength(notes, 'utf8') > 10000) throw new Error('Release notes are too long.');
-  const manifest = { version, versionCode, url, sha256: await sha256(apk), size, notes };
+  const manifest = { version, versionCode, url, sha256: await sha256(apk), size, notes, tag };
   const dir = resolve(output, 'android');
   await mkdir(dir, { recursive: true });
   await copyFile(apk, resolve(dir, name));
@@ -35,10 +36,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const [apk, code, output] = process.argv.slice(2);
   if (!apk || !output) throw new Error('Usage: package-android-release.mjs APK VERSION_CODE OUTPUT_DIRECTORY');
-  const { version } = JSON.parse(await readFile(resolve(root, 'app/src-tauri/tauri.conf.json'), 'utf8'));
+  const config = JSON.parse(await readFile(resolve(root, 'app/src-tauri/tauri.conf.json'), 'utf8'));
   const repository = process.env.HONGSI_RELEASE_REPOSITORY || process.env.GITHUB_REPOSITORY || 'Jam-Manbo/hongsi';
-  const tag = process.env.RELEASE_TAG || `v${version}`;
+  const tag = process.env.RELEASE_TAG || process.env.HONGSI_RELEASE_TAG || `v${config.version}`;
+  const prerelease = process.env.RELEASE_PRERELEASE === 'true';
+  const version = releaseVersion(tag, prerelease);
   const notes = (await readFile(resolve(root, 'RELEASE_NOTES.md'), 'utf8')).trim();
-  await packageRelease({ apk, versionCode: Number(code), output, version, tag, repository, notes });
+  await packageRelease({ apk, versionCode: Number(code), output, version, tag, repository, notes, prerelease });
   console.log(`Prepared Android ${version} for GitHub Release ${repository}@${tag}`);
 }

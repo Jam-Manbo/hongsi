@@ -3,7 +3,7 @@
   import { sentenceLines } from '../lib/format';
   import Icon from '../components/Icon.svelte';
   type Release = { version: string; versionCode: number; url: string; size: number; notes: string; sha256: string };
-  type ReleaseSummary = { version: string; publishedAt: string | null; url: string; size: number; notesUrl: string };
+  type ReleaseSummary = { id: string; tag: string; version: string; publishedAt: string | null; url: string; size: number; notesUrl: string; prerelease: boolean; isLatest: boolean };
   const versionsPage = location.pathname.replace(/\/$/, '') === '/download/versions';
   const iosPage = location.pathname.replace(/\/$/, '') === '/download/ios';
   const iosSteps = [
@@ -15,24 +15,37 @@
   let historyUrl = $state('');
   let historyLoading = $state(true);
   let historyError = $state('');
+  let releaseTab = $state<'stable' | 'beta'>('stable');
   let visibleCount = $state(5);
-  let expandedVersion = $state<string | null>(null);
+  const visibleHistory = $derived(history.filter(item => item.prerelease === (releaseTab === 'beta')));
+  function selectReleaseTab(tab: 'stable' | 'beta') {
+    releaseTab = tab;
+    visibleCount = 5;
+    expandedId = null;
+  }
+  function moveReleaseTab(event: KeyboardEvent) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    selectReleaseTab(event.key === 'Home' ? 'stable' : event.key === 'End' ? 'beta' : releaseTab === 'stable' ? 'beta' : 'stable');
+    document.getElementById(`release-tab-${releaseTab}`)?.focus();
+  }
+  let expandedId = $state<string | null>(null);
   let notes = $state<Record<string, { loading: boolean; error: string; text: string | null }>>({});
   async function loadNotes(item: ReleaseSummary) {
-    const cached = notes[item.version];
+    const cached = notes[item.id];
     if (cached?.loading || cached?.text != null) return;
-    notes[item.version] = { loading: true, error: '', text: null };
+    notes[item.id] = { loading: true, error: '', text: null };
     try {
-      const response = await fetch(`/api/app-releases/${encodeURIComponent(item.version)}`, { cache: 'no-store', credentials: 'omit' });
+      const response = await fetch(`/api/app-releases/${encodeURIComponent(item.id)}`, { cache: 'no-store', credentials: 'omit' });
       if (!response.ok) throw new Error();
       const data = await response.json();
       if (data.version !== item.version || data.url !== item.url || data.size !== item.size || typeof data.notes !== 'string') throw new Error();
-      notes[item.version] = { loading: false, error: '', text: data.notes };
-    } catch { notes[item.version] = { loading: false, error: '변경사항을 불러오지 못했어요.', text: null }; }
+      notes[item.id] = { loading: false, error: '', text: data.notes };
+    } catch { notes[item.id] = { loading: false, error: '변경사항을 불러오지 못했어요.', text: null }; }
   }
   function toggleVersion(item: ReleaseSummary) {
-    expandedVersion = expandedVersion === item.version ? null : item.version;
-    if (expandedVersion) void loadNotes(item);
+    expandedId = expandedId === item.id ? null : item.id;
+    if (expandedId) void loadNotes(item);
   }
   let release = $state<Release | null>(null);
   function secureLink(value: unknown): value is string {
@@ -51,7 +64,7 @@
       if (!response.ok) throw new Error();
       const data = await response.json();
       if (!secureLink(data.url) || !Array.isArray(data.releases) || !data.releases.every((item: ReleaseSummary) =>
-        item && typeof item.version === 'string' && Number.isFinite(item.size) && item.size > 0 &&
+        item && typeof item.id === 'string' && /^\d+$/.test(item.id) && typeof item.tag === 'string' && typeof item.version === 'string' && typeof item.prerelease === 'boolean' && typeof item.isLatest === 'boolean' && Number.isFinite(item.size) && item.size > 0 &&
         (item.publishedAt === null || typeof item.publishedAt === 'string') && secureLink(item.url) && secureLink(item.notesUrl)
       )) throw new Error();
       history = data.releases; historyUrl = data.url;
@@ -115,41 +128,51 @@
           <h1>전체 버전</h1>
           {#if historyUrl}<a class="history-all" href={historyUrl} target="_blank" rel="noopener noreferrer">전체 버전 변경사항 <Icon name="arrow-up-right" size={15} /></a>{/if}
         </div>
+        <div class="history-tabs" role="tablist" aria-label="배포 종류">
+          <button id="release-tab-stable" role="tab" aria-selected={releaseTab === 'stable'} aria-controls="release-panel" tabindex={releaseTab === 'stable' ? 0 : -1} onclick={() => selectReleaseTab('stable')} onkeydown={moveReleaseTab}>정식 버전</button>
+          <button id="release-tab-beta" role="tab" aria-selected={releaseTab === 'beta'} aria-controls="release-panel" tabindex={releaseTab === 'beta' ? 0 : -1} onclick={() => selectReleaseTab('beta')} onkeydown={moveReleaseTab}>베타 버전</button>
+        </div>
+        <div id="release-panel" role="tabpanel" aria-labelledby={`release-tab-${releaseTab}`}>
         {#if historyLoading}
           <p class="history-message" role="status">버전 목록을 확인하고 있어요…</p>
         {:else if historyError}
           <div class="history-error" role="alert"><p class="history-message">{historyError}</p><button class="icon-btn" onclick={loadHistory} aria-label="버전 목록 다시 불러오기"><Icon name="refresh" size={20} /></button></div>
-        {:else if history.length}
+        {:else if visibleHistory.length}
           <ul class="release-list">
-            {#each history.slice(0, visibleCount) as item (item.version)}
+            {#each visibleHistory.slice(0, visibleCount) as item (item.id)}
               <li class="release-entry">
                 <div class="release-row">
-                  <button class="release-toggle" onclick={() => toggleVersion(item)} aria-expanded={expandedVersion === item.version} aria-controls={`release-notes-${item.version}`} aria-label={`v${item.version} 변경사항`}>
+                  <button class="release-toggle" onclick={() => toggleVersion(item)} aria-expanded={expandedId === item.id} aria-controls={`release-notes-${item.id}`} aria-label={`${item.tag} 변경사항`}>
                     <span class="release-info">
-                      <span class="release-number">v{item.version}</span>
+                      <span class="release-title">
+                        <span class="release-number">{item.tag}</span>
+                        {#if item.isLatest}<span class="release-badge latest">최신 버전</span>{/if}
+                        {#if item.prerelease}<span class="release-badge beta">베타</span>{/if}
+                      </span>
                       <span class="release-meta">
                         {#if publishedDate(item.publishedAt)}<time datetime={item.publishedAt ?? undefined}>{publishedDate(item.publishedAt)}</time>{/if}
                         <span>{(item.size / 1024 / 1024).toFixed(1)} MB</span>
                       </span>
                     </span>
-                    <span class="release-chevron" class:expanded={expandedVersion === item.version}><Icon name="down" size={18} /></span>
+                    <span class="release-chevron" class:expanded={expandedId === item.id}><Icon name="down" size={18} /></span>
                   </button>
-                  <a class="btn btn-primary release-download" href={item.url} download aria-label={`v${item.version} APK 다운로드`}><Icon name="download" size={18} />APK</a>
+                  <a class="btn btn-primary release-download" href={item.url} download aria-label={`${item.tag} APK 다운로드`}><Icon name="download" size={18} />APK</a>
                 </div>
-                <div id={`release-notes-${item.version}`} hidden={expandedVersion !== item.version} class="release-change">
-                  {#if expandedVersion === item.version}
-                    {#if notes[item.version]?.loading}<p class="history-message" role="status">변경사항을 불러오고 있어요…</p>
-                    {:else if notes[item.version]?.error}<div class="history-error" role="alert"><p class="history-message">{notes[item.version].error}</p><button class="icon-btn" onclick={() => loadNotes(item)} aria-label={`v${item.version} 변경사항 다시 불러오기`}><Icon name="refresh" size={20} /></button></div>
-                    {:else}<p class="notes">{notes[item.version]?.text || '등록된 변경사항이 없어요.'}</p>{/if}
+                <div id={`release-notes-${item.id}`} hidden={expandedId !== item.id} class="release-change">
+                  {#if expandedId === item.id}
+                    {#if notes[item.id]?.loading}<p class="history-message" role="status">변경사항을 불러오고 있어요…</p>
+                    {:else if notes[item.id]?.error}<div class="history-error" role="alert"><p class="history-message">{notes[item.id].error}</p><button class="icon-btn" onclick={() => loadNotes(item)} aria-label={`${item.tag} 변경사항 다시 불러오기`}><Icon name="refresh" size={20} /></button></div>
+                    {:else}<p class="notes">{notes[item.id]?.text || '등록된 변경사항이 없어요.'}</p>{/if}
                   {/if}
                 </div>
               </li>
             {/each}
           </ul>
-          {#if history.length > visibleCount}<button class="history-more" onclick={() => visibleCount += 5}>이전 버전 더 보기 <Icon name="down" size={16} /></button>{/if}
+          {#if visibleHistory.length > visibleCount}<button class="history-more" onclick={() => visibleCount += 5}>이전 버전 더 보기 <Icon name="down" size={16} /></button>{/if}
         {:else}
-          <p class="history-message">아직 배포된 버전이 없어요.</p>
+          <div class="history-empty"><Icon name="download" size={22} /><p>아직 배포된 {releaseTab === 'stable' ? '정식' : '베타'} 버전이 없어요.</p></div>
         {/if}
+        </div>
       </div>
     {:else}
       <p class="eyebrow">홍시 · Android</p>
@@ -172,7 +195,7 @@
       {:else if release}
         <div class="version-row">
           <p class="version"><span>v{release.version} · {(release.size / 1024 / 1024).toFixed(1)} MB</span><span>· Android 7.0 이상</span></p>
-          <a class="versions-link" href="/download/versions">이번 버전 <Icon name="arrow-up-right" size={16} /></a>
+          <a class="versions-link" href="/download/versions">전체 버전 <Icon name="arrow-up-right" size={16} /></a>
         </div>
         <details class="details latest-changes"><summary><h2>변경사항</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary><p class="notes">{release.notes || '사용성과 안정성을 개선했어요.'}</p></details>
       {:else}<p class="status">앱 배포를 준비하고 있어요. 먼저 웹에서 이용할 수 있어요.</p>{/if}
@@ -227,6 +250,10 @@
   .history-all { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); font-size: 13px; }
   .history-all { white-space: nowrap; }
   .history-all:hover { color: var(--primary-text); }
+  .history-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 20px 0 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  .history-tabs button { min-height: 40px; border-radius: 8px; color: var(--text-2); font-size: 14px; font-weight: 650; }
+  .history-tabs button[aria-selected="true"] { background: var(--primary-weak); color: var(--primary-text); }
+  .history-empty { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 112px; padding: 20px; border: 1px dashed var(--border-strong); border-radius: 12px; color: var(--text-3); font-size: 14px; }
   .release-list { list-style: none; padding: 0; margin: 0; border-bottom: 1px solid var(--border); }
   .release-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; column-gap: 16px; padding: 12px 0; }
   .release-entry { border-top: 1px solid var(--border); }
@@ -236,7 +263,11 @@
   .release-chevron { grid-column: 3; display: inline-flex; color: var(--text-3); }
   .release-chevron.expanded { transform: rotate(180deg); }
   .release-change { padding: 4px 0 16px; font-size: 14px; }
-  .release-number { display: block; font-size: 16px; font-weight: 750; line-height: 1.4; overflow-wrap: anywhere; }
+  .release-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+  .release-badge { display: inline-flex; align-items: center; flex: none; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 700; line-height: 1.4; white-space: nowrap; }
+  .release-badge.latest { background: var(--ok-weak); color: var(--ok); }
+  .release-badge.beta { background: var(--primary-weak); color: var(--primary-text); }
+  .release-number { display: block; min-width: 0; font-size: 16px; font-weight: 750; line-height: 1.4; overflow-wrap: anywhere; }
   .release-meta { display: flex; flex-wrap: wrap; column-gap: 12px; color: var(--text-3); font-size: 12px; margin-top: 4px; }
   .release-meta time, .release-meta span { white-space: nowrap; }
   .release-download { grid-column: 2; grid-row: 1; position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 10px 14px; font-size: 13px; }

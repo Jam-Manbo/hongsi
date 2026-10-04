@@ -82,6 +82,8 @@ class UpdatePlugin(private val host: Activity) : Plugin(host) {
             require(conn.responseCode == 200) { "업데이트 서버에 연결하지 못했어요." }
             val bytes = conn.inputStream.use { it.readBytesLimited(64 * 1024) }
             val json = JSONObject(bytes.toString(Charsets.UTF_8))
+            require(!json.optBoolean("prerelease", false)
+                && json.getString("version").matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))) { "업데이트 정보가 올바르지 않아요." }
             return AppRelease(json.getString("version"), json.getLong("versionCode"), json.getString("url"), json.getString("sha256"), json.getLong("size"), json.optString("notes", ""))
         } finally { conn.disconnect() }
     }
@@ -108,7 +110,8 @@ class UpdatePlugin(private val host: Activity) : Plugin(host) {
     @Command fun install(invoke: Invoke) {
         val requested = invoke.parseArgs(UpdateArgs::class.java).versionCode
         job(invoke) {
-            val release = candidate ?: error("최신 버전을 다시 확인해 주세요.")
+            require(candidate?.versionCode == requested) { "최신 버전을 다시 확인해 주세요." }
+            val release = latest() ?: error("최신 버전을 다시 확인해 주세요.")
             require(requested == release.versionCode) { "업데이트 정보가 바뀌었어요. 다시 확인해 주세요." }
             if (!allowed()) return@job JSObject().apply { put("state", "permission-required") }
             prefs.edit().remove("error").apply()

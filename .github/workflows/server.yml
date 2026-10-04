@@ -2,7 +2,7 @@ name: Ubuntu server
 on:
   workflow_dispatch:
   release:
-    types: [released]
+    types: [published]
   push:
     branches: [main, master]
     paths-ignore: ['**.md']
@@ -27,6 +27,7 @@ jobs:
         if: github.event_name == 'release'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease && 'true' || 'false' }}
         run: node app/scripts/set-release-version.mjs "$RELEASE_TAG"
       - name: Build web and Linux server
         run: |
@@ -45,7 +46,7 @@ jobs:
           path: ${{ runner.temp }}/hongsi-server-ubuntu26-arm64.tar.gz
 
   publish:
-    if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
+    if: github.event_name == 'release' && !github.event.release.draft
     needs: build
     runs-on: ubuntu-26.04-arm
     permissions:
@@ -55,14 +56,19 @@ jobs:
         with:
           name: hongsi-server-ubuntu26-arm64
           path: release-assets
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: Upload server bundle
         env:
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > "$RUNNER_TEMP/release.json"
-          jq -e '.draft == false and .prerelease == false and .published_at != null' "$RUNNER_TEMP/release.json"
-          gh release upload "$RELEASE_TAG" release-assets/hongsi-server-ubuntu26-arm64.tar.gz --repo "$GITHUB_REPOSITORY"
+          TAG_PATH=$(node -e 'process.stdout.write(encodeURIComponent(process.env.RELEASE_TAG))')
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_PATH" > "$RUNNER_TEMP/release.json"
+          jq -e --arg tag "$RELEASE_TAG" --argjson pre "$RELEASE_PRERELEASE" '.tag_name == $tag and .draft == false and .prerelease == $pre and .published_at != null' "$RUNNER_TEMP/release.json"
+          gh release upload --repo "$GITHUB_REPOSITORY" -- "$RELEASE_TAG" release-assets/hongsi-server-ubuntu26-arm64.tar.gz
 
   deploy:
     if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
@@ -77,7 +83,18 @@ jobs:
         with:
           name: hongsi-server-ubuntu26-arm64
           path: release-assets
+      - name: Check latest release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/latest-release.json"
+          if jq -e --arg tag "$RELEASE_TAG" '.tag_name == $tag and .draft == false and .prerelease == false' "$RUNNER_TEMP/latest-release.json" > /dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Upload and restart Hongsi
+        if: steps.latest.outputs.deploy == 'true'
         env:
           DEPLOY_HOST: ${{ secrets.HONGSI_DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.HONGSI_DEPLOY_SSH_KEY }}

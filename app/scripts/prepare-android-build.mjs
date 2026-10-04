@@ -42,7 +42,7 @@ try {
   }
   const signed = Boolean(process.env.KEY_BASE64);
   if (process.env.RELEASE_EVENT === 'release' && !signed) {
-    throw new Error('Stable releases require the permanent Android signing key. Debug APKs are never published as updates.');
+    throw new Error('Releases require the Android signing key.');
   }
   const files = [[resolve(android, 'app/google-services.json'), firebase]];
   if (signed) {

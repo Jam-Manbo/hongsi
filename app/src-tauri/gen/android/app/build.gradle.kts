@@ -25,8 +25,10 @@ android {
         applicationId = "dev.kyuyoung.hongsi"
         minSdk = 24
         targetSdk = 37
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
-        versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        versionCode = providers.environmentVariable("HONGSI_ANDROID_VERSION_CODE").orNull?.toInt()
+            ?: tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        versionName = providers.environmentVariable("HONGSI_ANDROID_VERSION_NAME").orNull
+            ?: tauriProperties.getProperty("tauri.android.versionName", "1.0")
         buildConfigField("String", "HONGSI_UPDATE_URL", "\"https://hongsi.kyuyoung.dev/api/app-update\"")
     }
     val signingProperties = Properties().apply {

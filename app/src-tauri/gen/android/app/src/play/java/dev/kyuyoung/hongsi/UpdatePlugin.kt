@@ -16,6 +16,9 @@ import com.google.android.play.core.appupdate.AppUpdateOptions
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 @InvokeArg
 class UpdateArgs { var versionCode: Long = 0 }
@@ -23,6 +26,7 @@ class UpdateArgs { var versionCode: Long = 0 }
 @TauriPlugin
 class UpdatePlugin(private var host: Activity) : Plugin(host) {
     private val manager = AppUpdateManagerFactory.create(host.applicationContext)
+    private val executor = Executors.newSingleThreadExecutor()
     private var flowActive = false
     private var resuming = false
     private var lastError: String? = null
@@ -43,26 +47,67 @@ class UpdatePlugin(private var host: Activity) : Plugin(host) {
         host.runOnUiThread { invoke.resolve(info()) }
     }
 
+    private fun latestStable(): JSONObject? {
+        val url = URL(BuildConfig.HONGSI_UPDATE_URL)
+        require(url.protocol == "https") { "업데이트 주소가 올바르지 않아요." }
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            connectTimeout = 15000
+            readTimeout = 15000
+            setRequestProperty("Cache-Control", "no-cache")
+        }
+        try {
+            if (connection.responseCode == 204) return null
+            require(connection.responseCode == 200) { "업데이트 서버에 연결하지 못했어요." }
+            val bytes = connection.inputStream.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    require(output.size() + count <= 64 * 1024) { "업데이트 정보가 올바르지 않아요." }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+            val release = JSONObject(bytes.toString(Charsets.UTF_8))
+            require(!release.optBoolean("prerelease", false)
+                && release.getString("version").matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+"))
+                && release.getLong("versionCode") in 1..2100000000L) { "업데이트 정보가 올바르지 않아요." }
+            return release
+        } finally { connection.disconnect() }
+    }
+
+    private fun stable(action: (JSONObject?) -> Unit, failure: () -> Unit) {
+        executor.execute {
+            try {
+                val release = latestStable()
+                host.runOnUiThread { action(release) }
+            } catch (_: Exception) { host.runOnUiThread { failure() } }
+        }
+    }
+
     @Command fun check(invoke: Invoke) {
-        host.runOnUiThread {
+        stable({ release ->
             manager.appUpdateInfo.addOnSuccessListener { update ->
-                val available = update.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE ||
-                    update.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS
+                val available = (update.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE ||
+                    update.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) &&
+                    release?.getLong("versionCode") == update.availableVersionCode().toLong()
                 lastError = null
                 val result = info().apply {
-                    put("configured", true)
+                    put("configured", release != null)
                     put("release", if (available) JSObject().apply {
-                        put("version", JSONObject.NULL)
+                        put("version", release.getString("version"))
                         put("versionCode", update.availableVersionCode())
                         put("size", update.totalBytesToDownload().takeIf { it > 0 } ?: JSONObject.NULL)
-                        put("notes", "")
+                        put("notes", release.optString("notes", ""))
                     } else JSONObject.NULL)
                 }
                 invoke.resolve(result)
             }.addOnFailureListener {
                 invoke.reject("Google Play 업데이트를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
             }
-        }
+        }, { invoke.reject("업데이트 서버에 연결하지 못했어요.") })
     }
 
     @Command fun permissions(invoke: Invoke) { invoke.resolve(JSObject()) }
@@ -75,17 +120,22 @@ class UpdatePlugin(private var host: Activity) : Plugin(host) {
                 return@runOnUiThread
             }
             flowActive = true
-            manager.appUpdateInfo.addOnSuccessListener { update ->
-                if (requested != update.availableVersionCode().toLong()) {
+            stable({ release ->
+                manager.appUpdateInfo.addOnSuccessListener { update ->
+                    if (release?.getLong("versionCode") != requested || requested != update.availableVersionCode().toLong()) {
+                        flowActive = false
+                        invoke.reject("업데이트 정보가 바뀌었어요. 다시 확인해 주세요.")
+                    } else {
+                        start(update, invoke)
+                    }
+                }.addOnFailureListener {
                     flowActive = false
-                    invoke.reject("업데이트 정보가 바뀌었어요. 다시 확인해 주세요.")
-                } else {
-                    start(update, invoke)
+                    invoke.reject("Google Play 업데이트를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
                 }
-            }.addOnFailureListener {
+            }, {
                 flowActive = false
-                invoke.reject("Google Play 업데이트를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")
-            }
+                invoke.reject("업데이트 서버에 연결하지 못했어요.")
+            })
         }
     }
 
@@ -120,10 +170,13 @@ class UpdatePlugin(private var host: Activity) : Plugin(host) {
     private fun resume() {
         if (flowActive || resuming || host.isFinishing || host.isDestroyed) return
         resuming = true
-        manager.appUpdateInfo.addOnSuccessListener { update ->
-            resuming = false
-            if (!flowActive && update.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) start(update)
-        }.addOnFailureListener { resuming = false }
+        stable({ release ->
+            manager.appUpdateInfo.addOnSuccessListener { update ->
+                resuming = false
+                if (!flowActive && release?.getLong("versionCode") == update.availableVersionCode().toLong()
+                    && update.updateAvailability() == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) start(update)
+            }.addOnFailureListener { resuming = false }
+        }, { resuming = false })
     }
 
     override fun load(webView: WebView) { host.runOnUiThread { resume() } }

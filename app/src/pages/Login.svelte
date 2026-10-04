@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api, isApp } from '../lib/api';
-  import { APP_VERSION, REPO_URL } from '../lib/about';
+  import { APP_VERSION_LABEL, REPO_URL } from '../lib/about';
   import { sentenceLines } from '../lib/format';
   import { errorText } from '../lib/net.svelte';
   import { app, pref, setPref, startSession, waitForLogout } from '../lib/store.svelte';
@@ -144,7 +144,7 @@
         {/if}
       </div>
       <div class="about-group">
-        <span>{isApp ? '앱' : '웹'} v{APP_VERSION}</span>
+        <span>{isApp ? '앱' : '웹'} {APP_VERSION_LABEL}</span>
         {#if !isApp}<span class="sep" aria-hidden="true"></span><a href="/download">앱 다운로드</a>{/if}
       </div>
     </footer>

@@ -1,10 +1,25 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { androidVersionCode, assetStem, releaseVersion, stableVersion } from './release-version.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const version = process.argv[2]?.replace(/^v/, '');
-if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error('Version must be a stable vMAJOR.MINOR.PATCH tag.');
+const config = JSON.parse(await readFile(resolve(root, 'app/src-tauri/tauri.conf.json'), 'utf8'));
+const prerelease = process.env.RELEASE_PRERELEASE === 'true';
+let tag = process.argv[2] || `v${config.version}`;
+if (process.env.GITHUB_EVENT_NAME !== 'release' && !prerelease && /^\d/.test(tag)) tag = `v${tag}`;
+const label = releaseVersion(tag, prerelease);
+const version = prerelease ? stableVersion(`v${config.version}`) : label;
+const values = {
+  HONGSI_RELEASE_TAG: tag,
+  HONGSI_RELEASE_LABEL: label,
+  HONGSI_RELEASE_ASSET_STEM: assetStem(tag, prerelease),
+  HONGSI_ANDROID_VERSION_NAME: label,
+};
+if (process.env.GITHUB_RUN_NUMBER) values.HONGSI_ANDROID_VERSION_CODE = String(androidVersionCode(process.env.GITHUB_RUN_NUMBER));
+if (process.env.GITHUB_ENV) {
+  await appendFile(process.env.GITHUB_ENV, Object.entries(values).map(([key, value]) => `${key}=${value}\n`).join(''));
+}
 for (const name of ['app/package.json', 'app/src-tauri/tauri.conf.json']) {
   const path = resolve(root, name), json = JSON.parse(await readFile(path, 'utf8'));
   json.version = version;
@@ -23,4 +38,4 @@ const updatedLock = lock.replace(/(\[\[package\]\]\nname = "([^"]+)"\nversion = 
 });
 if (packages.size) throw new Error('Workspace package missing from Cargo.lock.');
 await writeFile(lockPath, updatedLock);
-console.log(`Release version: ${version}`);
+console.log(`Release: ${tag}`);

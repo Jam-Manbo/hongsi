@@ -8,7 +8,7 @@ on:
         required: false
         type: string
   release:
-    types: [released]
+    types: [published]
   push:
     branches: [main, master]
     paths-ignore: ['**.md']
@@ -32,6 +32,7 @@ jobs:
       HONGSI_API_URL: ${{ vars.HONGSI_API_URL || 'https://hongsi.kyuyoung.dev' }}
       HAS_SIGNING: ${{ secrets.ANDROID_KEY_BASE64 != '' }}
       HONGSI_ANDROID_DISTRIBUTION: ${{ matrix.distribution }}
+      RELEASE_PRERELEASE: ${{ github.event.release.prerelease && 'true' || 'false' }}
       BUILD_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
     defaults:
       run:
@@ -69,7 +70,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - name: Set release version
-        if: env.BUILD_VERSION != ''
         run: node scripts/set-release-version.mjs "$BUILD_VERSION"
       - name: Restore Firebase and signing files
         env:
@@ -131,9 +131,8 @@ jobs:
                   assert loads, f'{name}: no PT_LOAD headers'
               print(f'Play bundle verified: no APK installer permission; {len(libraries)} aligned native libraries')
           PYTHON
-          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
           mkdir -p "$RUNNER_TEMP/hongsi-release/android"
-          cp "$AAB" "$RUNNER_TEMP/hongsi-release/android/hongsi-$VERSION.aab"
+          cp "$AAB" "$RUNNER_TEMP/hongsi-release/android/$HONGSI_RELEASE_ASSET_STEM.aab"
       - uses: actions/upload-artifact@v7
         if: env.HAS_SIGNING == 'true'
         with:
@@ -145,7 +144,7 @@ jobs:
         run: rm -f src-tauri/gen/android/keystore.properties src-tauri/gen/android/app/google-services.json "$RUNNER_TEMP/hongsi-release.jks"
 
   publish:
-    if: github.event_name == 'release' && !github.event.release.prerelease && !github.event.release.draft
+    if: github.event_name == 'release' && !github.event.release.draft
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -166,5 +165,6 @@ jobs:
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease && 'true' || 'false' }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: node app/scripts/publish-github-release.mjs release-assets
