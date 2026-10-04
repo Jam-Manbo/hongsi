@@ -43,10 +43,10 @@
   const tone = $derived(left <= 0 ? 'var(--danger)' : left < 30 * 60_000 ? 'var(--seat-mine)' : 'var(--primary)');
   const sourceText = $derived(
     session.startSource === 'detected'
-      ? '좌석 지도에서 배정 시각을 자동으로 찾았어요'
+      ? '좌석 지도에서 배정 시각을 자동으로 찾았어요.'
       : session.startSource === 'adjusted'
-        ? '직접 수정한 입실 시각이에요'
-        : '입실 버튼을 누른 시각 기준이에요',
+        ? '직접 수정한 입실 시각이에요.'
+        : '입실 버튼을 누른 시각 기준이에요.',
   );
 
   async function apply(action: () => Promise<{ session: SeatSession | null }>, done: string) {
@@ -60,7 +60,7 @@
       syncSeatReminders(res.session);
       toast(done, 'success');
     } catch (e) {
-      if (!handleAuthError(e)) toastOnce(errorText(e, '처리하지 못했어요'), 'error');
+      if (!handleAuthError(e)) toastOnce(errorText(e, '처리하지 못했어요.'), 'error');
     } finally {
       busy = '';
     }
@@ -90,7 +90,7 @@
     if (ts > now + 5 * 60_000) ts -= 86_400_000;
     busy = 'adjust';
     adjustOpen = false;
-    await apply(() => api.adjustSeat(Math.floor(ts / 1000), adjustPeriod), '입실 시각을 수정했어요');
+    await apply(() => api.adjustSeat(Math.floor(ts / 1000), adjustPeriod), '입실 시각을 수정했어요.');
   }
 
   async function onToggle(min: number) {

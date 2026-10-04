@@ -39,7 +39,7 @@
     e.preventDefault();
     if (busy) return;
     if (!id.trim() || !password) {
-      error = '학번과 비밀번호를 입력해 주세요';
+      error = '학번과 비밀번호를 입력해 주세요.';
       return;
     }
     busy = true;
@@ -60,7 +60,7 @@
         })
         .catch(() => {});
     } catch (err) {
-      error = errorText(err, '로그인하지 못했어요');
+      error = errorText(err, '로그인하지 못했어요.');
     } finally {
       busy = false;
     }
@@ -138,7 +138,7 @@
             {@render githubMark()}<span>소스코드</span>
           </a>
         {:else}
-          <span class="gh" role="img" aria-label="GitHub 저장소 (곧 공개)" title="오픈소스 저장소는 곧 공개돼요">
+          <span class="gh" role="img" aria-label="GitHub 저장소 (곧 공개)" title="오픈소스 저장소는 곧 공개돼요.">
             {@render githubMark()}<span>소스코드</span>
           </span>
         {/if}
@@ -155,21 +155,21 @@
   <div class="cautions">
     {#if isApp}
       <section>
-        <h3>로그인 정보를 기기에 보관해요</h3>
+        <h3>로그인 정보를 기기에 보관해요.</h3>
         <p>자동 로그인 시 학번·비밀번호·로그인 정보를 기기 보안 저장소에 보관합니다. 비밀번호는 홍시 서버에 보내지 않습니다.</p>
       </section>
     {:else}
       <section>
-        <h3>비밀번호는 저장하지 않아요</h3>
+        <h3>비밀번호는 저장하지 않아요.</h3>
         <p>비밀번호는 저장하지 않습니다. 로그인 상태 유지 시 세션·토큰을 서버에 암호화해 보관하며, 이용 중 보관 기한을 14일로 갱신합니다. 학교 인증 만료 시 재로그인이 필요할 수 있습니다.</p>
       </section>
     {/if}
     <section>
-      <h3>백그라운드 동기화도 켜져요</h3>
+      <h3>백그라운드 동기화도 켜져요.</h3>
       <p>첫 활성화 시 동기화도 켜집니다. 로그인 정보는 서버에 암호화해 최대 14일 보관하며, 이용 중 기한을 갱신합니다.</p>
     </section>
     <section>
-      <h3>설정에서 끌 수 있어요</h3>
+      <h3>설정에서 끌 수 있어요.</h3>
       <p>동기화는 설정에서 끌 수 있습니다. 로그아웃 시 이 기기의 로그인 정보를 삭제합니다. 공용 기기에서는 자동 로그인을 꺼 주세요.</p>
     </section>
   </div>
@@ -179,15 +179,15 @@
 <Sheet bind:open={cautionOpen} title="이용 전 주의사항">
   <div class="cautions">
     <section>
-      <h3>비공식 서비스예요</h3>
+      <h3>비공식 서비스예요.</h3>
       <p>홍시는 개인이 개발한 서비스로, 홍익대학교가 운영하지 않습니다.</p>
     </section>
     <section>
-      <h3>정보를 저장해요</h3>
+      <h3>정보를 저장해요.</h3>
       <p>자동 로그인 시 앱은 비밀번호를 기기 보안 저장소에 보관하며, 홍시 서버는 비밀번호를 저장하지 않습니다. 로그인 유지와 동기화에 필요한 로그인 정보는 서버에 암호화해 보관합니다. 할 일과 완료 표시 등도 서버에 저장합니다.</p>
     </section>
     <section>
-      <h3>최종 결과는 학교에서 확인해 주세요</h3>
+      <h3>최종 결과는 학교에서 확인해 주세요.</h3>
       <p>정보나 알림이 누락되거나 늦어질 수 있습니다. 출결, 과제 제출과 좌석 배정 결과는 학교 공식 서비스에서 확인해 주세요.</p>
     </section>
   </div>

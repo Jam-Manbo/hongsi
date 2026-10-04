@@ -87,11 +87,11 @@ internal object WidgetViews {
         }
         view.removeAllViews(R.id.widget_body)
         if (data.length() == 0 || failed) {
-            val title = if (data.length() == 0) "앱에서 로그인해 주세요" else if (failed) "정보를 불러오지 못했어요" else when {
-                kind.today -> "오늘은 수업이 없어요"
-                weekOnly -> "수업이 없어요"
-                kind.deadlines -> "남은 일정이 없어요"
-                else -> "출석할 수업이 없어요"
+            val title = if (data.length() == 0) "앱에서 로그인해 주세요." else if (failed) "정보를 불러오지 못했어요." else when {
+                kind.today -> "오늘은 수업이 없어요."
+                weekOnly -> "수업이 없어요."
+                kind.deadlines -> "남은 일정이 없어요."
+                else -> "출석할 수업이 없어요."
             }
             if (weekOnly) return weekStatus(context, id, kind, title)
             view.addView(R.id.widget_body, empty(context, title))
@@ -104,7 +104,7 @@ internal object WidgetViews {
                 val selected = weekday()
                 view.text(R.id.widget_title, if (selected == weekday()) "오늘 수업" else "${"월화수목금토일"[selected]}요일 수업")
                 val remaining = if (selected == weekday()) all.filter { minutes(it.text("start")) + (it.optJSONArray("periods")?.length() ?: 1) * 60 > minuteOfDay() } else all
-                if (remaining.isEmpty()) view.addView(R.id.widget_body, empty(context, if (all.isEmpty()) "오늘은 수업이 없어요" else "오늘 수업이 모두 끝났어요"))
+                if (remaining.isEmpty()) view.addView(R.id.widget_body, empty(context, if (all.isEmpty()) "오늘은 수업이 없어요." else "오늘 수업이 모두 끝났어요."))
                 val list = layout(context, R.layout.widget_class_list)
                 remaining.take(max(1, (height - 72) / 64)).forEachIndexed { index, slot ->
                     val current = selected == weekday() && minutes(slot.text("start")) <= minuteOfDay()
@@ -120,7 +120,7 @@ internal object WidgetViews {
             }
             WidgetKind.DEADLINES, WidgetKind.DEADLINES_LARGE -> {
                 val items = WidgetData.deadlines(context)
-                if (items.isEmpty()) view.addView(R.id.widget_body, empty(context, "남은 일정이 없어요"))
+                if (items.isEmpty()) view.addView(R.id.widget_body, empty(context, "남은 일정이 없어요."))
                 val density = context.resources.displayMetrics.density
                 val available = (height * density).toInt() - (40 * density).roundToInt() - 2 * (6 * density).toInt()
                 val rowWidth = ((width * density).toInt() - 2 * (12 * density).toInt()).coerceAtLeast(1)
@@ -168,7 +168,7 @@ internal object WidgetViews {
                 view.text(R.id.widget_more, if (hiddenCount > 0) "+ ${hiddenCount}개의 마감" else "")
             }
             WidgetKind.WEEK -> {
-                if (WidgetData.slots(context).isEmpty()) return weekStatus(context, id, kind, "등록된 수업이 없어요")
+                if (WidgetData.slots(context).isEmpty()) return weekStatus(context, id, kind, "등록된 수업이 없어요.")
                 else {
                     val grid = layout(context, R.layout.widget_week_grid)
                     val gridWidth = max(260, width - 16)
@@ -188,7 +188,7 @@ internal object WidgetViews {
     }
     private fun attendanceView(context: Context, id: Int, kind: WidgetKind, state: JSONObject, height: Int): RemoteViews {
         val value = if (WidgetAttendanceService.pending(context)) WidgetAttendance(
-            state.optJSONObject("lecture")?.text("name").orEmpty(), "출석을 확인하고 있어요", "", tone = "primary"
+            state.optJSONObject("lecture")?.text("name").orEmpty(), "출석을 확인하고 있어요.", "", tone = "primary"
         ) else AttendanceState.read(context, state)
         return layout(context, R.layout.widget_card).apply {
             page(context, id, kind, R.id.widget_root)
@@ -206,7 +206,7 @@ internal object WidgetViews {
             }
             val content = layout(context, R.layout.widget_attendance_body).apply {
                 text(R.id.attendance_course, value.title)
-                text(R.id.attendance_message, if (wrongCode) "출석번호를 확인해 주세요" else value.message)
+                text(R.id.attendance_message, if (wrongCode) "출석번호를 확인해 주세요." else value.message)
                 text(R.id.attendance_detail, value.detail)
                 themeText(context, R.id.attendance_message, tone)
                 val compact = height < 184
@@ -250,7 +250,7 @@ internal object WidgetViews {
     private fun seatView(context: Context, id: Int, kind: WidgetKind, state: JSONObject): RemoteViews {
         val failed = WidgetData.error(context, "seats").isNotBlank()
         val seat = if (failed) null else WidgetData.seat(context, state)
-        if (seat == null) return status(context, id, kind, if (failed) "정보를 불러오지 못했어요" else if (WidgetData.read(context).length() == 0) "앱을 한 번 열어 주세요" else "이용 중인 좌석이 없어요")
+        if (seat == null) return status(context, id, kind, if (failed) "정보를 불러오지 못했어요." else if (WidgetData.read(context).length() == 0) "앱을 한 번 열어 주세요." else "이용 중인 좌석이 없어요.")
         val view = layout(context, R.layout.widget_seat)
         view.page(context, id, kind, R.id.widget_root)
         val seconds = max(0L, seat.optLong("expiresAt") - nowSeconds())

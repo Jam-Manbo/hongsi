@@ -133,5 +133,5 @@ export function hourNow(): number {
 }
 
 export function sentenceLines(text: string): string {
-  return text.replace(/([.!?]) +(?=\S)/g, '$1\n');
+  return text.replace(/([.!?]) +(?=[^\s·])/g, '$1\n');
 }

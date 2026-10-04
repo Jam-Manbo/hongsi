@@ -1,6 +1,6 @@
 export class ReadTimeoutError extends Error {
   constructor() {
-    super('응답 시간이 초과됐어요');
+    super('응답 시간이 초과됐어요.');
   }
 }
 

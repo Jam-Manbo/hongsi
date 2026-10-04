@@ -52,7 +52,7 @@ impl UserSession {
 
     pub fn school(&self) -> Result<Arc<SchoolSession>, ApiError> {
         self.school.read().expect("세션 잠금").clone().ok_or_else(|| {
-            ApiError::new(StatusCode::CONFLICT, "device_session", "앱에서는 학교 요청을 기기에서 직접 보내요")
+            ApiError::new(StatusCode::CONFLICT, "device_session", "앱에서는 학교 요청을 기기에서 직접 보내요.")
         })
     }
 

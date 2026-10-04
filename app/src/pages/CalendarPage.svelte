@@ -396,7 +396,7 @@
               {/each}
             </div>
           {:else}
-            <EmptyState message="이날 마감인 일정이 없어요" />
+            <EmptyState message="이날 마감인 일정이 없어요." />
           {/if}
         </section>
 
@@ -419,7 +419,7 @@
               {/each}
             </div>
           {:else}
-            <EmptyState message="다가오는 일정이 없어요" />
+            <EmptyState message="다가오는 일정이 없어요." />
           {/if}
         </section>
         {#if undated.length}
@@ -476,7 +476,7 @@
             {/each}
           </ul>
         {:else}
-          <EmptyState message="이날 마감인 일정이 없어요" compact />
+          <EmptyState message="이날 마감인 일정이 없어요." compact />
         {/if}
         <button
           class="btn btn-soft pop-add"
@@ -552,7 +552,7 @@
           {/each}
         </div>
       {:else if !statNeedsTodos || todos.data !== null}
-        <EmptyState message={{ all: '표시할 일정이 없어요', week: '7일 안에 마감할 일이 없어요', assign: '남은 과제가 없어요', vod: '남은 강의가 없어요', todo: '남은 할 일이 없어요', missed: '놓친 항목이 없어요' }[stat]} />
+        <EmptyState message={{ all: '표시할 일정이 없어요.', week: '7일 안에 마감할 일이 없어요.', assign: '남은 과제가 없어요.', vod: '남은 강의가 없어요.', todo: '남은 할 일이 없어요.', missed: '놓친 항목이 없어요.' }[stat]} />
       {/if}
     </section>
   {/if}

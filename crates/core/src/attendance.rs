@@ -109,7 +109,7 @@ impl SchoolSession {
         let (lecture, mut form) = rows
             .into_iter()
             .find(|(lecture, _)| lecture.key == lecture_key)
-            .ok_or_else(|| CoreError::NotFound("지금 출석할 수 있는 수업이 아니에요".into()))?;
+            .ok_or_else(|| CoreError::NotFound("지금 출석할 수 있는 수업이 아니에요.".into()))?;
         form.push(("key".into(), code.to_string()));
         form.push(("latitude".into(), latitude.to_string()));
         form.push(("longitude".into(), longitude.to_string()));
@@ -168,7 +168,7 @@ impl SchoolSession {
         let data = forms
             .iter()
             .find(|f| format!("{}-{}", field(f, "haksu"), field(f, "bunban")) == code)
-            .ok_or_else(|| CoreError::NotFound("이번 학기 수강 과목이 아니에요".into()))?;
+            .ok_or_else(|| CoreError::NotFound("이번 학기 수강 과목이 아니에요.".into()))?;
         let body = self
             .post_form_text(
                 &format!("{AT}stud05.jsp"),

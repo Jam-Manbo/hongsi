@@ -35,14 +35,14 @@
     {#if stale && resource.at}
       <p class="stale" class:failed={parseError}>
         <Icon name="clock" size={13} stroke={2} />
-        {ago(resource.at / 1000)} 정보{conn ? '' : ` · ${parseError ? '불러오지 못했어요' : resource.error}`}
+        {ago(resource.at / 1000)} 정보{conn ? '' : ` · ${parseError ? '불러오지 못했어요.' : resource.error}`}
       </p>
     {/if}
   {:else}
     <div class="retry" role="alert">
       <span class="ico"><Icon name={conn ? ICON[conn] : 'alert'} size={20} /></span>
       <div class="txt">
-        <strong>{what} 불러오지 못했어요</strong>
+        <strong>{what} 불러오지 못했어요.</strong>
         {#if !(hideParseError && parseError)}<span class="sentence-message">{sentenceLines(conn ? TROUBLE_TEXT[conn].title : resource.error)}</span>{/if}
       </div>
       <button class="btn btn-ghost again" onclick={() => resource.load(true)} disabled={resource.loading}>

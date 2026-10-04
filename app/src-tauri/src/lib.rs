@@ -181,12 +181,12 @@ async fn clear_revoked_login(shell: &Shell) {
 fn message(r: &Reply) -> String {
     r.body["error"]["message"]
         .as_str()
-        .unwrap_or("요청을 처리하지 못했어요")
+        .unwrap_or("요청을 처리하지 못했어요.")
         .to_string()
 }
 
 fn need_login() -> Reply {
-    Reply::error(401, "unauthorized", "로그인이 필요해요")
+    Reply::error(401, "unauthorized", "로그인이 필요해요.")
 }
 
 async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
@@ -342,7 +342,7 @@ async fn api(
     body: Option<Value>,
 ) -> Result<ApiResponse, String> {
     if !path.starts_with("/api/") {
-        return Err("잘못된 요청 경로예요".into());
+        return Err("잘못된 요청 경로예요.".into());
     }
 
     if path == "/api/auth/logout" || path == "/api/auth/logout-all" {
@@ -448,7 +448,7 @@ async fn submit_assignment(
     for f in files {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(f.data)
-            .map_err(|_| format!("'{}' 파일을 읽지 못했어요", f.name))?;
+            .map_err(|_| format!("'{}' 파일을 읽지 못했어요.", f.name))?;
         decoded.push((f.name, bytes));
     }
     if let Err(reply) = ensure_login(&shell).await {
@@ -623,7 +623,7 @@ async fn open_url(app: AppHandle, shell: State<'_, Arc<Shell>>, url: String) -> 
         && url.len() < 4096
         && !url.chars().any(|c| c.is_whitespace() || c.is_control());
     if !allowed {
-        return Err("열 수 없는 주소예요".into());
+        return Err("열 수 없는 주소예요.".into());
     }
     if url.starts_with("https://cn2.hongik.ac.kr/") {
         ensure_login(&shell).await.map_err(|r| message(&r))?;

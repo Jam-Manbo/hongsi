@@ -170,7 +170,7 @@
       {/each}
     </ul>
   {:else}
-    <EmptyState message="오늘은 수업이 없어요" />
+    <EmptyState message="오늘은 수업이 없어요." />
   {/if}
   </section>
   {/if}
@@ -256,7 +256,7 @@
               {/each}
             </div>
           {:else}
-            <p class="notice">{c.notice ?? '교수님이 출석부를 공개하지 않았어요'}</p>
+            <p class="notice">{c.notice ?? '교수님이 출석부를 공개하지 않았어요.'}</p>
           {/if}
         </article>
       {/each}

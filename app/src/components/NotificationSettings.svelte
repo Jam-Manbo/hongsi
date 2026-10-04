@@ -8,7 +8,7 @@
   import Switch from './Switch.svelte';
   import Icon from './Icon.svelte';
 
-  const permissionText = { unknown: '권한을 확인하고 있어요.', granted: '알림이 허용되어 있어요.', denied: '기기·브라우저 설정에서 알림을 허용해 주세요.', default: '알림을 받으려면 권한을 허용해 주세요.', unsupported: '알림을 지원하지 않는 환경이에요' };
+  const permissionText = { unknown: '권한을 확인하고 있어요.', granted: '알림이 허용되어 있어요.', denied: '기기·브라우저 설정에서 알림을 허용해 주세요.', default: '알림을 받으려면 권한을 허용해 주세요.', unsupported: '알림을 지원하지 않는 환경이에요.' };
   const local = $derived([notifications.due, notifications.seat]);
   let checking = $state(false);
   async function checkBackground() {

@@ -97,7 +97,7 @@ class WidgetAttendanceService : Service() {
                 })
         }
         val notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification).setContentTitle("출석을 확인하고 있어요")
+            .setSmallIcon(R.drawable.ic_notification).setContentTitle("출석을 확인하고 있어요.")
             .setContentText("처리가 끝나면 자동으로 닫혀요.")
             .setContentIntent(Widgets.page(this, id, WidgetKind.ATTENDANCE))
             .setOngoing(true).setSilent(true).setOnlyAlertOnce(true)

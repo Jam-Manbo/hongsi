@@ -38,7 +38,7 @@
         keep = new Set(v.info.files.map((f) => f.name));
       })
       .catch((e) => {
-        if (!handleAuthError(e)) error = errorText(e, '제출 정보를 읽지 못했어요');
+        if (!handleAuthError(e)) error = errorText(e, '제출 정보를 읽지 못했어요.');
       });
   });
 
@@ -93,11 +93,11 @@
           items: calendar.data.items.map((i) => (i.key === item!.key ? { ...i, status: 'submitted', done: true } : i)),
         });
       }
-      toast(edited ? '제출한 파일을 수정했어요' : '과제를 제출했어요', 'success', 4000);
+      toast(edited ? '제출한 파일을 수정했어요.' : '과제를 제출했어요.', 'success', 4000);
       open = false;
     } catch (e) {
       if (!handleAuthError(e)) {
-        error = errorText(e, '제출하지 못했어요');
+        error = errorText(e, '제출하지 못했어요.');
         step = 'edit';
       }
     } finally {
@@ -106,7 +106,7 @@
   }
 </script>
 
-<Sheet bind:open title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
+<Sheet bind:open title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요.' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
   {#if error}<div class="error-box"><Icon name="alert" size={18} /><span class="sentence-message">{sentenceLines(error)}</span></div>{/if}
   {#if !view && !error}
     <Skeleton rows={3} height={52} />
@@ -122,7 +122,7 @@
       </p>
     {:else}
       {#if view.info.files.length}
-        <h4><span class="file-heading">{edited ? '지금 제출된 파일' : '첨부된 파일'}</span> <span class="muted">빼려면 누르세요</span></h4>
+        <h4><span class="file-heading">{edited ? '지금 제출된 파일' : '첨부된 파일'}</span> <span class="muted">빼려면 누르세요.</span></h4>
         <div class="list">
           {#each view.info.files as f (f.name)}
             <button class="file" class:off={!keep.has(f.name)} onclick={() => toggleKeep(f.name)} aria-pressed={keep.has(f.name)}>
@@ -178,7 +178,7 @@
       </div>
       <label class="statement strong">
         <input type="checkbox" bind:checked={lateChecked} />
-        지각 제출로 기록되는 것을 확인했어요
+        지각 제출로 기록되는 것을 확인했어요.
       </label>
     {:else}
       <p class="confirm">{edited ? '수정한 파일이 클래스룸에 다시 제출돼요.' : '파일이 클래스룸에 제출돼요.'}<br />파일 {total}개를 보낼게요.</p>

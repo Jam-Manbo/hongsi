@@ -22,7 +22,7 @@ fn validate(receipt: &AttendanceReceipt) -> Result<NaiveDate, ApiError> {
         || lecture.time.len() > 300 || lecture.code.as_ref().is_some_and(|code| code.len() > 32)
         || lecture.key != format!("{}|{}|{}", lecture.code.as_deref().unwrap_or(""), lecture.name, lecture.time)
     {
-        return Err(ApiError::bad_request("오늘 출석 처리가 확인된 기록만 공유할 수 있어요"));
+        return Err(ApiError::bad_request("오늘 출석 처리가 확인된 기록만 공유할 수 있어요."));
     }
     Ok(day)
 }
@@ -40,7 +40,7 @@ pub async fn save(db: &PgPool, uid: i64, receipt: &AttendanceReceipt) -> Result<
 pub struct ReceiptInput { account: String, receipt: AttendanceReceipt }
 
 pub async fn record(State(st): State<Shared>, user: CurrentUser, Json(body): Json<ReceiptInput>) -> Result<Json<Value>, ApiError> {
-    if body.account != user.session.student_id { return Err(ApiError::conflict("현재 계정의 출석 기록만 공유할 수 있어요")); }
+    if body.account != user.session.student_id { return Err(ApiError::conflict("현재 계정의 출석 기록만 공유할 수 있어요.")); }
     save(&st.db, user.session.user_id, &body.receipt).await?;
     Ok(Json(json!({"ok":true})))
 }

@@ -55,7 +55,7 @@ async function saveDone(item: CalendarItem, done: boolean) {
   } catch (e) {
     if (isStaleSession(e)) return;
     update(item.key, before);
-    if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요'), 'error');
+    if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요.'), 'error');
   } finally {
     if (isCurrentSession(version)) saving.delete(item.key);
     finishChange();
@@ -76,7 +76,7 @@ async function saveItemAlert(item: CalendarItem, patch: Partial<CalendarItem>, s
   } catch (e) {
     if (!isCurrentSession(version) || isStaleSession(e)) return;
     update(item.key, before);
-    if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요'), 'error');
+    if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요.'), 'error');
   } finally {
     if (isCurrentSession(version)) savingAlerts.delete(item.key);
     finishChange();
@@ -189,7 +189,7 @@ export async function downloadFile(src: FileSource, name: string, course: string
       path,
     };
     remember(record);
-    toast(isApp ? '다운로드 폴더 안의 ‘홍시’ 폴더에 저장했어요' : '다운로드했어요', 'success');
+    toast(isApp ? '다운로드 폴더 안의 ‘홍시’ 폴더에 저장했어요.' : '다운로드했어요.', 'success');
     return record;
   } catch (e) {
     if (!handleAuthError(e)) toastOnce(fileErrorText(e, '다운로드에 실패했어요.'), 'error');

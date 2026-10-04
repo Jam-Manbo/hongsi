@@ -59,7 +59,7 @@ class SeatExtensionJob : JobService() {
             val shift = (after.optLong("expiresAt") - before.optLong("expiresAt")) * 1000
             for (id in storage.getSavedNotificationIds().filter { (it.toIntOrNull() ?: 0) in 7000..7499 }) {
                 if (WidgetData.read(context).text("owner") != owner) return
-                val notification = storage.getSavedNotification(id) ?: error("예약된 퇴실 알림을 읽지 못했어요")
+                val notification = storage.getSavedNotification(id) ?: error("예약된 퇴실 알림을 읽지 못했어요.")
                 val intent = runCatching { JSONObject(notification.extra?.optString("intent").orEmpty()) }.getOrNull() ?: continue
                 if (WidgetData.ownerHash(intent.text("account")) != owner || intent.optJSONObject("target")?.optLong("id") != before.optLong("id")) continue
                 val schedule = notification.schedule as? NotificationSchedule.At ?: continue

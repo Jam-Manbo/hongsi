@@ -107,7 +107,7 @@
         {#each subtodos as t (t.id)}
           <TodoRow todo={t} {color} {course} onopen={(x) => oneditodo?.(x)} />
         {:else}
-          <EmptyState message="추가한 할 일이 없어요" compact />
+          <EmptyState message="추가한 할 일이 없어요." compact />
         {/each}
       </div>
     {/if}

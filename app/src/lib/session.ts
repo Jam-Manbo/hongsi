@@ -4,7 +4,7 @@ const listeners = new Set<() => void>();
 
 export class StaleSessionError extends Error {
   constructor() {
-    super('이전 로그인에서 시작한 요청이에요');
+    super('이전 로그인에서 시작한 요청이에요.');
   }
 }
 

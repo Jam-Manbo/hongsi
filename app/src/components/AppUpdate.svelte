@@ -12,7 +12,7 @@
       {#if update.checking}
         <p role="status">새 버전을 확인하고 있어요…</p>
       {:else if update.release}
-        <h3>{update.release.version ? `홍시 ${update.release.version}` : '새 버전이 준비됐어요'}</h3>
+        <h3>{update.release.version ? `홍시 ${update.release.version}` : '새 버전이 준비됐어요.'}</h3>
         {#if update.release.size}<p class="muted">{(update.release.size / 1024 / 1024).toFixed(1)} MB</p>{/if}
         {#if update.source === 'play'}<p class="muted">앱 안에서 Google Play 업데이트를 진행해요.</p>{/if}
         {#if update.release.notes}<p class="notes">{update.release.notes}</p>{/if}

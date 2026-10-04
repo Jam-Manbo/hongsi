@@ -25,7 +25,7 @@ pub async fn fetch_all(client: &Client) -> Result<Vec<Building>> {
     let results = join_all(BUILDINGS.iter().map(|(id, name, url)| fetch_building(client, id, name, url))).await;
     let buildings: Vec<Building> = results.into_iter().filter_map(|r| r.map_err(|e| tracing::warn!("열람실 조회 실패: {e}")).ok()).collect();
     if buildings.is_empty() {
-        return Err(CoreError::Upstream("열람실 서버에 연결하지 못했어요".into()));
+        return Err(CoreError::Upstream("열람실 서버에 연결하지 못했어요.".into()));
     }
     Ok(buildings)
 }

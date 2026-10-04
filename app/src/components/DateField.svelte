@@ -26,7 +26,7 @@
     {#if shown}
       <span class="main">{shown.main}</span><span class="wd">({shown.wd})</span>
     {:else}
-      <span class="main">{required ? '날짜를 선택해 주세요' : '날짜 없음'}</span>
+      <span class="main">{required ? '날짜를 선택해 주세요.' : '날짜 없음'}</span>
     {/if}
   </span>
   <input bind:this={input} type="date" bind:value {required} aria-label={label} onclick={openPicker} />

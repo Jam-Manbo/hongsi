@@ -49,10 +49,10 @@ export async function saveTodo(id: number | null, input: TodoInput): Promise<boo
     const saved = id === null ? await api.createTodo(input) : await api.updateTodo(id, input);
     const list = (todos.data ?? []).filter((t) => t.id !== saved.id);
     replace([...list, saved]);
-    toast(id === null ? '할 일을 추가했어요' : '할 일을 수정했어요', 'success', 1800);
+    toast(id === null ? '할 일을 추가했어요.' : '할 일을 수정했어요.', 'success', 1800);
     return true;
   } catch (e) {
-    fail(e, '저장하지 못했어요');
+    fail(e, '저장하지 못했어요.');
     return false;
   }
 }
@@ -68,7 +68,7 @@ export async function toggleTodo(t: Todo) {
   } catch (e) {
     if (isStaleSession(e)) return;
     replace(before);
-    fail(e, '저장하지 못했어요');
+    fail(e, '저장하지 못했어요.');
   }
 }
 
@@ -78,10 +78,10 @@ export async function removeTodo(t: Todo) {
   replace(before.filter((x) => x.id !== t.id));
   try {
     await api.deleteTodo(t.id);
-    toast('할 일을 지웠어요', 'success', 2200);
+    toast('할 일을 지웠어요.', 'success', 2200);
   } catch (e) {
     if (isStaleSession(e)) return;
     replace(before);
-    fail(e, '지우지 못했어요');
+    fail(e, '지우지 못했어요.');
   }
 }

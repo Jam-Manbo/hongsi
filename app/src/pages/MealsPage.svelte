@@ -63,10 +63,10 @@
         {/each}
       </div>
     {:else}
-      <EmptyState message="이날은 메뉴가 없어요" detail="주말·공휴일에는 운영하지 않을 수 있어요" />
+      <EmptyState message="이날은 메뉴가 없어요." detail="주말·공휴일에는 운영하지 않을 수 있어요." />
     {/each}
   {:else}
-    <EmptyState message="이날은 메뉴가 없어요" detail="주말·공휴일에는 운영하지 않을 수 있어요" />
+    <EmptyState message="이날은 메뉴가 없어요." detail="주말·공휴일에는 운영하지 않을 수 있어요." />
   {/if}
 </div>
 

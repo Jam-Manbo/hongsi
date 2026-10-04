@@ -40,13 +40,13 @@
   const watching = $derived(current && !currentMark ? current : null);
   const left = $derived(Math.max(0, Math.min(1, (classWatch.nextAt - classWatch.now) / POLL_MS)));
   const headline = $derived.by(() => {
-    if (!lectures.data && !lectures.error) return '출석 가능한 수업을 확인하고 있어요';
-    if (lectures.error && !openCount && !currentMark) return '출석 정보를 확인해 주세요';
-    if (openCount) return '출석할 수 있어요';
+    if (!lectures.data && !lectures.error) return '출석 가능한 수업을 확인하고 있어요.';
+    if (lectures.error && !openCount && !currentMark) return '출석 정보를 확인해 주세요.';
+    if (openCount) return '출석할 수 있어요.';
     if (watching) return sessionState(watching).label === '확인 불가'
       ? `${watching.name} · 출석 확인 불가` : `${watching.name} · 출석 가능 여부 확인 중`;
     if (current && currentMark) return `${current.name} · ${markTitle(currentMark)}`;
-    return openList.length ? '출석 완료' : '출석할 수업이 없어요';
+    return openList.length ? '출석 완료' : '출석할 수업이 없어요.';
   });
   const next = $derived(nextClass(classWatch.now));
 
@@ -62,13 +62,13 @@
   function locate() {
     const request = ++geoRequest;
     if (!('geolocation' in navigator)) {
-      geo = { state: 'error', msg: '이 기기에서는 위치를 확인할 수 없어요' };
+      geo = { state: 'error', msg: '이 기기에서는 위치를 확인할 수 없어요.' };
       return;
     }
     geo = { state: 'finding' };
     navigator.geolocation.getCurrentPosition(
       (p) => { if (request === geoRequest) geo = { state: 'ok', lat: p.coords.latitude, lon: p.coords.longitude, acc: Math.round(p.coords.accuracy) }; },
-      (e) => { if (request === geoRequest) geo = { state: 'error', msg: e.code === 1 ? '위치 권한을 허용해 주세요' : '위치를 찾지 못했어요' }; },
+      (e) => { if (request === geoRequest) geo = { state: 'error', msg: e.code === 1 ? '위치 권한을 허용해 주세요.' : '위치를 찾지 못했어요.' }; },
       { enableHighAccuracy: true, timeout: 12_000, maximumAge: 30_000 },
     );
   }
@@ -145,7 +145,7 @@
       <div class="watch-row">
         <p class="muted small" aria-live="polite">
           {#if watching}
-            {sessionState(watching).label === '확인 불가' ? '확인된 출석 결과가 없어요.' : classWatch.polling ? '확인하는 중…' : `수업 시작 3분 전부터 10분 뒤까지 ${POLL_MS / 1000}초마다 자동으로 확인해요`}
+            {sessionState(watching).label === '확인 불가' ? '확인된 출석 결과가 없어요.' : classWatch.polling ? '확인하는 중…' : `수업 시작 3분 전부터 10분 뒤까지 ${POLL_MS / 1000}초마다 자동으로 확인해요.`}
           {:else if current && currentMark}
             {current.start} 수업
           {:else if next}

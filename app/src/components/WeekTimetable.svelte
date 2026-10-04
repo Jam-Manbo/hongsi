@@ -105,7 +105,7 @@
     </div>
   </div>
 {:else}
-  <div class="empty"><strong>이번 학기 시간표가 없어요</strong></div>
+  <div class="empty"><strong>이번 학기 시간표가 없어요.</strong></div>
 {/if}
 
 <Popover {anchor} bind:open={popOpen} placement="top" label="수업 정보">

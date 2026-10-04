@@ -115,25 +115,25 @@ async fn verified_school(st: &Shared, user: &CurrentUser, supplied: Option<Vec<(
         (Some(school), _) => school,
         (None, Some(cookies)) if !cookies.is_empty() && cookies.len() <= 30
             && cookies.iter().all(|(k, v)| k.len() <= 100 && v.len() <= 8000) => std::sync::Arc::new(hongsi_core::SchoolSession::from_sso_cookies(cookies)?),
-        _ => return Err(ApiError::bad_request("학교 로그인 세션이 필요해요")),
+        _ => return Err(ApiError::bad_request("학교 로그인 세션이 필요해요.")),
     };
     let token = school.moodle_token().await?;
     let (owner, _) = hongsi_core::classroom::token_owner(&st.http, &token).await?;
     if owner != user.session.student_id {
-        return Err(ApiError::bad_request("학교 세션의 계정이 현재 계정과 달라요"));
+        return Err(ApiError::bad_request("학교 세션의 계정이 현재 계정과 달라요."));
     }
     Ok(school)
 }
 
 pub async fn enable_sync(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Renewal>) -> Result<Json<Value>, ApiError> {
     if !b.consent || !valid_id(&b.device_id) {
-        return Err(ApiError::bad_request("백그라운드 동기화 동의와 기기 정보를 확인해 주세요"));
+        return Err(ApiError::bad_request("백그라운드 동기화 동의와 기기 정보를 확인해 주세요."));
     }
     save_sync(&st, &user, b, false).await
 }
 
 pub async fn renew(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Renewal>) -> Result<Json<Value>, ApiError> {
-    if !valid_id(&b.device_id) { return Err(ApiError::bad_request("기기 정보를 확인해 주세요")); }
+    if !valid_id(&b.device_id) { return Err(ApiError::bad_request("기기 정보를 확인해 주세요.")); }
     save_sync(&st, &user, b, true).await
 }
 
@@ -142,7 +142,7 @@ async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool
     let school = verified_school(st, user, b.cookies).await?;
     let sealed = vault::Sealed { device: false, name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies: school.sso_cookies().to_vec(), school: Some(school.snapshot()) };
     let (nonce, ciphertext) = vault::seal(&st.pepper, &format!("background:{uid}:{}", b.device_id), &sealed)
-        .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요"))?;
+        .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요."))?;
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
     if renew_only {
@@ -152,12 +152,12 @@ async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool
     }
     let count: i64 = sqlx::query_scalar("select count(*) from background_devices where user_id=$1 and id<>$2 and expires_at>now()")
         .bind(uid).bind(&b.device_id).fetch_one(&mut *tx).await?;
-    if count >= 10 { return Err(ApiError::bad_request("동기화할 수 있는 기기는 10개까지예요")); }
+    if count >= 10 { return Err(ApiError::bad_request("동기화할 수 있는 기기는 10개까지예요.")); }
     sqlx::query("insert into background_sessions(user_id) values($1) on conflict(user_id) do update set next_poll_at=case when background_sessions.last_error is not null then now() else background_sessions.next_poll_at end,last_error=null")
         .bind(uid).execute(&mut *tx).await?;
     let expires: Option<DateTime<Utc>> = sqlx::query_scalar("insert into background_devices(id,user_id,session_hash,nonce,ciphertext) values($1,$2,$3,$4,$5) on conflict(id) do update set session_hash=excluded.session_hash,nonce=excluded.nonce,ciphertext=excluded.ciphertext,expires_at=now()+interval '14 days' where background_devices.user_id=excluded.user_id returning expires_at")
         .bind(&b.device_id).bind(uid).bind(vault::token_hash(&user.token)).bind(nonce).bind(ciphertext).fetch_optional(&mut *tx).await?;
-    let expires = expires.ok_or_else(|| ApiError::conflict("이 기기에서 이전에 로그인한 계정의 동기화를 먼저 해제해 주세요"))?;
+    let expires = expires.ok_or_else(|| ApiError::conflict("이 기기에서 이전에 로그인한 계정의 동기화를 먼저 해제해 주세요."))?;
     tx.commit().await?;
     Ok(Json(json!({"ok":true,"expiresAt":expires.timestamp()})))
 }
@@ -173,7 +173,7 @@ async fn notice_baseline(st: &Shared, tx: &mut sqlx::Transaction<'_, sqlx::Postg
 
 pub async fn register(State(st): State<Shared>, user: CurrentUser, Json(b): Json<DeviceInput>) -> Result<Json<Value>, ApiError> {
     if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_seat_leads(&b.seat_leads) || !valid_destination(&b.kind, &b.destination) {
-        return Err(ApiError::bad_request("알림 설정과 기기 정보를 확인해 주세요"));
+        return Err(ApiError::bad_request("알림 설정과 기기 정보를 확인해 주세요."));
     }
     if !st.push.ready(&b.kind) { return Err(ApiError::conflict("알림 서버에 연결하지 못했어요. 다시 시도해 주세요.")); }
     let uid = user.session.user_id;
@@ -191,7 +191,7 @@ pub async fn register(State(st): State<Shared>, user: CurrentUser, Json(b): Json
 
 pub async fn preferences(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Preferences>) -> Result<Json<Value>, ApiError> {
     if !valid_id(&b.device_id) || !valid_id(&b.classroom_epoch) || !valid_seat_leads(&b.seat_leads) {
-        return Err(ApiError::bad_request("알림 설정을 확인해 주세요"));
+        return Err(ApiError::bad_request("알림 설정을 확인해 주세요."));
     }
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
@@ -405,7 +405,7 @@ async fn process_user(st: &Shared, uid: i64) -> sqlx::Result<()> {
                 reminders.push(event(
                     format!("due:seat:{}:{}:{lead}", s.id, s.expires_at.timestamp()),
                     s.expires_at.timestamp() - i64::from(*lead) * 60,
-                    &format!("좌석 이용 종료까지 {lead}분 남았어요"),
+                    &format!("좌석 이용 종료까지 {lead}분 남았어요."),
                     "",
                     &sealed.student_id,
                     json!({"kind":"seat","id":s.id}),
@@ -482,11 +482,11 @@ fn notice_key(notice: &Value) -> String {
 
 fn deadline_title(kind: &str, lead: i32) -> String {
     match lead {
-        0 => format!("{kind} 마감 시간이에요"),
-        1440 => format!("{kind} 마감 하루 전이에요"),
-        180 => format!("{kind} 마감 3시간 전이에요"),
-        60 => format!("{kind} 마감 1시간 전이에요"),
-        _ => format!("{kind} 마감 {lead}분 전이에요"),
+        0 => format!("{kind} 마감 시간이에요."),
+        1440 => format!("{kind} 마감 하루 전이에요."),
+        180 => format!("{kind} 마감 3시간 전이에요."),
+        60 => format!("{kind} 마감 1시간 전이에요."),
+        _ => format!("{kind} 마감 {lead}분 전이에요."),
     }
 }
 
@@ -515,7 +515,7 @@ async fn queue_notices(st: &Shared, uid: i64, account: &str, snapshot: &Value) -
                 let fingerprint = notice_key(notice);
                 if baseline.contains(&fingerprint) { break; }
                 let (key, at, payload) = event(
-                    format!("notice:{epoch}:{fingerprint}"), Utc::now().timestamp(), "새 클래스룸 알림이 있어요",
+                    format!("notice:{epoch}:{fingerprint}"), Utc::now().timestamp(), "새 클래스룸 알림이 있어요.",
                     &format!("{} · {}", notice["course"].as_str().unwrap_or("클래스룸"), notice["message"].as_str().unwrap_or("새 알림")),
                     account, json!({"kind":"notices"}),
                 );
@@ -576,7 +576,7 @@ async fn deliver(st: &Shared, device: &Device) -> sqlx::Result<()> {
                 let error = if matches!(e, PushError::Configuration) {
                     "서버 오류입니다. 문제가 지속되면 문의해 주세요."
                 } else {
-                    "알림을 보내지 못해 다시 시도하고 있어요"
+                    "알림을 보내지 못해 다시 시도하고 있어요."
                 };
                 sqlx::query("update notification_devices set last_error=$2 where id=$1")
                     .bind(&device.id)

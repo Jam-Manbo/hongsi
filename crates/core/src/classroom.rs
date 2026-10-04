@@ -70,7 +70,7 @@ impl SchoolSession {
                 let location = response.headers().get(LOCATION).and_then(|v| v.to_str().ok()).unwrap_or("");
                 let encoded = location
                     .strip_prefix("moodlemobile://token=")
-                    .ok_or_else(|| CoreError::Upstream("클래스룸 모바일 토큰을 받지 못했어요".into()))?
+                    .ok_or_else(|| CoreError::Upstream("클래스룸 모바일 토큰을 받지 못했어요.".into()))?
                     .trim();
                 let bytes = STANDARD
                     .decode(encoded)
@@ -140,7 +140,7 @@ impl SchoolSession {
 
     pub async fn autologin_url(&self, target: &str) -> Result<String> {
         if !target.starts_with(&format!("{CN2}/")) {
-            return Err(CoreError::NotFound("클래스룸 주소가 아니에요".into()));
+            return Err(CoreError::NotFound("클래스룸 주소가 아니에요.".into()));
         }
         self.autologin_for(self.moodle().await?, target).await
     }
@@ -153,7 +153,7 @@ impl SchoolSession {
         let private = auth
             .private_token
             .as_deref()
-            .ok_or_else(|| CoreError::Upstream("이 계정은 자동 로그인을 쓸 수 없어요".into()))?;
+            .ok_or_else(|| CoreError::Upstream("이 계정은 자동 로그인을 쓸 수 없어요.".into()))?;
         let v = ws_call(&self.client, &auth.token, "tool_mobile_get_autologin_key", &[("privatetoken".into(), private.into())]).await?;
         let key = v["key"].as_str().ok_or_else(|| CoreError::Parse("자동 로그인 키".into()))?;
         let base = v["autologinurl"].as_str().unwrap_or("").to_string();
@@ -168,7 +168,7 @@ impl SchoolSession {
 
     pub async fn download(&self, url: &str, max_bytes: u64) -> Result<(String, Vec<u8>)> {
         if !url.starts_with(&format!("{CN2}/")) {
-            return Err(CoreError::NotFound("클래스룸 파일이 아니에요".into()));
+            return Err(CoreError::NotFound("클래스룸 파일이 아니에요.".into()));
         }
         let url = url.replacen(&format!("{CN2}/pluginfile.php/"), &format!("{CN2}/webservice/pluginfile.php/"), 1);
         let auth = self.moodle().await?;
@@ -205,7 +205,7 @@ impl SchoolSession {
     }
 
     pub async fn module_contents(&self, cmid: i64) -> Result<ModuleContents> {
-        let not_found = || CoreError::NotFound("활동을 찾지 못했어요".into());
+        let not_found = || CoreError::NotFound("활동을 찾지 못했어요.".into());
         let cm = self.ws("core_course_get_course_module", &[("cmid".into(), cmid.to_string())]).await?;
         let course_id = cm["cm"]["course"].as_i64().ok_or_else(not_found)?;
         let contents = self
@@ -348,7 +348,7 @@ impl SchoolSession {
                 .ok_or_else(|| CoreError::Upstream(format!("'{name}' 파일을 올리지 못했어요: {}", v["error"].as_str().unwrap_or("알 수 없는 오류"))))?;
         }
         if item_id == 0 {
-            return Err(CoreError::Upstream("제출할 파일이 없어요".into()));
+            return Err(CoreError::Upstream("제출할 파일이 없어요.".into()));
         }
         let saved = self
             .ws(

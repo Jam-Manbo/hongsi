@@ -116,7 +116,7 @@ internal object WidgetSync {
                 if (WidgetData.read(context).text("owner") == owner) WidgetData.replace(context, "")
                 return
             }
-            val message = (e as? WidgetFailure)?.message ?: "정보를 불러오지 못했어요"
+            val message = (e as? WidgetFailure)?.message ?: "정보를 불러오지 못했어요."
             patch.put("errors", JSONObject().put(resource, message))
             if (resource == "lectures") patch.put("attendance", (before.optJSONObject("attendance") ?: JSONObject()).put("error", message))
         } finally { lock.unlock() }

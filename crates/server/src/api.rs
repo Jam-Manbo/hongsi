@@ -95,7 +95,7 @@ struct LoginBody {
 async fn login(State(st): State<Shared>, headers: HeaderMap, Json(body): Json<LoginBody>) -> Result<Response, ApiError> {
     let id = body.id.trim().to_uppercase();
     if id.is_empty() || body.password.is_empty() || id.len() > 32 {
-        return Err(ApiError::bad_request("학번과 비밀번호를 입력해 주세요"));
+        return Err(ApiError::bad_request("학번과 비밀번호를 입력해 주세요."));
     }
     st.login_attempts.check(&auth::user_key(&st.pepper, &id))?;
     let school = SchoolSession::login(&id, &body.password).await?;
@@ -115,7 +115,7 @@ async fn login(State(st): State<Shared>, headers: HeaderMap, Json(body): Json<Lo
     let encrypted = if body.remember {
         let Some(encrypted) = vault::seal(&st.pepper, &token, &sealed) else {
             st.sessions.remove(&token);
-            return Err(ApiError::conflict("로그인 상태를 저장하지 못했어요"));
+            return Err(ApiError::conflict("로그인 상태를 저장하지 못했어요."));
         };
         Some(encrypted)
     } else { None };
@@ -220,13 +220,13 @@ async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Jso
     };
     let token = b.token.trim();
     if token.is_empty() || token.len() > 128 || !token.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err(ApiError::bad_request("잘못된 요청이에요"));
+        return Err(ApiError::bad_request("잘못된 요청이에요."));
     }
     let (student_id, name) = hongsi_core::classroom::token_owner(&st.http, token).await.map_err(|e| match e {
         hongsi_core::CoreError::SessionExpired | hongsi_core::CoreError::ClassroomTokenExpired => ApiError::new(
             axum::http::StatusCode::UNAUTHORIZED,
             "login_rejected",
-            "클래스룸 로그인을 확인하지 못했어요",
+            "클래스룸 로그인을 확인하지 못했어요.",
         ),
         other => ApiError::from(other),
     })?;
@@ -236,7 +236,7 @@ async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Jso
     if let Some(hash) = previous_hash.as_ref() {
         let record = db::login_record(&st.db, hash).await?.ok_or_else(ApiError::session_revoked)?;
         if record.revoked_at.is_some() { return Err(ApiError::session_revoked()); }
-        if record.user_id != user_id { return Err(ApiError::conflict("기존 계정에서 먼저 로그아웃해 주세요")); }
+        if record.user_id != user_id { return Err(ApiError::conflict("기존 계정에서 먼저 로그아웃해 주세요.")); }
     }
     let sealed = vault::Sealed { device: true, name: name.clone(), student_id: student_id.clone(), cookies: Vec::new(), school: None };
     let session = UserSession::new(None, user_id, name.clone(), student_id, b.remember);
@@ -245,7 +245,7 @@ async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Jso
     let encrypted = if b.remember {
         let Some(encrypted) = vault::seal(&st.pepper, &token, &sealed) else {
             st.sessions.remove(&token);
-            return Err(ApiError::conflict("로그인 상태를 저장하지 못했어요"));
+            return Err(ApiError::conflict("로그인 상태를 저장하지 못했어요."));
         };
         Some(encrypted)
     } else { None };
@@ -261,9 +261,9 @@ async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Jso
 }
 
 async fn avatar(user: CurrentUser) -> Result<Response, ApiError> {
-    let (mime, bytes) = user.session.school()?.avatar().await?.ok_or_else(|| ApiError::not_found("프로필 사진이 없어요"))?;
+    let (mime, bytes) = user.session.school()?.avatar().await?.ok_or_else(|| ApiError::not_found("프로필 사진이 없어요."))?;
     if !mime.starts_with("image/") {
-        return Err(ApiError::not_found("프로필 사진이 없어요"));
+        return Err(ApiError::not_found("프로필 사진이 없어요."));
     }
     Ok(([
         (header::CONTENT_TYPE, mime),
@@ -307,7 +307,7 @@ async fn download_file(
                 .into_iter()
                 .find(|a| a.cmid == cmid)
                 .and_then(|a| a.attachments.into_iter().nth(index))
-                .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요"))?
+                .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요."))?
         }
     };
     let (mime, bytes) = user.session.school()?.download(&file.url, 100 * 1024 * 1024).await?;
@@ -350,7 +350,7 @@ async fn module_file(
         .files
         .into_iter()
         .nth(index)
-        .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요"))?;
+        .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요."))?;
     let (mime, bytes) = school.download(&file.url, 100 * 1024 * 1024).await?;
     file_response(&file.name, &mime, bytes, q.inline.unwrap_or(0) == 1)
 }
@@ -371,7 +371,7 @@ async fn board_file(
         .attachments
         .into_iter()
         .nth(index)
-        .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요"))?;
+        .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요."))?;
     let (mime, bytes) = school.download(&file.url, 100 * 1024 * 1024).await?;
     file_response(&file.name, &mime, bytes, q.inline.unwrap_or(0) == 1)
 }
@@ -384,8 +384,8 @@ struct VerifyQuery {
 
 async fn verify_item(user: CurrentUser, Path(key): Path<String>, Query(q): Query<VerifyQuery>) -> ApiResult<Value> {
     use hongsi_core::models::{SubmissionState, VodState};
-    let (kind, id) = key.split_once(':').ok_or_else(|| ApiError::bad_request("잘못된 항목이에요"))?;
-    let cmid: i64 = id.parse().map_err(|_| ApiError::bad_request("잘못된 항목이에요"))?;
+    let (kind, id) = key.split_once(':').ok_or_else(|| ApiError::bad_request("잘못된 항목이에요."))?;
+    let cmid: i64 = id.parse().map_err(|_| ApiError::bad_request("잘못된 항목이에요."))?;
     let status: &'static str = match kind {
         "assign" => match user.session.school()?.submission_state(q.course, cmid).await? {
             SubmissionState::Submitted => "submitted",
@@ -400,7 +400,7 @@ async fn verify_item(user: CurrentUser, Path(key): Path<String>, Query(q): Query
             Some(VodState::Upcoming) => "upcoming",
             None => "unknown",
         },
-        _ => return Err(ApiError::bad_request("과제와 강의만 확인할 수 있어요")),
+        _ => return Err(ApiError::bad_request("과제와 강의만 확인할 수 있어요.")),
     };
     if status != "unknown" {
         if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
@@ -440,10 +440,10 @@ struct SubmitBody {
 async fn attendance_submit(State(st): State<Shared>, user: CurrentUser, Json(b): Json<SubmitBody>) -> ApiResult<Value> {
     let code = b.code.trim();
     if code.is_empty() || code.len() > 12 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err(ApiError::bad_request("인증번호를 확인해 주세요"));
+        return Err(ApiError::bad_request("인증번호를 확인해 주세요."));
     }
     if !(-90.0..=90.0).contains(&b.latitude) || !(-180.0..=180.0).contains(&b.longitude) {
-        return Err(ApiError::bad_request("위치 정보가 올바르지 않아요"));
+        return Err(ApiError::bad_request("위치 정보가 올바르지 않아요."));
     }
     let submission = user.session.school()?.submit_attendance(&b.lecture_key, code, b.latitude, b.longitude).await?;
     *user.session.lectures_cache.lock().await = None;
@@ -479,7 +479,7 @@ fn valid_course_code(code: &str) -> bool {
 async fn attendance_course(user: CurrentUser, Query(q): Query<CourseQuery>) -> ApiResult<AttendanceCourse> {
     let code = q.code.trim();
     if !valid_course_code(code) {
-        return Err(ApiError::bad_request("과목 코드가 올바르지 않아요"));
+        return Err(ApiError::bad_request("과목 코드가 올바르지 않아요."));
     }
     let mut cache = user.session.course_cache.lock().await;
     if let Some((at, data)) = cache.get(code) {
@@ -554,7 +554,7 @@ struct StateBody {
 
 async fn calendar_state(State(st): State<Shared>, user: CurrentUser, Json(b): Json<StateBody>) -> ApiResult<Value> {
     if b.courses.len() > 200 || b.assignments.len() > 3000 {
-        return Err(ApiError::bad_request("요청이 너무 커요"));
+        return Err(ApiError::bad_request("요청이 너무 커요."));
     }
     *user.session.device_courses.lock().expect("세션 잠금") = b.courses.iter().map(|c| c.id).collect();
     let snapshots = db::sync_assignments(&st.db, user.session.user_id, &b.assignments).await?;
@@ -577,7 +577,7 @@ struct CalendarDoneBody {
 
 async fn set_done(State(st): State<Shared>, user: CurrentUser, Path(key): Path<String>, Json(b): Json<CalendarDoneBody>) -> ApiResult<Value> {
     if key.len() > 300 || !(key.starts_with("assign:") || key.starts_with("vod:")) {
-        return Err(ApiError::bad_request("잘못된 항목이에요"));
+        return Err(ApiError::bad_request("잘못된 항목이에요."));
     }
     match b.done {
         Some(done) => db::set_item_check(&st.db, user.session.user_id, &key, done).await?,
@@ -599,7 +599,7 @@ struct AlertBody {
 
 async fn set_alert(State(st): State<Shared>, user: CurrentUser, Path(key): Path<String>, Json(b): Json<AlertBody>) -> ApiResult<Value> {
     if key.len() > 300 || !(key.starts_with("assign:") || key.starts_with("vod:")) {
-        return Err(ApiError::bad_request("잘못된 항목이에요"));
+        return Err(ApiError::bad_request("잘못된 항목이에요."));
     }
     db::set_item_alert(&st.db, user.session.user_id, &key, b.on).await?;
     if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
@@ -618,10 +618,10 @@ struct AlertLeadsBody {
 
 async fn set_alert_leads(State(st): State<Shared>, user: CurrentUser, Path(key): Path<String>, Json(b): Json<AlertLeadsBody>) -> ApiResult<Value> {
     if key.len() > 300 || !(key.starts_with("assign:") || key.starts_with("vod:")) {
-        return Err(ApiError::bad_request("잘못된 항목이에요"));
+        return Err(ApiError::bad_request("잘못된 항목이에요."));
     }
     if b.leads.as_deref().is_some_and(|leads| !calendar::valid_alert_leads(leads)) {
-        return Err(ApiError::bad_request("알림 시간이 올바르지 않아요"));
+        return Err(ApiError::bad_request("알림 시간이 올바르지 않아요."));
     }
     db::set_item_alert_leads(&st.db, user.session.user_id, &key, b.leads.as_deref()).await?;
     if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
@@ -644,7 +644,7 @@ struct SeenBody {
 
 async fn notices_seen_add(State(st): State<Shared>, user: CurrentUser, Json(b): Json<SeenBody>) -> ApiResult<Value> {
     if b.urls.len() > 200 || b.urls.iter().any(|u| u.is_empty() || u.len() > 1000 || !u.starts_with("http")) {
-        return Err(ApiError::bad_request("잘못된 알림이에요"));
+        return Err(ApiError::bad_request("잘못된 알림이에요."));
     }
     if !b.urls.is_empty() {
         db::add_notices_seen(&st.db, user.session.user_id, &b.urls).await?;
@@ -661,7 +661,7 @@ async fn find_assignment(user: &CurrentUser, cmid: i64) -> Result<hongsi_core::m
         .await?
         .into_iter()
         .find(|a| a.cmid == cmid)
-        .ok_or_else(|| ApiError::not_found("과제를 찾지 못했어요"))
+        .ok_or_else(|| ApiError::not_found("과제를 찾지 못했어요."))
 }
 
 fn submission_view(a: &hongsi_core::models::Assignment, info: &hongsi_core::models::SubmissionInfo) -> Value {
@@ -686,14 +686,14 @@ async fn submission_post(State(st): State<Shared>, user: CurrentUser, Path(cmid)
     let mut keep: Vec<String> = Vec::new();
     let mut new_files: Vec<(String, Vec<u8>)> = Vec::new();
     let (mut late_confirmed, mut accept_statement) = (false, false);
-    while let Some(field) = form.next_field().await.map_err(|_| ApiError::bad_request("파일을 읽지 못했어요"))? {
+    while let Some(field) = form.next_field().await.map_err(|_| ApiError::bad_request("파일을 읽지 못했어요."))? {
         match field.name().unwrap_or("") {
             "keep" => keep.push(field.text().await.unwrap_or_default()),
             "lateConfirmed" => late_confirmed = field.text().await.unwrap_or_default() == "1",
             "acceptStatement" => accept_statement = field.text().await.unwrap_or_default() == "1",
             "file" => {
                 let name = field.file_name().unwrap_or("file").to_string();
-                let bytes = field.bytes().await.map_err(|_| ApiError::bad_request("파일 용량이 너무 크거나 업로드가 중단됐어요"))?;
+                let bytes = field.bytes().await.map_err(|_| ApiError::bad_request("파일 용량이 너무 크거나 업로드가 중단됐어요."))?;
                 new_files.push((name, bytes.to_vec()));
             }
             _ => {}
@@ -712,7 +712,7 @@ async fn submission_post(State(st): State<Shared>, user: CurrentUser, Path(cmid)
             SubmitRejection::LateConfirmRequired => ApiError::new(
                 axum::http::StatusCode::PRECONDITION_REQUIRED,
                 "late_confirm_required",
-                "마감이 지난 과제예요. 지각 제출을 확인해 주세요",
+                "마감이 지난 과제예요. 지각 제출을 확인해 주세요.",
             ),
         }
     })?;
@@ -720,7 +720,7 @@ async fn submission_post(State(st): State<Shared>, user: CurrentUser, Path(cmid)
 
     let mut files = Vec::with_capacity(total);
     for name in &keep {
-        let existing = info.files.iter().find(|f| &f.name == name).ok_or_else(|| ApiError::bad_request(format!("'{name}' 파일을 찾을 수 없어요")))?;
+        let existing = info.files.iter().find(|f| &f.name == name).ok_or_else(|| ApiError::bad_request(format!("'{name}' 파일을 찾을 수 없어요.")))?;
         let (_, bytes) = user.session.school()?.download(&existing.url, 110 * 1024 * 1024).await?;
         files.push((existing.name.clone(), bytes));
     }
@@ -777,18 +777,18 @@ async fn notifications(user: CurrentUser, Query(q): Query<PageQuery>) -> ApiResu
 
 async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTime<Utc>, ApiError> {
     if t.alert_leads.as_deref().is_some_and(|leads| !calendar::valid_alert_leads(leads)) {
-        return Err(ApiError::bad_request("알림 시간이 올바르지 않아요"));
+        return Err(ApiError::bad_request("알림 시간이 올바르지 않아요."));
     }
     let title = t.title.trim();
     if title.is_empty() || title.chars().count() > 200 || t.note.chars().count() > 2000 {
-        return Err(ApiError::bad_request("제목은 1~200자, 메모는 2000자까지예요"));
+        return Err(ApiError::bad_request("제목은 1~200자, 메모는 2000자까지예요."));
     }
-    let timestamp = t.due_at.ok_or_else(|| ApiError::bad_request("날짜를 선택해 주세요"))?;
+    let timestamp = t.due_at.ok_or_else(|| ApiError::bad_request("날짜를 선택해 주세요."))?;
     let due = Utc.timestamp_opt(timestamp, 0).single()
-        .ok_or_else(|| ApiError::bad_request("날짜가 올바르지 않아요"))?;
+        .ok_or_else(|| ApiError::bad_request("날짜가 올바르지 않아요."))?;
     if let Some(key) = &t.parent_key {
         if !(key.starts_with("assign:") || key.starts_with("vod:")) || key.len() > 300 {
-            return Err(ApiError::bad_request("잘못된 연결 항목이에요"));
+            return Err(ApiError::bad_request("잘못된 연결 항목이에요."));
         }
     }
     if let Some(course) = t.course_id {
@@ -808,7 +808,7 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTim
             }
         };
         if !known {
-            return Err(ApiError::bad_request("이번 학기 수강 과목이 아니에요"));
+            return Err(ApiError::bad_request("이번 학기 수강 과목이 아니에요."));
         }
     }
     Ok(due)
@@ -828,19 +828,19 @@ async fn todo_update(State(st): State<Shared>, user: CurrentUser, Path(id): Path
     todos::update(&st.db, user.session.user_id, id, &t, due)
         .await?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요"))
+        .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요."))
 }
 
 async fn todo_done(State(st): State<Shared>, user: CurrentUser, Path(id): Path<i64>, Json(b): Json<DoneBody>) -> ApiResult<Todo> {
     todos::set_done(&st.db, user.session.user_id, id, b.done)
         .await?
         .map(Json)
-        .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요"))
+        .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요."))
 }
 
 async fn todo_delete(State(st): State<Shared>, user: CurrentUser, Path(id): Path<i64>) -> ApiResult<Value> {
     if !todos::delete(&st.db, user.session.user_id, id).await? {
-        return Err(ApiError::not_found("할 일을 찾지 못했어요"));
+        return Err(ApiError::not_found("할 일을 찾지 못했어요."));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -873,7 +873,7 @@ async fn ensure_snapshot(st: &Shared) -> Result<(), ApiError> {
 async fn seats(State(st): State<Shared>) -> ApiResult<Value> {
     ensure_snapshot(&st).await?;
     let snap = st.seats.read().await;
-    let s = snap.as_ref().ok_or_else(|| ApiError::not_found("좌석 정보를 받지 못했어요"))?;
+    let s = snap.as_ref().ok_or_else(|| ApiError::not_found("좌석 정보를 받지 못했어요."))?;
     Ok(Json(json!({ "fetchedAt": s.fetched_at.timestamp(), "watching": st.config.seat_poll_secs > 0, "buildings": s.buildings })))
 }
 
@@ -945,7 +945,7 @@ async fn seat_start(State(st): State<Shared>, user: CurrentUser, Json(b): Json<S
     ensure_snapshot(&st).await?;
     let (room_name, _) = seat_info(&st, &b.building, b.room_no, b.seat_no)
         .await
-        .ok_or_else(|| ApiError::not_found("선택한 좌석을 찾지 못했어요"))?;
+        .ok_or_else(|| ApiError::not_found("선택한 좌석을 찾지 못했어요."))?;
     let period = normalize_period(b.period.as_deref());
     let now = Utc::now();
     let (started_at, source) = match db::seat_state(&st.db, &b.building, b.room_no, b.seat_no).await? {
@@ -972,10 +972,10 @@ async fn seat_start(State(st): State<Shared>, user: CurrentUser, Json(b): Json<S
 
 async fn seat_extend(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Value> {
     let user_id = user.session.user_id;
-    let current = db::active_seat_session(&st.db, user_id).await?.ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
+    let current = db::active_seat_session(&st.db, user_id).await?.ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요."))?;
     let session = db::extend_seat_session(&st.db, user_id, validity_hours(&current.period) as i32)
         .await?
-        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
+        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요."))?;
     Ok(Json(json!({ "session": view(&st, session).await })))
 }
 
@@ -992,17 +992,17 @@ async fn seat_adjust(State(st): State<Shared>, user: CurrentUser, Json(b): Json<
         .timestamp_opt(b.started_at, 0)
         .single()
         .filter(|t| *t <= now + Span::minutes(5) && *t >= now - Span::hours(12))
-        .ok_or_else(|| ApiError::bad_request("입실 시각은 최근 12시간 이내로 설정해 주세요"))?;
+        .ok_or_else(|| ApiError::bad_request("입실 시각은 최근 12시간 이내로 설정해 주세요."))?;
     let period = normalize_period(b.period.as_deref());
     let session = db::adjust_seat_session(&st.db, user.session.user_id, started_at, validity_hours(period) as i32, period)
         .await?
-        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
+        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요."))?;
     Ok(Json(json!({ "session": view(&st, session).await })))
 }
 
 async fn seat_end(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Value> {
     let ended = db::end_seat_session(&st.db, user.session.user_id, "manual")
         .await?
-        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요"))?;
+        .ok_or_else(|| ApiError::not_found("사용 중인 좌석이 없어요."))?;
     Ok(Json(json!({ "session": null, "ended": ended })))
 }

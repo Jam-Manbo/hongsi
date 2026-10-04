@@ -100,7 +100,7 @@
           {#if agendaLoading}
             <Skeleton rows={group.id === 'today' ? 1 : 2} height={82} />
           {:else if !group.entries.length}
-            <EmptyState message={group.id === 'today' ? '오늘 마감할 일은 없어요' : '다가오는 일정이 없어요'} />
+            <EmptyState message={group.id === 'today' ? '오늘 마감할 일은 없어요.' : '다가오는 일정이 없어요.'} />
           {:else}
             <div class="list">
               {#each (expanded.includes(group.id) ? group.entries : group.entries.slice(0, group.limit)) as entry (entry.key)}
@@ -157,7 +157,7 @@
   {#if !meals.data}
     {#if meals.error}<LoadError resource={meals} what="학식을" stale={false} />{:else}<Skeleton rows={1} height={150} />{/if}
   {:else if !todayPlace}
-    <div class="empty card"><strong>오늘은 학식 메뉴가 없어요</strong>주말·공휴일에는 운영하지 않을 수 있어요</div>
+    <div class="empty card"><strong>오늘은 학식 메뉴가 없어요.</strong>주말·공휴일에는 운영하지 않을 수 있어요.</div>
   {:else}
     <div class="meals" class:swipe={isApp} bind:this={strip} onscroll={onStripScroll}>
       {#each todayPlace.meals as meal (meal.name)}
@@ -192,7 +192,7 @@
     <div>
       <AgendaItem item={entry.value} showDate color={colors.get(entry.value.courseId) ?? 'var(--text-3)'} course={courseName(entry.value.courseId)} onopen={(i) => detailKey = i.key} ontoggle={toggleDone} />
       {#if entry.value.kind === 'assignment' && entry.due !== null && entry.due * 1000 <= classWatch.now}
-        <p class="late-hint">{entry.value.lateUntil ? `지각 제출 마감 ${dueDateTime(entry.value.lateUntil)} · 상세에서 확인` : '지각 제출 가능 여부를 상세에서 확인해 주세요'}</p>
+        <p class="late-hint">{entry.value.lateUntil ? `지각 제출 마감 ${dueDateTime(entry.value.lateUntil)} · 상세에서 확인` : '지각 제출 가능 여부를 상세에서 확인해 주세요.'}</p>
       {/if}
     </div>
   {/if}

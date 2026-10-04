@@ -89,7 +89,7 @@
         4500,
       );
     } catch (e) {
-      if (!handleAuthError(e)) toastOnce(errorText(e, '입실하지 못했어요'), 'error');
+      if (!handleAuthError(e)) toastOnce(errorText(e, '입실하지 못했어요.'), 'error');
     } finally {
       busy = false;
     }

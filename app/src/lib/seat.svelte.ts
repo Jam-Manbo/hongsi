@@ -43,7 +43,7 @@ export function syncSeatReminders(session: SeatSession | null) {
       key: `seat:${session.id}:${end}:${min}`,
       target: { kind: 'seat' as const, id: session.id },
       at: end - min * 60_000,
-      title: min === 0 ? '좌석 이용 시간이 끝났어요' : `좌석 이용 종료까지 ${min}분 남았어요`,
+      title: min === 0 ? '좌석 이용 시간이 끝났어요.' : `좌석 이용 종료까지 ${min}분 남았어요.`,
       body: '',
     })),
   );

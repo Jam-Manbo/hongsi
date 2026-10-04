@@ -99,7 +99,7 @@
         endSession();
         bootError = '';
       } else {
-        bootError = errorText(e, '홍시를 열지 못했어요');
+        bootError = errorText(e, '홍시를 열지 못했어요.');
       }
     } finally {
       booting = false;
@@ -209,7 +209,7 @@
       const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
       if (!a || a.target !== '_blank' || !/^https?:/.test(a.href)) return;
       e.preventDefault();
-      native.openUrl(a.href).catch(() => toast('브라우저를 열지 못했어요', 'error'));
+      native.openUrl(a.href).catch(() => toast('브라우저를 열지 못했어요.', 'error'));
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);
@@ -220,7 +220,7 @@
     try {
       await logoutSession(scope);
       profileOpen = false;
-      toast(scope === 'all' ? '모든 기기에서 로그아웃했어요' : '로그아웃했어요', 'success');
+      toast(scope === 'all' ? '모든 기기에서 로그아웃했어요.' : '로그아웃했어요.', 'success');
     } catch {
       toast('로그아웃을 완료하지 못했어요.', 'error', 7000);
     }

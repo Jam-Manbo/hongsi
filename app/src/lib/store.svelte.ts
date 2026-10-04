@@ -94,7 +94,7 @@ function handleSchoolSessionExpired() {
   void logoutSession().catch(() => {
     if (app.profile || app.account) endSession();
   }).then(() => {
-    app.notice = '로그인이 만료됐어요';
+    app.notice = '로그인이 만료됐어요.';
   });
 }
 
@@ -172,7 +172,7 @@ export class Resource<T> {
       if (revision !== this.revision) return;
       if (!handleAuthError(e)) {
         this.trouble = (e instanceof ApiError ? troubleOf(e.status, e.code) : null) ?? 'other';
-        this.error = errorText(e, '불러오지 못했어요');
+        this.error = errorText(e, '불러오지 못했어요.');
       }
     } finally {
       if (revision === this.revision) this.loading = false;

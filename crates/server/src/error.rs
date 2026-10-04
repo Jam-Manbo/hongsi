@@ -31,7 +31,7 @@ impl ApiError {
     }
 
     pub fn unauthorized() -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, "unauthorized", "로그인이 필요해요")
+        Self::new(StatusCode::UNAUTHORIZED, "unauthorized", "로그인이 필요해요.")
     }
 
     pub fn session_revoked() -> Self {
@@ -86,7 +86,7 @@ impl From<CoreError> for ApiError {
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
         tracing::error!(code = ?err.as_database_error().and_then(|error| error.code()), "DB 오류");
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", "서버에서 데이터를 처리하지 못했어요")
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "db_error", "서버에서 데이터를 처리하지 못했어요.")
     }
 }
 

@@ -179,7 +179,7 @@
       {/each}
     </ul>
   {:else}
-    <EmptyState message="새 알림이 없어요" detail="새 과제·자료·공지가 올라오면 여기에 떠요" />
+    <EmptyState message="새 알림이 없어요." detail="새 과제·자료·공지가 올라오면 여기에 떠요." />
   {/if}
 </Sheet>
 

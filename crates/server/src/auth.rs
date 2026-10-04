@@ -156,7 +156,7 @@ pub async fn persist_web(state: &Shared, token: &str, session: &Arc<UserSession>
             cookies: school.sso_cookies().to_vec(), school: Some(snapshot.clone()),
         };
         let (nonce, ciphertext) = vault::seal(&state.pepper, token, &sealed)
-            .ok_or_else(|| ApiError::conflict("로그인 상태를 저장하지 못했어요"))?;
+            .ok_or_else(|| ApiError::conflict("로그인 상태를 저장하지 못했어요."))?;
         let mut tx = state.db.begin().await?;
         sqlx::query("select pg_advisory_xact_lock($1)").bind(-session.user_id).execute(&mut *tx).await?;
         let saved = sqlx::query("update remembered_sessions r set nonce=$2,ciphertext=$3,expires_at=$4 from auth_sessions a where r.token_hash=$1 and a.token_hash=r.token_hash and a.revoked_at is null and a.expires_at>now()")
@@ -169,7 +169,7 @@ pub async fn persist_web(state: &Shared, token: &str, session: &Arc<UserSession>
                 .bind(session.user_id).bind(&hash).fetch_all(&mut *tx).await?;
             for device in devices {
                 let (nonce, ciphertext) = vault::seal(&state.pepper, &format!("background:{}:{device}", session.user_id), &sealed)
-                    .ok_or_else(|| ApiError::conflict("학교 연결 정보를 저장하지 못했어요"))?;
+                    .ok_or_else(|| ApiError::conflict("학교 연결 정보를 저장하지 못했어요."))?;
                 sqlx::query("update background_devices set nonce=$2,ciphertext=$3 where id=$1 and user_id=$4")
                     .bind(device).bind(nonce).bind(ciphertext).bind(session.user_id).execute(&mut *tx).await?;
             }
@@ -238,7 +238,7 @@ pub async fn reconnect(
     axum::Json(body): axum::Json<ReconnectBody>,
 ) -> Result<axum::Json<serde_json::Value>, ApiError> {
     user.session.school()?;
-    if body.password.is_empty() { return Err(ApiError::bad_request("비밀번호를 입력해 주세요")); }
+    if body.password.is_empty() { return Err(ApiError::bad_request("비밀번호를 입력해 주세요.")); }
     state.login_attempts.check(&user_key(&state.pepper, &user.session.student_id))?;
     let mut recovery = user.session.recovery.lock().await;
     let school = hongsi_core::SchoolSession::login(&user.session.student_id, &body.password).await?;

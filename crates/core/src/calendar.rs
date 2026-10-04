@@ -208,34 +208,34 @@ pub fn check_submission(
 ) -> Result<(), SubmitRejection> {
     use SubmitRejection::*;
     if !a.config.files {
-        return Err(BadRequest("파일 제출 과제가 아니에요. 클래스룸에서 제출해 주세요".into()));
+        return Err(BadRequest("파일 제출 과제가 아니에요. 클래스룸에서 제출해 주세요.".into()));
     }
     if a.cutoff.is_some_and(|c| now > c) {
-        return Err(Conflict("제출 기한이 지나 더 이상 제출할 수 없어요".into()));
+        return Err(Conflict("제출 기한이 지나 더 이상 제출할 수 없어요.".into()));
     }
     if info.locked || !info.can_edit {
-        return Err(Conflict("지금은 파일을 제출하거나 수정할 수 없어요".into()));
+        return Err(Conflict("지금은 파일을 제출하거나 수정할 수 없어요.".into()));
     }
     if a.due.is_some_and(|d| now > d) && !late_confirmed {
         return Err(LateConfirmRequired);
     }
     if a.config.statement && !accept_statement {
-        return Err(BadRequest("제출 서약에 동의해야 제출할 수 있어요".into()));
+        return Err(BadRequest("제출 서약에 동의해야 제출할 수 있어요.".into()));
     }
     let total = keep.len() + new_files.len();
     if total == 0 {
-        return Err(BadRequest("제출할 파일을 골라 주세요".into()));
+        return Err(BadRequest("제출할 파일을 골라 주세요.".into()));
     }
     if a.config.max_files > 0 && total > a.config.max_files as usize {
-        return Err(BadRequest(format!("파일은 최대 {}개까지 제출할 수 있어요", a.config.max_files)));
+        return Err(BadRequest(format!("파일은 최대 {}개까지 제출할 수 있어요.", a.config.max_files)));
     }
     if a.config.max_bytes > 0 {
         if let Some((name, _)) = new_files.iter().find(|(_, n)| *n as i64 > a.config.max_bytes) {
-            return Err(BadRequest(format!("'{name}' 파일의 용량이 제한을 초과했어요")));
+            return Err(BadRequest(format!("'{name}' 파일의 용량이 제한을 초과했어요.")));
         }
     }
     if let Some(name) = keep.iter().find(|k| !info.files.iter().any(|f| &f.name == *k)) {
-        return Err(BadRequest(format!("'{name}' 파일을 찾을 수 없어요")));
+        return Err(BadRequest(format!("'{name}' 파일을 찾을 수 없어요.")));
     }
     Ok(())
 }

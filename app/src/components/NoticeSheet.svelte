@@ -26,7 +26,7 @@
     error = '';
     const job = board ? api.article(cmid, bwid).then((a) => (article = a)) : api.module(cmid).then((m) => (module = m));
     job.catch((e) => {
-      if (!handleAuthError(e)) error = e instanceof Error ? e.message : '내용을 불러오지 못했어요';
+      if (!handleAuthError(e)) error = e instanceof Error ? e.message : '내용을 불러오지 못했어요.';
     });
   });
 

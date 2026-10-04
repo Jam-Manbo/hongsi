@@ -99,7 +99,7 @@ impl SchoolSession {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|m| !m.is_empty())
-                .unwrap_or("학번 또는 비밀번호를 확인해 주세요");
+                .unwrap_or("학번 또는 비밀번호를 확인해 주세요.");
             return Err(CoreError::LoginRejected(message.to_string()));
         }
 

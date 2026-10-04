@@ -63,7 +63,7 @@ fn rejection(r: SubmitRejection) -> Reply {
         SubmitRejection::BadRequest(m) => Reply::error(400, "bad_request", m),
         SubmitRejection::Conflict(m) => Reply::error(409, "conflict", m),
         SubmitRejection::LateConfirmRequired => {
-            Reply::error(428, "late_confirm_required", "마감이 지난 과제예요. 지각 제출을 확인해 주세요")
+            Reply::error(428, "late_confirm_required", "마감이 지난 과제예요. 지각 제출을 확인해 주세요.")
         }
     }
 }
@@ -168,7 +168,7 @@ impl Direct {
         if self.session_revoked() {
             return Err(Self::revoked_reply());
         }
-        self.school.read().await.clone().ok_or_else(|| Reply::error(401, "unauthorized", "로그인이 필요해요"))
+        self.school.read().await.clone().ok_or_else(|| Reply::error(401, "unauthorized", "로그인이 필요해요."))
     }
 
     pub async fn snapshot(&self) -> Option<AuthSnapshot> {
@@ -208,7 +208,7 @@ impl Direct {
         }
         let id = id.trim().to_uppercase();
         if id.is_empty() || password.is_empty() || id.len() > 32 {
-            return Reply::error(400, "bad_request", "학번과 비밀번호를 입력해 주세요");
+            return Reply::error(400, "bad_request", "학번과 비밀번호를 입력해 주세요.");
         }
         let session = match SchoolSession::login(&id, password).await {
             Ok(s) => s,
@@ -264,7 +264,7 @@ impl Direct {
         }
         let mut current = self.school.write().await;
         if !current.as_ref().is_some_and(|value| Arc::ptr_eq(value, &school)) {
-            return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+            return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요.");
         }
         *current = Some(Arc::new(School::new(session, school.student_id.clone())));
         self.generation.fetch_add(1, Ordering::SeqCst);
@@ -332,7 +332,7 @@ impl Direct {
             return Err(Self::revoked_reply());
         }
         if !self.school.read().await.as_ref().is_some_and(|current| Arc::ptr_eq(current, school)) {
-            return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요"));
+            return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요."));
         }
         if self.token().as_deref() != previous && self.server_auth_valid() {
             return Ok(());
@@ -349,10 +349,10 @@ impl Direct {
             return Err(Self::revoked_reply());
         }
         let token = r.body["token"].as_str().filter(|token| token.len() == 64 && token.bytes().all(|b| b.is_ascii_hexdigit()))
-            .ok_or_else(|| Reply::error(502, "server_error", "서버의 로그인 응답을 확인하지 못했어요"))?;
+            .ok_or_else(|| Reply::error(502, "server_error", "서버의 로그인 응답을 확인하지 못했어요."))?;
         if !self.school.read().await.as_ref().is_some_and(|current| Arc::ptr_eq(current, school)) {
             let _ = self.http.post(format!("{}/api/auth/logout", self.base)).bearer_auth(token).header("X-Client", "tauri").send().await;
-            return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요"));
+            return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요."));
         }
         self.set_server_auth(Some(ServerAuth { token: token.to_string(), expires_at: r.body["expiresAt"].as_i64() }));
         Ok(())
@@ -390,7 +390,7 @@ impl Direct {
                 if reply.status == 401 && reply.code() == Some("session_revoked") {
                     let auth = self.server_auth.lock().ok();
                     if token.is_none() || auth.as_ref().and_then(|auth| auth.as_ref().map(|auth| auth.token.as_str())) != token {
-                        return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+                        return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요.");
                     }
                     self.revoked.store(true, Ordering::SeqCst);
                 }
@@ -420,7 +420,7 @@ impl Direct {
         let previous = {
             let current = self.school.read().await;
             if !current.as_ref().is_some_and(|value| Arc::ptr_eq(value, &school)) {
-                return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+                return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요.");
             }
             self.token()
         };
@@ -432,7 +432,7 @@ impl Direct {
             Ok(()) => {
                 let current = self.school.read().await;
                 if !current.as_ref().is_some_and(|value| Arc::ptr_eq(value, &school)) {
-                    return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요");
+                    return Reply::error(409, "account_changed", "로그인 상태가 변경됐어요.");
                 }
                 let token = self.token();
                 drop(current);
@@ -483,10 +483,10 @@ impl Direct {
             ("GET", "/api/notifications") => self.notifications().await.map(Reply::ok),
             ("POST", "/api/background/session" | "/api/background/renew") => {
                 if !self.base.starts_with("https://") && !self.base.starts_with("http://127.0.0.1:") {
-                    return Err(Reply::error(400, "insecure_server", "학교 세션을 보관하려면 HTTPS 서버가 필요해요"));
+                    return Err(Reply::error(400, "insecure_server", "학교 세션을 보관하려면 HTTPS 서버가 필요해요."));
                 }
                 if route == "/api/background/session" && json_body["consent"] != true {
-                    return Err(Reply::error(400, "bad_request", "백그라운드 동기화 동의가 필요해요"));
+                    return Err(Reply::error(400, "bad_request", "백그라운드 동기화 동의가 필요해요."));
                 }
                 let school = self.current().await?;
                 let mut payload = json_body.clone();
@@ -517,7 +517,7 @@ impl Direct {
                     .trim_start_matches("/api/assign/")
                     .trim_end_matches("/submission")
                     .parse()
-                    .map_err(|_| Reply::error(400, "bad_request", "잘못된 과제예요"))?;
+                    .map_err(|_| Reply::error(400, "bad_request", "잘못된 과제예요."))?;
                 self.submission_view(cmid).await.map(Reply::ok)
             }
             ("GET", r) if r.starts_with("/api/modules/") => {
@@ -532,7 +532,7 @@ impl Direct {
             }
             _ => {
                 let method = Method::from_bytes(method_upper.as_bytes())
-                    .map_err(|_| Reply::error(400, "bad_request", "잘못된 요청 방식이에요"))?;
+                    .map_err(|_| Reply::error(400, "bad_request", "잘못된 요청 방식이에요."))?;
                 let body = (!json_body.is_null()).then_some(&json_body);
                 Ok(self.server(&method, path, body).await)
             }
@@ -566,17 +566,17 @@ impl Direct {
         let code = b["code"].as_str().unwrap_or("").trim();
         let (lat, lon) = (b["latitude"].as_f64().unwrap_or(f64::NAN), b["longitude"].as_f64().unwrap_or(f64::NAN));
         if code.is_empty() || code.len() > 12 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
-            return Err(Reply::error(400, "bad_request", "인증번호를 확인해 주세요"));
+            return Err(Reply::error(400, "bad_request", "인증번호를 확인해 주세요."));
         }
         if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
-            return Err(Reply::error(400, "bad_request", "위치 정보가 올바르지 않아요"));
+            return Err(Reply::error(400, "bad_request", "위치 정보가 올바르지 않아요."));
         }
         let submission = s.session.submit_attendance(key, code, lat, lon).await.map_err(|error| {
             let mut reply = Reply::from(error);
             if reply.status >= 500 { reply.body["error"]["message"] = json!("출석 결과를 확인하지 못했어요. 출석 상태를 확인해 주세요."); }
             reply
         })?;
-        if self.generation() != generation { return Err(Reply::error(409, "account_changed", "이전 계정의 출석 요청이에요")); }
+        if self.generation() != generation { return Err(Reply::error(409, "account_changed", "이전 계정의 출석 요청이에요.")); }
         *s.lectures.lock().await = None;
         s.courses.lock().await.clear();
         let synced = if let Some(receipt) = &submission.receipt {
@@ -593,7 +593,7 @@ impl Direct {
                 !h.is_empty() && !b.is_empty() && h.chars().all(|c| c.is_ascii_digit()) && b.chars().all(|c| c.is_ascii_digit())
             });
         if !valid {
-            return Err(Reply::error(400, "bad_request", "과목 코드가 올바르지 않아요"));
+            return Err(Reply::error(400, "bad_request", "과목 코드가 올바르지 않아요."));
         }
         let s = self.current().await?;
         let mut map = s.courses.lock().await;
@@ -711,13 +711,13 @@ impl Direct {
 
     async fn verify(&self, key: &str, course: i64) -> R<Value> {
         let s = self.current().await?;
-        let bad = || Reply::error(400, "bad_request", "잘못된 항목이에요");
+        let bad = || Reply::error(400, "bad_request", "잘못된 항목이에요.");
         let (kind, id) = key.split_once(':').ok_or_else(bad)?;
         let cmid: i64 = id.parse().map_err(|_| bad())?;
         let status = match kind {
             "assign" => calendar::submission_status(s.session.submission_state(course, cmid).await?),
             "vod" => calendar::vod_status(s.session.vod_state(course, cmid).await?),
-            _ => return Err(Reply::error(400, "bad_request", "과제와 강의만 확인할 수 있어요")),
+            _ => return Err(Reply::error(400, "bad_request", "과제와 강의만 확인할 수 있어요.")),
         };
         if status != "unknown" {
             self.patch_items(&s, key, |item| {
@@ -785,7 +785,7 @@ impl Direct {
             .await?
             .into_iter()
             .find(|a| a.cmid == cmid)
-            .ok_or_else(|| Reply::error(404, "not_found", "과제를 찾지 못했어요"))
+            .ok_or_else(|| Reply::error(404, "not_found", "과제를 찾지 못했어요."))
     }
 
     fn view(a: &Assignment, info: &SubmissionInfo) -> Value {
@@ -841,7 +841,7 @@ impl Direct {
                 .files
                 .iter()
                 .find(|f| &f.name == name)
-                .ok_or_else(|| Reply::error(400, "bad_request", format!("'{name}' 파일을 찾을 수 없어요")))?;
+                .ok_or_else(|| Reply::error(400, "bad_request", format!("'{name}' 파일을 찾을 수 없어요.")))?;
             let (_, bytes) = s.session.download(&existing.url, 1024 * MB).await?;
             all.push((existing.name.clone(), bytes));
         }
@@ -862,7 +862,7 @@ impl Direct {
     pub async fn attachment(&self, cmid: i64, index: usize) -> Result<(String, Vec<u8>), Reply> {
         let s = self.current().await?;
         let a = self.find_assignment(&s, cmid).await?;
-        let file = a.attachments.get(index).cloned().ok_or_else(|| Reply::error(404, "not_found", "파일을 찾지 못했어요"))?;
+        let file = a.attachments.get(index).cloned().ok_or_else(|| Reply::error(404, "not_found", "파일을 찾지 못했어요."))?;
         let (_, bytes) = s.session.download(&file.url, 1024 * MB).await?;
         Ok((file.name, bytes))
     }
@@ -870,7 +870,7 @@ impl Direct {
     pub async fn module_file(&self, cmid: i64, index: usize) -> Result<(String, Vec<u8>), Reply> {
         let s = self.current().await?;
         let m = s.session.module_contents(cmid).await?;
-        let file = m.files.get(index).cloned().ok_or_else(|| Reply::error(404, "not_found", "파일을 찾지 못했어요"))?;
+        let file = m.files.get(index).cloned().ok_or_else(|| Reply::error(404, "not_found", "파일을 찾지 못했어요."))?;
         let (_, bytes) = s.session.download(&file.url, 1024 * MB).await?;
         Ok((file.name, bytes))
     }
@@ -879,7 +879,7 @@ impl Direct {
         let s = self.current().await?;
         let article = s.session.board_article(cmid, bwid).await?;
         let file =
-            article.attachments.get(index).cloned().ok_or_else(|| Reply::error(404, "not_found", "파일을 찾지 못했어요"))?;
+            article.attachments.get(index).cloned().ok_or_else(|| Reply::error(404, "not_found", "파일을 찾지 못했어요."))?;
         let (_, bytes) = s.session.download(&file.url, 1024 * MB).await?;
         Ok((file.name, bytes))
     }
@@ -929,7 +929,7 @@ fn ids(rest: &str, n: usize) -> R<Vec<i64>> {
     if parts.len() == n {
         Ok(parts)
     } else {
-        Err(Reply::error(400, "bad_request", "잘못된 주소예요"))
+        Err(Reply::error(400, "bad_request", "잘못된 주소예요."))
     }
 }
 

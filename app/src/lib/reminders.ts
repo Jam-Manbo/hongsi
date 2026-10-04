@@ -34,7 +34,7 @@ export function dueReminders(items: CalendarItem[], todos: Todo[], courses: Cour
         key: `item:${i.key}:${i.due}:${min}`,
         target: { kind: 'item', key: i.key },
         at,
-        title: min === 0 ? `${what} 마감 시간이에요` : `${what} 마감 ${leadText(min)}이에요`,
+        title: min === 0 ? `${what} 마감 시간이에요.` : `${what} 마감 ${leadText(min)}이에요.`,
         body: `${withCourse(i.title, names.get(i.courseId))} · ${itemWhen(i.due, at)}까지`,
       });
     }
@@ -50,7 +50,7 @@ export function dueReminders(items: CalendarItem[], todos: Todo[], courses: Cour
         key: `todo:${t.id}:${deadline}:${min}`,
         target: { kind: 'todo', id: t.id },
         at,
-        title: min === 0 ? '할 일 마감 시간이에요' : `할 일 마감 ${leadText(min)}이에요`,
+        title: min === 0 ? '할 일 마감 시간이에요.' : `할 일 마감 ${leadText(min)}이에요.`,
         body: `${course ? `${course} · ` : ''}${t.title} · ${todoWhen(t, at)}까지`,
       });
     }

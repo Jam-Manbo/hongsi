@@ -97,7 +97,7 @@
       <div class="ios-intro">
         <h1 class="eyebrow">홍시 · iOS</h1>
         <details class="details latest-changes ios-support">
-          <summary><h2>iOS 앱 배포는 잠시 보류 중이에요</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary>
+          <summary><h2>iOS 앱 배포는 잠시 보류 중이에요.</h2><span class="latest-chevron"><Icon name="down" size={18} /></span></summary>
           <div class="ios-support-content">
             <p>앱스토어 배포에는 <a href="https://developer.apple.com/programs/" target="_blank" rel="noopener noreferrer">연간 99달러</a>의 개발자 등록비가 필요해요.</p>
             <p>후원비는 앱스토어 및 플레이스토어 앱 등록에 사용돼요.</p>
@@ -118,7 +118,7 @@
           {/each}
         </ol>
         <p class="ios-guide-note">iOS 버전과 설정에 따라 메뉴 위치가 조금 다를 수 있어요. 이미지를 누르면 크게 볼 수 있어요.</p>
-        <details class="ios-help"><summary>홈 화면에 추가가 보이지 않아요 <Icon name="down" size={16} /></summary><p>공유 메뉴 맨 아래의 동작 편집에서 홈 화면에 추가를 켜 주세요. 카카오톡 같은 앱 안에서 열었다면 Safari로 다시 열어 주세요.</p></details>
+        <details class="ios-help"><summary>홈 화면에 추가가 보이지 않아요. <Icon name="down" size={16} /></summary><p>공유 메뉴 맨 아래의 동작 편집에서 홈 화면에 추가를 켜 주세요. 카카오톡 같은 앱 안에서 열었다면 Safari로 다시 열어 주세요.</p></details>
         <a class="ios-apple-guide" href="https://support.apple.com/ko-kr/guide/iphone/iphea86e5236/ios" target="_blank" rel="noopener noreferrer">Apple의 홈 화면 추가 안내 <Icon name="arrow-up-right" size={15} /></a>
       </div>
     {:else if versionsPage}
