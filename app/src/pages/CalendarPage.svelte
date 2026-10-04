@@ -2,8 +2,9 @@
   import { onMount, untrack } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
   import { isApp } from '../lib/api';
+  import { agendaEntries, type AgendaEntry } from '../lib/agenda';
   import { toggleDone } from '../lib/actions.svelte';
-  import { courseColors, isFinished, isOverdue, isPending } from '../lib/colors';
+  import { courseColors, isOverdue, isPending } from '../lib/colors';
   import { ago, dueKey, dueTime, longDay, time, todayKey } from '../lib/format';
   import { calendar, pref, setPref, todos } from '../lib/store.svelte';
   import { refreshState, refreshTab } from '../lib/refresh.svelte';
@@ -109,8 +110,8 @@
     }),
   );
   const dayTodos = $derived(myTodos.filter((t) => todoKey(t) === selected));
-  const remainingTodos = $derived(courseTodos.filter((t) => t.doneAt === null)
-    .sort((a, b) => (todoDeadline(a) ?? Infinity) - (todoDeadline(b) ?? Infinity) || a.id - b.id));
+  const dayEntries = $derived(agendaEntries(dayItems, dayTodos));
+  const remainingTodos = $derived(courseTodos.filter((t) => t.doneAt === null));
   const weekTodos = $derived.by(() => {
     const now = Date.now() / 1000;
     return remainingTodos.filter((t) => isTodoPending(t, now) && todoDeadline(t) !== null && todoDeadline(t)! - now < 7 * 86400);
@@ -120,8 +121,7 @@
       .filter((t) => {
         const key = todoKey(t);
         return isTodoPending(t) && (key === null || (key > todayKey() && key !== selected));
-      })
-      .slice(0, 8),
+      }),
   );
   const todoColor = (t: Todo) => (t.courseId === null ? 'var(--todo-neutral)' : (colors.get(t.courseId) ?? 'var(--todo-neutral)'));
   const todoCourse = (t: Todo) => (t.courseId === null ? '공통' : courseName(t.courseId));
@@ -136,10 +136,10 @@
         if (i.due === null || !isPending(i)) return false;
         const key = dueKey(i.due);
         return key > todayKey() && key !== selected;
-      })
-      .slice(0, 8),
+      }),
   );
-  const undated = $derived(visible.filter((i) => i.due === null));
+  const upcomingEntries = $derived(agendaEntries(upcoming, upcomingTodos).slice(0, 8));
+  const undatedEntries = $derived(agendaEntries(visible.filter((i) => i.due === null), []));
 
   const statItems = $derived.by(() => {
     const now = Date.now() / 1000;
@@ -161,7 +161,8 @@
   const statTodos = $derived(stat === 'all' ? courseTodos : stat === 'todo' ? remainingTodos : stat === 'week' ? weekTodos : []);
   const statNeedsTodos = $derived(stat === 'all' || stat === 'todo' || stat === 'week');
   const statLoading = $derived(statNeedsTodos && todos.data === null && !todos.error);
-  const statHasItems = $derived(statItems.length > 0 || statTodos.length > 0);
+  const statEntries = $derived(agendaEntries(statItems, statTodos));
+  const statHasItems = $derived(statEntries.length > 0);
 
   function toggleCourse(id: number) {
     const next = new Set(hidden);
@@ -212,9 +213,10 @@
     dayPop = true;
   }
 
-  function openFromPop(key: string) {
+  function openFromPop(entry: AgendaEntry) {
     dayPop = false;
-    detailKey = key;
+    if (entry.kind === 'todo') editTodo(entry.value);
+    else openItem(entry.value);
   }
 
   let calWrap: HTMLDivElement | undefined = $state();
@@ -380,19 +382,10 @@
             {#if selected === todayKey()}<span class="chip primary">오늘</span>{/if}
             <button class="add" onclick={() => addTodo()}><Icon name="plus" size={16} stroke={2.4} />할 일</button>
           </h2>
-          {#if dayItems.length || dayTodos.length}
+          {#if dayEntries.length}
             <div class="list">
-              {#each dayTodos as t (t.id)}
-                <TodoRow todo={t} color={todoColor(t)} course={todoCourse(t)} onopen={editTodo} />
-              {/each}
-              {#each dayItems as item (item.key)}
-                <AgendaItem
-                  {item}
-                  color={colors.get(item.courseId) ?? 'var(--text-3)'}
-                  course={courseName(item.courseId)}
-                  onopen={openItem}
-                  ontoggle={toggleDone}
-                />
+              {#each dayEntries as entry (entry.key)}
+                {@render agendaRow(entry)}
               {/each}
             </div>
           {:else}
@@ -402,32 +395,22 @@
 
         <section class="upcoming">
           <h2 class="section-title up-title">다가오는 일정</h2>
-          {#if upcoming.length || upcomingTodos.length}
+          {#if upcomingEntries.length}
             <div class="list">
-              {#each upcomingTodos as t (t.id)}
-                <TodoRow todo={t} showDate color={todoColor(t)} course={todoCourse(t)} onopen={editTodo} />
-              {/each}
-              {#each upcoming as item (item.key)}
-                <AgendaItem
-                  {item}
-                  showDate
-                  color={colors.get(item.courseId) ?? 'var(--text-3)'}
-                  course={courseName(item.courseId)}
-                  onopen={openItem}
-                  ontoggle={toggleDone}
-                />
+              {#each upcomingEntries as entry (entry.key)}
+                {@render agendaRow(entry, true)}
               {/each}
             </div>
           {:else}
             <EmptyState message="다가오는 일정이 없어요." />
           {/if}
         </section>
-        {#if undated.length}
+        {#if undatedEntries.length}
           <section class="undated">
             <h2 class="section-title">날짜 미정</h2>
             <div class="list">
-              {#each undated as item (item.key)}
-                <AgendaItem {item} color={colors.get(item.courseId) ?? 'var(--text-3)'} course={courseName(item.courseId)} onopen={openItem} ontoggle={toggleDone} />
+              {#each undatedEntries as entry (entry.key)}
+                {@render agendaRow(entry)}
               {/each}
             </div>
           </section>
@@ -441,36 +424,23 @@
           <strong>{longDay(selected)}</strong>
           <button class="icon-btn pop-close" onclick={() => (dayPop = false)} aria-label="닫기"><Icon name="close" size={17} /></button>
         </header>
-        {#if dayItems.length || dayTodos.length}
+        {#if dayEntries.length}
           <ul>
-            {#each dayItems as item (item.key)}
+            {#each dayEntries as entry (entry.key)}
               <li>
                 <button
                   class="pop-row"
-                  class:finished={isFinished(item)}
-                  style:--c={colors.get(item.courseId) ?? 'var(--text-3)'}
-                  onclick={() => openFromPop(item.key)}
+                  class:finished={entry.done}
+                  style:--c={entry.kind === 'todo' ? todoColor(entry.value) : (colors.get(entry.value.courseId) ?? 'var(--text-3)')}
+                  onclick={() => openFromPop(entry)}
                 >
-                  <i class="shape" class:vod={item.kind === 'vod'} aria-hidden="true"></i>
-                  <span class="pt">{item.title}</span>
-                  {#if item.due}<span class="ptime">{dueTime(item.due)}</span>{/if}
-                </button>
-              </li>
-            {/each}
-            {#each dayTodos as t (t.id)}
-              <li>
-                <button
-                  class="pop-row"
-                  class:finished={t.doneAt !== null}
-                  style:--c={todoColor(t)}
-                  onclick={() => {
-                    dayPop = false;
-                    editTodo(t);
-                  }}
-                >
-                  <i class="shape todo" aria-hidden="true"></i>
-                  <span class="pt">{t.title}</span>
-                  <span class="ptime">{t.allDay || t.dueAt === null ? '하루 종일' : time(t.dueAt)}</span>
+                  <i class="shape" class:todo={entry.kind === 'todo'} class:vod={entry.kind === 'item' && entry.value.kind === 'vod'} aria-hidden="true"></i>
+                  <span class="pt">{entry.value.title}</span>
+                  {#if entry.kind === 'todo'}
+                    <span class="ptime">{entry.value.allDay || entry.value.dueAt === null ? '하루 종일' : time(entry.value.dueAt)}</span>
+                  {:else if entry.value.due !== null}
+                    <span class="ptime">{dueTime(entry.value.due)}</span>
+                  {/if}
                 </button>
               </li>
             {/each}
@@ -489,6 +459,21 @@
     </Popover>
   {/if}
 </div>
+
+{#snippet agendaRow(entry: AgendaEntry, showDate = false)}
+  {#if entry.kind === 'todo'}
+    <TodoRow todo={entry.value} {showDate} color={todoColor(entry.value)} course={todoCourse(entry.value)} onopen={editTodo} />
+  {:else}
+    <AgendaItem
+      item={entry.value}
+      {showDate}
+      color={colors.get(entry.value.courseId) ?? 'var(--text-3)'}
+      course={courseName(entry.value.courseId)}
+      onopen={openItem}
+      ontoggle={toggleDone}
+    />
+  {/if}
+{/snippet}
 
 {#snippet summaryControls()}
   {#if narrow.current}
@@ -537,18 +522,8 @@
         <Skeleton rows={1} height={64} />
       {:else if statHasItems}
         <div class="list">
-          {#each statTodos as t (t.id)}
-            <TodoRow todo={t} showDate color={todoColor(t)} course={todoCourse(t)} onopen={editTodo} />
-          {/each}
-          {#each (stat === 'todo' ? [] : statItems) as item (item.key)}
-            <AgendaItem
-              {item}
-              showDate
-              color={colors.get(item.courseId) ?? 'var(--text-3)'}
-              course={courseName(item.courseId)}
-              onopen={openItem}
-              ontoggle={toggleDone}
-            />
+          {#each statEntries as entry (entry.key)}
+            {@render agendaRow(entry, true)}
           {/each}
         </div>
       {:else if !statNeedsTodos || todos.data !== null}

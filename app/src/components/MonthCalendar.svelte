@@ -1,5 +1,6 @@
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
+  import { agendaEntries } from '../lib/agenda';
   import { isFinished } from '../lib/colors';
   import { dueKey, monthCells, todayKey } from '../lib/format';
   import { horizontalSwipe } from '../lib/horizontal-swipe';
@@ -187,6 +188,7 @@
     {#each page.cells as cell, i (cell.key)}
       {@const list = byDay.get(cell.key) ?? []}
       {@const tlist = todosByDay.get(cell.key) ?? []}
+      {@const entries = agendaEntries(list, tlist)}
       <button
         class="day"
         class:out={!cell.inMonth}
@@ -200,23 +202,15 @@
       >
         <span class="num">{Number(cell.key.slice(8))}</span>
         <span class="evs">
-          {#each list.slice(0, maxShow) as item (item.key)}
+          {#each entries.slice(0, maxShow) as entry (entry.key)}
             <span
               class="ev"
-              class:finished={isFinished(item)}
-              class:vod={item.kind === 'vod'}
-              style:--c={colors.get(item.courseId) ?? 'var(--text-3)'}
+              class:finished={entry.done}
+              class:todo={entry.kind === 'todo'}
+              class:vod={entry.kind === 'item' && entry.value.kind === 'vod'}
+              style:--c={entry.kind === 'todo' ? (entry.value.courseId === null ? 'var(--todo-neutral)' : (colors.get(entry.value.courseId) ?? 'var(--todo-neutral)')) : (colors.get(entry.value.courseId) ?? 'var(--text-3)')}
             >
-              <span class="t">{short(item)}</span>
-            </span>
-          {/each}
-          {#each tlist.slice(0, Math.max(0, maxShow - list.length)) as t (t.id)}
-            <span
-              class="ev todo"
-              class:finished={t.doneAt !== null}
-              style:--c={t.courseId === null ? 'var(--todo-neutral)' : (colors.get(t.courseId) ?? 'var(--todo-neutral)')}
-            >
-              <span class="t">{t.title}</span>
+              <span class="t">{entry.kind === 'todo' ? entry.value.title : short(entry.value)}</span>
             </span>
           {/each}
           {#if list.length + tlist.length > maxShow}<span class="more">+{list.length + tlist.length - maxShow}</span>{/if}
