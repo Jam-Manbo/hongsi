@@ -60,7 +60,7 @@ export async function openWidgetIntent() {
     if (changed && storedOwner === owner) void Promise.allSettled([lectures.load(true), attendanceReceipts.load(true), seatSession.load(true)]);
     if (!target) return;
     if (owner !== target.owner) { toast('계정이 변경됐어요. 위젯을 새로고침해 주세요.', 'info'); return; }
-    closeSheets();
+    if (!closeSheets()) return;
     await tick();
     if (!isCurrentSession(version)) return;
     if (target.kind === 'SEAT') { go('seats'); await seatSession.load(true); }

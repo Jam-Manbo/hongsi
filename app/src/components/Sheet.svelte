@@ -1,9 +1,10 @@
 <script module lang="ts">
   const openPanels = new Set<HTMLElement>();
-  const panelClosers = new Set<() => void>();
+  const panelClosers = new Set<() => boolean>();
 
   export function closeSheets() {
-    for (const close of [...panelClosers].reverse()) close();
+    for (const close of [...panelClosers].reverse()) if (!close()) return false;
+    return true;
   }
 </script>
 
@@ -21,6 +22,8 @@
     titleIcon = '',
     wide = false,
     layer = 0,
+    showClose = true,
+    onbeforeclose,
     onclose,
     children,
     footer,
@@ -31,8 +34,10 @@
     titleIcon?: string;
     wide?: boolean;
     layer?: number;
+    showClose?: boolean;
+    onbeforeclose?: () => boolean;
     onclose?: () => void;
-    children: Snippet;
+    children?: Snippet;
     footer?: Snippet;
   } = $props();
 
@@ -66,8 +71,13 @@
   }
 
   function close() {
+    if (onbeforeclose?.() === false) {
+      resetDrag();
+      return false;
+    }
     open = false;
     onclose?.();
+    return true;
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -104,6 +114,7 @@
     class="sheet"
     style:z-index={61 + layer * 2}
     class:wide
+    class:message={!children}
     class:dragging
     style:translate={phone.current ? `0 ${dragY}px` : undefined}
     use:portal
@@ -121,9 +132,9 @@
         {#if titleIcon}<span class="title-icon"><Icon name={titleIcon} size={21} /></span>{/if}
         {#if titleMeta}<span>{title}</span><span class="title-meta">{titleMeta}</span>{:else}{title}{/if}
       </h2>
-      <button class="icon-btn" onclick={close} aria-label="닫기"><Icon name="close" /></button>
+      {#if showClose}<button class="icon-btn" onclick={close} aria-label="닫기"><Icon name="close" /></button>{/if}
     </header>
-    <div class="body">{@render children()}</div>
+    {#if children}<div class="body">{@render children()}</div>{/if}
     {#if footer}<footer>{@render footer()}</footer>{/if}
   </div>
 {/if}
@@ -172,6 +183,8 @@
     padding: 8px 12px 10px 20px;
     flex: none;
   }
+
+  .sheet.message header { padding: 24px 20px; }
 
   h2 {
     font-size: 18px;
