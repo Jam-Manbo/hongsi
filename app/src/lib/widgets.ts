@@ -1,4 +1,5 @@
 import { tick } from 'svelte';
+import { calendarSync } from './calendar-sync.svelte';
 import { closeSheets } from '../components/Sheet.svelte';
 import { attendanceWidgetSnapshot, afterSubmit } from './classwatch.svelte';
 import { invoke } from '@tauri-apps/api/core';
@@ -23,7 +24,7 @@ export function widgetSnapshot(): string {
     attendance: attendanceWidgetSnapshot(),
     capturedAt: Date.now(),
     errors: { timetable: timetable.error, calendar: calendar.error || todos.error, seats: seatSession.error },
-    updatedAt: { preferences: accountPreferences.updatedAt, timetable: timetable.at, calendar: Math.max(calendar.at, todos.at), seats: seatSession.at, lectures: lectures.at },
+    updatedAt: { preferences: accountPreferences.updatedAt, timetable: timetable.at, calendar: Math.max(calendar.at, todos.at, calendarSync.updatedAt), seats: seatSession.at, lectures: lectures.at },
     slots: (timetable.data?.slots ?? []).map((s) => ({ ...s, color: colors.get(courses.find((c) => c.code === s.code || c.name === s.name)?.id ?? -1) ?? '#3b82f6' })),
     deadlines: [
       ...(calendar.data?.items ?? []).map((i) => ({ key: i.key, title: i.title, course: course(i.courseId)?.name ?? '', due: i.due, start: i.start, done: i.done, kind: i.kind, status: itemStatus(i).label, color: colors.get(i.courseId) ?? '#3b82f6' })),

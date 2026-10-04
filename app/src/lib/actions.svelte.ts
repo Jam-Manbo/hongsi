@@ -1,4 +1,5 @@
 import { ApiError, api, isApp, native } from './api';
+import { beginCalendarChange } from './calendar-sync.svelte';
 import { errorText, reportServer, writeBlocked } from './net.svelte';
 import { schoolFinished } from './colors';
 import { calendar, handleAuthError } from './store.svelte';
@@ -45,6 +46,7 @@ async function saveDone(item: CalendarItem, done: boolean) {
   if (done === current.done) return;
   const before = { done: current.done, doneOverride: current.doneOverride };
   const override = done === schoolFinished(current) ? null : done;
+  const finishChange = beginCalendarChange();
   saving.add(item.key);
   update(item.key, { done, doneOverride: override });
   try {
@@ -55,6 +57,7 @@ async function saveDone(item: CalendarItem, done: boolean) {
     if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요'), 'error');
   } finally {
     if (isCurrentSession(version)) saving.delete(item.key);
+    finishChange();
   }
 }
 
@@ -64,6 +67,7 @@ async function saveItemAlert(item: CalendarItem, patch: Partial<CalendarItem>, s
   const version = sessionVersion();
   const current = calendar.data?.items.find((i) => i.key === item.key) ?? item;
   const before = { alert: current.alert, alertLeads: current.alertLeads ?? null };
+  const finishChange = beginCalendarChange();
   savingAlerts.add(item.key);
   update(item.key, patch);
   try {
@@ -74,6 +78,7 @@ async function saveItemAlert(item: CalendarItem, patch: Partial<CalendarItem>, s
     if (!handleAuthError(e)) toastOnce(errorText(e, '저장하지 못했어요'), 'error');
   } finally {
     if (isCurrentSession(version)) savingAlerts.delete(item.key);
+    finishChange();
   }
 }
 

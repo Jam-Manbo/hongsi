@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { watchCalendarState } from './lib/calendar-sync.svelte';
   import { watchAppUpdates } from './lib/app-update.svelte';
   import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
   import AppUpdate from './components/AppUpdate.svelte';
@@ -134,16 +135,16 @@
     const refresh = async (force = true) => {
       if (app.loggingOut || document.visibilityState !== 'visible' || Date.now() - last < 30_000) return;
       last = Date.now();
-      await Promise.all([calendar.load(force), todos.load(force), seatSession.load(force)]);
+      await Promise.all([calendar.load(force), todos.load(true), seatSession.load(true)]);
       await refreshNotifications();
       await refreshBackground();
     };
     void untrack(() => { void refreshBackground(true); void refresh(false); });
-    const resume = () => { void refresh(); };
+    const resume = () => { void refresh(false); };
     window.addEventListener('focus', resume);
     window.addEventListener('online', resume);
     document.addEventListener('visibilitychange', resume);
-    const tick = setInterval(resume, 5 * 60_000);
+    const tick = setInterval(() => { void refresh(); }, 5 * 60_000);
     return () => {
       clearInterval(tick);
       window.removeEventListener('focus', resume);
@@ -177,7 +178,11 @@
 
   $effect(() => {
     if (!app.account || app.loggingOut) return;
-    return untrack(watchAccountPreferences);
+    return untrack(() => {
+      const stopPreferences = watchAccountPreferences();
+      const stopCalendar = watchCalendarState();
+      return () => { stopPreferences(); stopCalendar(); };
+    });
   });
 
   let topH = $state(64);

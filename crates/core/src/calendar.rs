@@ -14,6 +14,25 @@ pub struct SnapshotInfo {
     pub change_count: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarState {
+    pub checks: HashMap<String, bool>,
+    pub alerts_off: HashSet<String>,
+    pub alert_leads: HashMap<String, Vec<i32>>,
+}
+
+impl CalendarState {
+    pub fn apply(&self, items: &mut [CalendarItem]) {
+        for item in items {
+            item.done_override = self.checks.get(&item.key).copied();
+            item.done = item.done_override.unwrap_or(matches!(item.status, "submitted" | "done"));
+            item.alert = !self.alerts_off.contains(&item.key);
+            item.alert_leads = self.alert_leads.get(&item.key).cloned();
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarData {

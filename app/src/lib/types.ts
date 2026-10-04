@@ -105,6 +105,12 @@ export type SubmissionView = {
   late: boolean;
   closed: boolean;
 };
+export type CalendarState = {
+  checks: Record<string, boolean>;
+  alertsOff: string[];
+  alertLeads: Record<string, number[]>;
+};
+
 export type CalendarData = { courses: Course[]; items: CalendarItem[]; fetchedAt: number };
 
 export type Meal = { name: string; start: string | null; end: string | null; price: string | null; items: string[] };

@@ -67,7 +67,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/attendance/course", get(attendance_course))
         .route("/api/timetable", get(timetable))
         .route("/api/calendar", get(calendar_data))
-        .route("/api/calendar/state", post(calendar_state))
+        .route("/api/calendar/state", get(calendar_state_get).post(calendar_state))
         .route("/api/calendar/items/{key}/done", put(set_done))
         .route("/api/calendar/items/{key}/alert", put(set_alert))
         .route("/api/calendar/items/{key}/alert-leads", put(set_alert_leads))
@@ -519,7 +519,10 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
     if q.refresh.unwrap_or(0) == 0 {
         if let Some((at, data)) = cache.as_ref() {
             if at.elapsed() < Duration::from_secs(180) {
-                return Ok(Json(data.clone()));
+                let mut data = data.clone();
+                drop(cache);
+                calendar::load_state(&st.db, s.user_id).await?.apply(&mut data.items);
+                return Ok(Json(data));
             }
         }
     }
@@ -539,6 +542,10 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
     };
     *cache = Some((Instant::now(), data.clone()));
     Ok(Json(data))
+}
+
+async fn calendar_state_get(State(st): State<Shared>, user: CurrentUser) -> ApiResult<calendar::CalendarState> {
+    Ok(Json(calendar::load_state(&st.db, user.session.user_id).await?))
 }
 
 #[derive(Deserialize)]

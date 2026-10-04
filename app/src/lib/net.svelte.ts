@@ -1,4 +1,5 @@
 import { isApp } from './env';
+import { withReadTimeout } from './http';
 import { toastOnce } from './ui.svelte';
 
 export type Trouble = 'offline' | 'server' | 'school';
@@ -103,8 +104,10 @@ async function probeServer(): Promise<boolean> {
       });
       ok = typeof res.server === 'boolean' ? res.server : res.status === 200;
     } else {
-      const res = await fetch('/api/health', { cache: 'no-store', credentials: 'same-origin' });
-      ok = res.ok && (await res.json().catch(() => null))?.ok === true;
+      ok = await withReadTimeout(async (signal) => {
+        const res = await fetch('/api/health', { cache: 'no-store', credentials: 'same-origin', signal });
+        return res.ok && (await res.json().catch(() => null))?.ok === true;
+      }, 5_000);
     }
     reportServer(ok);
     return ok;

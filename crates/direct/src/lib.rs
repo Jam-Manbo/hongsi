@@ -641,7 +641,16 @@ impl Direct {
         let s = self.current().await?;
         let mut slot = s.calendar.lock().await;
         if !refresh {
-            if let Some((data, _)) = cached(&slot, Duration::from_secs(180)) {
+            if let Some((mut data, _)) = cached(&slot, Duration::from_secs(180)) {
+                let reply = self.server(&Method::GET, "/api/calendar/state", None).await;
+                if reply.status == 200 {
+                    if let Ok(state) = serde_json::from_value::<calendar::CalendarState>(reply.body) {
+                        state.apply(&mut data.items);
+                        if let Some((_, (cached_data, _))) = slot.as_mut() {
+                            *cached_data = data.clone();
+                        }
+                    }
+                }
                 return Ok(json!(data));
             }
         }

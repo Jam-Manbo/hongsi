@@ -1,4 +1,5 @@
 import { isApp } from './env';
+import { ReadTimeoutError, withReadTimeout } from './http';
 import { reportSchool, reportServer } from './net.svelte';
 import { inSession, sessionUser, sessionVersion } from './session';
 import type {
@@ -10,6 +11,7 @@ import type {
   AttendanceSubmission,
   BoardArticle,
   CalendarData,
+  CalendarState,
   ClassNotification,
   FileSource,
   MealDay,
@@ -137,21 +139,28 @@ async function sendRequest<T>(method: string, path: string, body: unknown, check
     check();
     note(path, status, data, res.server);
   } else {
-    let res: Response;
-    try {
-      res = await fetch(path, {
+    const fetchResponse = async (signal?: AbortSignal) => {
+      const res = await fetch(path, {
         method,
         credentials: 'same-origin',
         headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
       });
-    } catch {
+      return { status: res.status, data: await res.json().catch(() => null) };
+    };
+    try {
+      ({ status, data } = method === 'GET' || path === '/api/auth/recover'
+        ? await withReadTimeout(fetchResponse)
+        : await fetchResponse());
+    } catch (e) {
       check();
+      if (e instanceof ReadTimeoutError) {
+        throw new ApiError(0, 'timeout', '응답이 늦어지고 있어요. 다시 시도해 주세요.');
+      }
       reportServer(false);
       throw new ApiError(0, 'offline', '서버에 연결하지 못했어요');
     }
-    status = res.status;
-    data = await res.json().catch(() => null);
     check();
     note(path, status, data);
   }
@@ -201,6 +210,7 @@ export const api = {
   timetable: (refresh = false) => request<Timetable>('GET', `/api/timetable${refresh ? '?refresh=1' : ''}`),
 
   calendar: (refresh = false) => request<CalendarData>('GET', `/api/calendar${refresh ? '?refresh=1' : ''}`),
+  calendarState: () => request<CalendarState>('GET', '/api/calendar/state'),
   setDone: (key: string, done: boolean | null) =>
     request<{ key: string; done: boolean }>('PUT', `/api/calendar/items/${encodeURIComponent(key)}/done`, { done }),
   setAlertLeads: (key: string, leads: number[] | null) =>

@@ -179,10 +179,10 @@ export class Resource<T> {
     }
   }
 
-  set(data: T) {
+  set(data: T, at = Date.now()) {
     data = this.normalize(data);
     this.data = data;
-    this.at = Date.now();
+    this.at = at;
     writeCache(this.key, data, this.at);
   }
 
