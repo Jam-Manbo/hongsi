@@ -2,7 +2,7 @@
   import { WEEKDAYS } from '../lib/format';
   import Icon from './Icon.svelte';
 
-  let { value = $bindable(''), label = '날짜' }: { value: string; label?: string } = $props();
+  let { value = $bindable(''), label = '날짜', required = false }: { value: string; label?: string; required?: boolean } = $props();
 
   let input: HTMLInputElement | undefined = $state();
 
@@ -20,17 +20,17 @@
   }
 </script>
 
-<div class="date" class:empty={!shown}>
+<div class="date" class:empty={!shown} class:required>
   <span class="shown" aria-hidden="true">
     <Icon name="calendar" size={18} />
     {#if shown}
       <span class="main">{shown.main}</span><span class="wd">({shown.wd})</span>
     {:else}
-      <span class="main">날짜 없음</span>
+      <span class="main">{required ? '날짜를 선택해 주세요' : '날짜 없음'}</span>
     {/if}
   </span>
-  <input bind:this={input} type="date" bind:value aria-label={label} onclick={openPicker} />
-  {#if shown}
+  <input bind:this={input} type="date" bind:value {required} aria-label={label} onclick={openPicker} />
+  {#if shown && !required}
     <button type="button" class="clear" onclick={() => (value = '')} aria-label="날짜 지우기"><Icon name="close" size={16} /></button>
   {/if}
 </div>
@@ -63,6 +63,10 @@
     pointer-events: none;
     white-space: nowrap;
     overflow: hidden;
+  }
+
+  .required .shown {
+    padding-right: 12px;
   }
 
   .main {

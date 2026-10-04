@@ -770,7 +770,7 @@ async fn notifications(user: CurrentUser, Query(q): Query<PageQuery>) -> ApiResu
 }
 
 
-async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<Option<chrono::DateTime<Utc>>, ApiError> {
+async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTime<Utc>, ApiError> {
     if t.alert_leads.as_deref().is_some_and(|leads| !calendar::valid_alert_leads(leads)) {
         return Err(ApiError::bad_request("알림 시간이 올바르지 않아요"));
     }
@@ -778,6 +778,9 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<Option<chrono::
     if title.is_empty() || title.chars().count() > 200 || t.note.chars().count() > 2000 {
         return Err(ApiError::bad_request("할 일 제목은 1~200자, 메모는 2000자까지예요"));
     }
+    let timestamp = t.due_at.ok_or_else(|| ApiError::bad_request("날짜를 선택해 주세요"))?;
+    let due = Utc.timestamp_opt(timestamp, 0).single()
+        .ok_or_else(|| ApiError::bad_request("날짜가 올바르지 않아요"))?;
     if let Some(key) = &t.parent_key {
         if !(key.starts_with("assign:") || key.starts_with("vod:")) || key.len() > 300 {
             return Err(ApiError::bad_request("잘못된 연결 항목이에요"));
@@ -803,14 +806,7 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<Option<chrono::
             return Err(ApiError::bad_request("이번 학기 수강 과목이 아니에요"));
         }
     }
-    match t.due_at {
-        None => Ok(None),
-        Some(ts) => Utc
-            .timestamp_opt(ts, 0)
-            .single()
-            .map(Some)
-            .ok_or_else(|| ApiError::bad_request("날짜가 올바르지 않아요")),
-    }
+    Ok(due)
 }
 
 async fn todo_list(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Vec<Todo>> {

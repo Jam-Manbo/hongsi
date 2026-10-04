@@ -52,7 +52,7 @@ pub async fn list(db: &PgPool, user_id: i64) -> sqlx::Result<Vec<Todo>> {
     .await
 }
 
-pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: Option<DateTime<Utc>>) -> sqlx::Result<Todo> {
+pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: DateTime<Utc>) -> sqlx::Result<Todo> {
     sqlx::query_as(&format!(
         "insert into todos (user_id, course_id, parent_key, title, note, due_at, all_day, notify, alert_leads)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning {COLUMNS}"
@@ -70,7 +70,7 @@ pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: Option<DateTi
     .await
 }
 
-pub async fn update(db: &PgPool, user_id: i64, id: i64, t: &TodoInput, due: Option<DateTime<Utc>>) -> sqlx::Result<Option<Todo>> {
+pub async fn update(db: &PgPool, user_id: i64, id: i64, t: &TodoInput, due: DateTime<Utc>) -> sqlx::Result<Option<Todo>> {
     sqlx::query_as(&format!(
         "update todos set course_id = $3, parent_key = $4, title = $5, note = $6, due_at = $7, all_day = $8, notify = $9, alert_leads = $10,
                 updated_at = now()

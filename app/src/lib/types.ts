@@ -150,7 +150,7 @@ export type Todo = {
   notify: boolean;
   alertLeads: number[] | null;
 };
-export type TodoInput = Omit<Todo, 'id' | 'doneAt'>;
+export type TodoInput = Omit<Todo, 'id' | 'doneAt' | 'dueAt'> & { dueAt: number };
 
 export type DownloadRecord = {
   id: string;

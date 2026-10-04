@@ -53,14 +53,14 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim() || !date) return;
     busy = true;
     const ok = await saveTodo(todo?.id ?? null, {
       title: title.trim(),
       note: note.trim(),
       courseId,
       parentKey,
-      dueAt: date ? toUnix(date, time) : null,
+      dueAt: toUnix(date, time),
       allDay: !time,
       notify,
       alertLeads,
@@ -108,7 +108,7 @@
     {#if isApp}
       <div class="field">
         <span>날짜</span>
-        <DateField bind:value={date} />
+        <DateField bind:value={date} required />
       </div>
       {#if date}
         <div class="field">
@@ -124,7 +124,7 @@
       <div class="row">
         <div class="field">
           <span>날짜</span>
-          <DateField bind:value={date} />
+          <DateField bind:value={date} required />
         </div>
         <label class="field">
           <span>시간</span>
@@ -150,7 +150,7 @@
     {:else}
       <button class="btn btn-ghost w1" onclick={() => (open = false)}>취소</button>
     {/if}
-    <button class="btn btn-primary w2" form="todo-form" disabled={busy || !title.trim()}>{busy ? '저장 중…' : '저장'}</button>
+    <button class="btn btn-primary w2" form="todo-form" disabled={busy || !title.trim() || !date}>{busy ? '저장 중…' : '저장'}</button>
   {/snippet}
 </Sheet>
 
