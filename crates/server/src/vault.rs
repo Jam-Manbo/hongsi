@@ -6,22 +6,16 @@ use sha2::{Digest, Sha256};
 
 #[derive(Serialize, Deserialize)]
 pub struct Sealed {
-    #[serde(default)]
     pub device: bool,
     pub name: String,
-    #[serde(default)]
     pub student_id: String,
-    pub cookies: Vec<(String, String)>,
-    #[serde(default)]
     pub school: Option<hongsi_core::SchoolSessionSnapshot>,
 }
 
 impl Sealed {
     pub fn school_session(&self) -> hongsi_core::Result<hongsi_core::SchoolSession> {
-        match &self.school {
-            Some(snapshot) => hongsi_core::SchoolSession::from_snapshot(snapshot.clone()),
-            None => hongsi_core::SchoolSession::from_sso_cookies(self.cookies.clone()),
-        }
+        let snapshot = self.school.as_ref().ok_or(hongsi_core::CoreError::SessionExpired)?;
+        hongsi_core::SchoolSession::from_snapshot(snapshot.clone())
     }
 }
 

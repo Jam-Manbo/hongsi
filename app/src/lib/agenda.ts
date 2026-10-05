@@ -1,4 +1,4 @@
-import { dayKey, dueKey } from './format';
+import { dueKey } from './format';
 import type { CalendarItem, Todo } from './types';
 
 type AgendaOrder = { day: string | null; allDay: boolean; done: boolean };
@@ -19,9 +19,9 @@ export function agendaItem(value: CalendarItem): AgendaEntry {
 export function agendaTodo(value: Todo): AgendaEntry {
   return {
     key: `todo:${value.id}`, kind: 'todo', value,
-    due: value.dueAt === null ? null : value.dueAt + (value.allDay ? 86_400 : 0),
-    day: value.dueAt === null ? null : dayKey(value.dueAt * 1000),
-    allDay: value.dueAt !== null && value.allDay, done: value.doneAt !== null,
+    due: value.due,
+    day: value.due === null ? null : dueKey(value.due),
+    allDay: value.due !== null && value.allDay, done: value.doneAt !== null,
   };
 }
 

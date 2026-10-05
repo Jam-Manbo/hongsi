@@ -2,7 +2,7 @@ import { isApp } from './api';
 import { toast } from './ui.svelte';
 import { onSessionChange, readUserData, sessionUser, writeUserData } from './session';
 import { ReminderScheduler, type NotificationDriver } from './notification-engine';
-import { parseIntent, type NotificationIntent, type Permission } from './notification-model';
+import { parseIntent, type Permission } from './notification-model';
 import { notificationPermission, notificationState as state } from './notification-state.svelte';
 export { notificationPermission } from './notification-state.svelte';
 export type { Reminder, Channel } from './notification-model';
@@ -11,8 +11,8 @@ export const mobileNotifications = isApp && (/Android|iPhone|iPad/i.test(navigat
 const ios = /iPhone|iPad/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const plugin = () => import('@choochmeque/tauri-plugin-notifications-api');
 const PENDING = 'hc:notification-intent';
-const PERMISSION_ASKED = 'hc:pref:notification-permission-asked-v2';
-const PERMISSION_INTRO = 'hc:pref:notification-permission-intro-v2';
+const PERMISSION_ASKED = 'hc:pref:notification-permission-asked';
+const PERMISSION_INTRO = 'hc:pref:notification-permission-intro';
 const deviceFlag = (key: string) => { try { return localStorage.getItem(key) === '1'; } catch { return false; } };
 const setDeviceFlag = (key: string) => { try { localStorage.setItem(key, '1'); } catch { } };
 
@@ -120,7 +120,7 @@ export async function setNotificationsEnabled(enabled: boolean) {
 }
 export async function setRemoteNotifications(remote: boolean) {
   state.remote = scheduler.remote = remote;
-  writeUserData('remote-active-v2', remote);
+  writeUserData('remote-active', remote);
   await scheduler.refresh(true);
 }
 export async function initNotifications() {
@@ -146,7 +146,7 @@ export async function initNotifications() {
 
 onSessionChange(() => {
   cancelNotificationPermission();
-  state.remote = scheduler.remote = readUserData('remote-active-v2', false);
+  state.remote = scheduler.remote = readUserData('remote-active', false);
   state.error = '';
   void scheduler.reset(sessionUser());
 });

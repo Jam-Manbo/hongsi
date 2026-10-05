@@ -36,7 +36,7 @@ impl Vault {
 }
 
 #[derive(Deserialize)]
-struct Request { method: String, path: String, body: Option<Value>, #[serde(default)] owner: String }
+struct Request { method: String, path: String, body: Option<Value>, owner: String }
 fn allowed(r: &Request) -> bool {
     match r.method.as_str() {
         "GET" => matches!(r.path.as_str(), "/api/preferences" | "/api/timetable" | "/api/timetable?refresh=1" | "/api/calendar" | "/api/calendar?refresh=1" | "/api/todos" | "/api/attendance/active" | "/api/attendance/receipts" | "/api/seats/session") || r.path.starts_with("/api/attendance/course?code="),

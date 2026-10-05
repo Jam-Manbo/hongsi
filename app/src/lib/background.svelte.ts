@@ -24,31 +24,31 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 function rememberChoice(enabled: boolean) {
   background.choice = enabled;
-  setPref(userKey('sync-enabled-v2'), enabled);
+  setPref(userKey('sync-enabled'), enabled);
 }
 function rememberAlerts(enabled: boolean) {
   background.classroomAlerts = enabled;
-  setPref(userKey('classroom-alerts-v2'), enabled);
+  setPref(userKey('classroom-alerts'), enabled);
   if (enabled || !classroomEpoch) {
     classroomEpoch = crypto.randomUUID();
-    setPref(userKey('classroom-cycle-v2'), classroomEpoch);
+    setPref(userKey('classroom-cycle'), classroomEpoch);
   }
 }
 function rememberRemoval(value: Removal) {
   removal = value;
-  setPref(userKey('sync-removal-v2'), value);
+  setPref(userKey('sync-removal'), value);
 }
 function deviceId() {
   if (!device) {
-    device = readUserData('sync-device-v2', '') || crypto.randomUUID();
-    writeUserData('sync-device-v2', device);
+    device = readUserData('sync-device', '') || crypto.randomUUID();
+    writeUserData('sync-device', device);
   }
   return device;
 }
 function prefs() {
   if (!classroomEpoch) {
     classroomEpoch = crypto.randomUUID();
-    setPref(userKey('classroom-cycle-v2'), classroomEpoch);
+    setPref(userKey('classroom-cycle'), classroomEpoch);
   }
   return { deviceId: deviceId(), seatLeads: [...seatPrefs.alerts], classroomAlerts: background.classroomAlerts, classroomEpoch };
 }
@@ -96,7 +96,7 @@ async function readStatus(): Promise<Status> {
 async function reconcile(renewToken: boolean, check: () => void, step: (value: SyncStep) => void) {
   if (removal) {
     step('disconnect');
-    await request('DELETE', `/api/background/session?device=${encodeURIComponent(deviceId())}`);
+    await request('DELETE', `/api/push/device?device=${encodeURIComponent(deviceId())}`);
     check();
     rememberRemoval(null);
     prefSignature = ''; renewedAt = 0;
@@ -274,13 +274,11 @@ onSessionChange(() => {
   initialized = false; device = ''; prefSignature = ''; revision++; renewedAt = 0; retries = 0;
   syncTask = null; syncRequested = false; tokenRequested = false;
   background.status = null; background.busy = false; background.error = '';
-  background.choice = sessionUser() ? pref<boolean | null>(userKey('sync-enabled-v2'), null) : null;
-  background.classroomAlerts = sessionUser() ? pref<boolean>(userKey('classroom-alerts-v2'), false) : false;
-  classroomEpoch = sessionUser() ? pref<string>(userKey('classroom-cycle-v2'), '') : '';
-  const pendingRemoval = sessionUser() ? pref<string | null>(userKey('sync-removal-v2'), null) : null;
-  removal = pendingRemoval ? 'device' : null;
+  background.choice = sessionUser() ? pref<boolean | null>(userKey('sync-enabled'), null) : null;
+  background.classroomAlerts = sessionUser() ? pref<boolean>(userKey('classroom-alerts'), false) : false;
+  classroomEpoch = sessionUser() ? pref<string>(userKey('classroom-cycle'), '') : '';
+  removal = sessionUser() ? pref<Removal>(userKey('sync-removal'), null) : null;
   if (sessionUser()) {
-    if (pendingRemoval && pendingRemoval !== 'device') rememberRemoval('device');
     if (background.choice === false) rememberAlerts(false);
   }
   void setNotificationsEnabled(background.choice !== false);

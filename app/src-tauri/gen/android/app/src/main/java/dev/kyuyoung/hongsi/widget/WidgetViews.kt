@@ -67,7 +67,7 @@ internal object WidgetViews {
         val options = if (id > 0) AppWidgetManager.getInstance(context).getAppWidgetOptions(id) else android.os.Bundle()
         val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, kind.height)
         val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 340)
-        if (kind == WidgetKind.SEAT) return seatView(context, id, kind, state)
+        if (kind == WidgetKind.SEAT) return seatView(context, id, kind)
         if (kind.attendance && WidgetAttendanceService.pending(context)) return attendanceView(context, id, kind, state, height)
         if (kind.attendance && mode == "input" && data.length() > 0 && System.currentTimeMillis() - state.optLong("inputAt") < 600_000) return keypad(context, id, kind, height)
         val weekOnly = kind == WidgetKind.WEEK
@@ -100,7 +100,7 @@ internal object WidgetViews {
         when (kind) {
             WidgetKind.ATTENDANCE -> Unit
             WidgetKind.TODAY, WidgetKind.TODAY_LARGE -> {
-                val all = WidgetData.today(context, state)
+                val all = WidgetData.today(context)
                 val selected = weekday()
                 view.text(R.id.widget_title, if (selected == weekday()) "오늘 수업" else "${"월화수목금토일"[selected]}요일 수업")
                 val remaining = if (selected == weekday()) all.filter { minutes(it.text("start")) + (it.optJSONArray("periods")?.length() ?: 1) * 60 > minuteOfDay() } else all
@@ -247,9 +247,9 @@ internal object WidgetViews {
         setViewVisibility(R.id.widget_refresh, View.GONE)
     }
     private fun empty(context: Context, message: String): RemoteViews = layout(context, R.layout.widget_dashed_state).apply { text(R.id.widget_empty, message) }
-    private fun seatView(context: Context, id: Int, kind: WidgetKind, state: JSONObject): RemoteViews {
+    private fun seatView(context: Context, id: Int, kind: WidgetKind): RemoteViews {
         val failed = WidgetData.error(context, "seats").isNotBlank()
-        val seat = if (failed) null else WidgetData.seat(context, state)
+        val seat = if (failed) null else WidgetData.seat(context)
         if (seat == null) return status(context, id, kind, if (failed) "정보를 불러오지 못했어요." else if (WidgetData.read(context).length() == 0) "앱을 한 번 열어 주세요." else "이용 중인 좌석이 없어요.")
         val view = layout(context, R.layout.widget_seat)
         view.page(context, id, kind, R.id.widget_root)

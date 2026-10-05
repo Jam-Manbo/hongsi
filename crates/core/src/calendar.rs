@@ -61,18 +61,6 @@ impl From<&CalendarItem> for TodoParent {
     }
 }
 
-pub fn todo_visible(
-    display: SemesterDisplay,
-    course_id: Option<i64>,
-    parent_key: Option<&str>,
-    course_ids: &HashSet<i64>,
-    item_keys: &HashSet<String>,
-) -> bool {
-    if display == SemesterDisplay::All { return true; }
-    if let Some(id) = course_id { return course_ids.contains(&id); }
-    parent_key.is_none_or(|key| item_keys.contains(key))
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WatchInfo {
@@ -108,22 +96,13 @@ pub struct CalendarItem {
     pub submit: Option<SubmitConfig>,
 }
 
-pub fn submission_status(s: SubmissionState) -> &'static str {
+fn vod_status(s: VodState) -> &'static str {
     match s {
-        SubmissionState::Submitted => "submitted",
-        SubmissionState::NotSubmitted => "not_submitted",
-        SubmissionState::Unknown => "unknown",
-    }
-}
-
-pub fn vod_status(s: Option<VodState>) -> &'static str {
-    match s {
-        Some(VodState::Done) => "done",
-        Some(VodState::Partial) => "partial",
-        Some(VodState::Missed) => "missed",
-        Some(VodState::Todo) => "todo",
-        Some(VodState::Upcoming) => "upcoming",
-        None => "unknown",
+        VodState::Done => "done",
+        VodState::Partial => "partial",
+        VodState::Missed => "missed",
+        VodState::Todo => "todo",
+        VodState::Upcoming => "upcoming",
     }
 }
 
@@ -189,7 +168,7 @@ pub fn build(
         if !seen.insert(key.clone()) {
             continue;
         }
-        let status = vod_status(Some(v.state));
+        let status = vod_status(v.state);
         items.push(CalendarItem {
             done: checks.get(&key).copied().unwrap_or(status == "done"),
             done_override: checks.get(&key).copied(),

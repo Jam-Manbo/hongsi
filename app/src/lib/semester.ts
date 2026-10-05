@@ -15,7 +15,5 @@ export function filterSemesterTodos(todos: Todo[], data: CalendarData | null, di
   const courses = new Set((data?.courses ?? []).filter((course) => data?.semesterDisplay !== 'all'
     || (data.currentTerm && course.term?.year === data.currentTerm.year && course.term?.semester === data.currentTerm.semester))
     .map((course) => course.id));
-  const items = new Set((data?.items ?? []).filter((item) => courses.has(item.courseId)).map((item) => item.key));
-  return todos.filter((todo) => todo.courseId !== null ? courses.has(todo.courseId)
-    : todo.parentKey === null || items.has(todo.parentKey));
+  return todos.filter((todo) => todo.courseId === null || courses.has(todo.courseId));
 }

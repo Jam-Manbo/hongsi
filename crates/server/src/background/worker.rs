@@ -313,16 +313,14 @@ async fn load_reminders(
     let mut items = snapshot.and_then(|v| v["items"].as_array()).cloned().unwrap_or_default();
     let courses: Vec<Course> = snapshot.and_then(|v| serde_json::from_value(v["courses"].clone()).ok()).unwrap_or_default();
     let term: Option<AcademicTerm> = snapshot.and_then(|v| serde_json::from_value(v["currentTerm"].clone()).ok());
-    let current_snapshot = snapshot.is_some_and(|v| v["semesterDisplay"].as_str().unwrap_or("current") == "current");
     let course_ids: HashSet<i64> = courses.iter().filter(|c| {
-        display == SemesterDisplay::All || term.is_some_and(|term| c.term == Some(term)) || (term.is_none() && current_snapshot)
+        display == SemesterDisplay::All || term.is_some_and(|term| c.term == Some(term))
     }).map(|c| c.id).collect();
     if display == SemesterDisplay::Current {
         items.retain(|i| i["courseId"].as_i64().is_some_and(|id| course_ids.contains(&id)));
     }
-    let item_keys = items.iter().filter_map(|i| i["key"].as_str().map(str::to_string)).collect();
     let mut tasks = todos::list(&mut *db, uid).await?;
-    tasks.retain(|t| hongsi_core::calendar::todo_visible(display, t.course_id, t.parent_key.as_deref(), &course_ids, &item_keys));
+    tasks.retain(|t| display == SemesterDisplay::All || t.course_id.is_none_or(|id| course_ids.contains(&id)));
     Ok(ReminderState {
         items,
         defaults: prefs.alert_leads,
@@ -366,8 +364,8 @@ fn reminders(state: &ReminderState, seat_leads: &[i32], account: &str) -> Vec<Re
         if task.done_at.is_some() || !task.notify {
             continue;
         }
-        if let Some(due) = task.due_at {
-            let due = due.timestamp() + if task.all_day { 86400 } else { 0 };
+        if let Some(due) = task.due {
+            let due = due.timestamp();
             for lead in task.alert_leads.as_ref().unwrap_or(&state.defaults) {
                 reminders.push(event(
                     format!("due:todo:{}:{due}:{lead}", task.id),

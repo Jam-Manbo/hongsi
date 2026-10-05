@@ -25,9 +25,8 @@ export function courseColors(courses: Course[]): Map<number, string> {
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'muted' | 'info';
 
-export const STATUS: Record<ItemStatus, { label: string; tone: Tone }> = {
+const STATUS: Record<ItemStatus, { label: string; tone: Tone }> = {
   submitted: { label: '제출 완료', tone: 'ok' },
-  draft: { label: '미제출', tone: 'warn' },
   not_submitted: { label: '미제출', tone: 'warn' },
   overdue: { label: '마감 지남', tone: 'danger' },
   unknown: { label: '상태 확인 필요', tone: 'muted' },

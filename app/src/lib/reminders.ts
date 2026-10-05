@@ -1,4 +1,4 @@
-import { dayKey, dueDateTime, dueKey, dueTime, shortDate, time } from './format';
+import { dayKey, dueDate, dueDateTime, dueKey, dueTime } from './format';
 import { scheduleReminders, type Reminder } from './notify';
 import type { CalendarItem, Course, Todo } from './types';
 
@@ -15,13 +15,13 @@ function itemWhen(due: number, at: number): string {
 }
 
 function todoWhen(t: Todo, at: number): string {
-  const due = t.dueAt as number;
-  const sameDay = dayKey(at) === dayKey(due * 1000);
-  if (t.allDay) return sameDay ? '오늘' : shortDate(due);
-  return sameDay ? time(due) : `${shortDate(due)} ${time(due)}`;
+  const due = t.due as number;
+  const sameDay = dayKey(at) === dueKey(due);
+  if (t.allDay) return sameDay ? '오늘' : dueDate(due);
+  return itemWhen(due, at);
 }
 
-export function dueReminders(items: CalendarItem[], todos: Todo[], courses: Course[], leads: number[], now = Date.now()): Reminder[] {
+function dueReminders(items: CalendarItem[], todos: Todo[], courses: Course[], leads: number[], now = Date.now()): Reminder[] {
   const names = new Map(courses.map((c) => [c.id, c.name]));
   const out: Reminder[] = [];
   for (const i of items) {
@@ -40,8 +40,8 @@ export function dueReminders(items: CalendarItem[], todos: Todo[], courses: Cour
     }
   }
   for (const t of todos) {
-    if (t.doneAt !== null || t.notify === false || t.dueAt === null) continue;
-    const deadline = (t.allDay ? t.dueAt + 86_400 : t.dueAt) * 1000;
+    if (t.doneAt !== null || t.notify === false || t.due === null) continue;
+    const deadline = t.due * 1000;
     for (const min of t.alertLeads ?? leads) {
       const at = deadline - min * 60_000;
       if (at <= now) continue;

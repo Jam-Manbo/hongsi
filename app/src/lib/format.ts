@@ -65,7 +65,7 @@ export function longDay(key: string): string {
   return `${m}월 ${d}일 ${WEEKDAYS[wd]}요일`;
 }
 
-export function daysBetween(fromKey: string, toKey: string): number {
+function daysBetween(fromKey: string, toKey: string): number {
   const toUtc = (k: string) => {
     const [y, m, d] = k.split('-').map(Number);
     return Date.UTC(y, m - 1, d);

@@ -10,7 +10,7 @@ const problem = (error: unknown) => error instanceof Error ? error.message : Str
 const saved = (key: string) => { try { return localStorage.getItem(`hc:pref:update-${key}`); } catch { return null; } };
 const save = (key: string, value: string) => { try { localStorage.setItem(`hc:pref:update-${key}`, value); } catch {   } };
 
-export class AppUpdater {
+class AppUpdater {
   open = $state(false);
   checking = $state(false);
   installing = $state(false);

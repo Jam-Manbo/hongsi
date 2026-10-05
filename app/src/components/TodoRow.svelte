@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { dday, shortDate, time } from '../lib/format';
+  import { dday, dueDate, dueTime } from '../lib/format';
   import { pendingTodos, toggleTodo } from '../lib/todos.svelte';
   import type { Todo } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -14,7 +14,7 @@
 
   const done = $derived(todo.doneAt !== null);
   const busy = $derived(pendingTodos.has(todo.id));
-  const d = $derived(todo.dueAt && !done ? dday(todo.dueAt + (todo.allDay ? 86_399 : 0)) : null);
+  const d = $derived(todo.due !== null && !done ? dday(todo.due) : null);
 </script>
 
 <div class="row" class:done style:--c={color}>
@@ -26,9 +26,9 @@
       <span class="title"><span class="text"><span class="kind" role="img" aria-label="할 일"><Icon name="checklist" size={15} /></span>{todo.title}</span></span>
       <span class="course">{course}</span>
       <span class="deadline">
-        {#if todo.dueAt && showDate}<span class="deadline-date">{shortDate(todo.dueAt)}</span>{' '}{/if}
+        {#if todo.due !== null && showDate}<span class="deadline-date">{dueDate(todo.due)}</span>{' '}{/if}
         <span class="deadline-time">
-          {#if todo.dueAt}<span>{todo.allDay ? '하루 종일' : `${time(todo.dueAt)} 마감`}</span>{/if}
+          {#if todo.due !== null}<span>{todo.allDay ? '하루 종일' : `${dueTime(todo.due)} 마감`}</span>{/if}
         </span>
       </span>
     </span>

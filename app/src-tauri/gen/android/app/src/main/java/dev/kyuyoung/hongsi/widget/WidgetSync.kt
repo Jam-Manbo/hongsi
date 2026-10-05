@@ -82,15 +82,14 @@ internal object WidgetSync {
                     val palette = listOf("#ef4444", "#f97316", "#f5a50b", "#84cc16", "#22c55e", "#14b8a6", "#0ea5e9", "#3b82f6", "#6366f1", "#a855f7")
                     val colors = courses.mapIndexed { i, c -> c.optLong("id") to palette[if (courses.size <= 1) 7 else if (courses.size > 10) i % 10 else kotlin.math.floor(i * 9.0 / (courses.size - 1) + .5).toInt()] }.toMap()
                     fun course(id: Long) = courses.firstOrNull { it.optLong("id") == id }?.text("name").orEmpty()
-                    val statuses = mapOf("submitted" to "제출 완료", "draft" to "미제출", "not_submitted" to "미제출", "overdue" to "마감 지남", "done" to "출석 인정", "partial" to "부분 인정", "missed" to "미인정", "todo" to "미시청", "upcoming" to "시청 전")
+                    val statuses = mapOf("submitted" to "제출 완료", "not_submitted" to "미제출", "overdue" to "마감 지남", "done" to "출석 인정", "partial" to "부분 인정", "missed" to "미인정", "todo" to "미시청", "upcoming" to "시청 전")
                     val items = data.array("items").map { item ->
                         JSONObject().apply { listOf("key", "title", "due", "start", "done", "kind").forEach { put(it, item.opt(it) ?: JSONObject.NULL) } }
                             .put("course", course(item.optLong("courseId"))).put("color", colors[item.optLong("courseId")] ?: "#3b82f6").put("status", statuses[item.text("status")] ?: "상태 확인 필요")
                     } + todos.map { todo ->
                         JSONObject().put("key", "todo:${todo.optLong("id")}").put("title", todo.text("title"))
                             .put("course", course(todo.optLong("courseId")).ifBlank { "공통" }).put("color", colors[todo.optLong("courseId")] ?: JSONObject.NULL)
-                            .put("dueAt", todo.opt("dueAt") ?: JSONObject.NULL).put("allDay", todo.optBoolean("allDay"))
-                            .put("due", if (todo.isNull("dueAt")) JSONObject.NULL else todo.optLong("dueAt") + if (todo.optBoolean("allDay")) 86400 else 0)
+                            .put("due", todo.opt("due") ?: JSONObject.NULL).put("allDay", todo.optBoolean("allDay"))
                             .put("done", !todo.isNull("doneAt")).put("kind", "todo").put("status", "")
                     }
                     patch.put("deadlines", JSONArray(items))

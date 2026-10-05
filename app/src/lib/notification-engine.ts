@@ -49,12 +49,6 @@ export class ReminderScheduler {
         this.permission = await this.driver.permission(false);
         if (rev !== this.revision) return;
         this.onPermission(this.permission);
-        if (this.driver.native && force) {
-          const obsolete = (await this.driver.pending()).filter((id) => id >= 9000 && id < 9500);
-          if (rev !== this.revision) return;
-          if (obsolete.length) await this.driver.cancel(obsolete);
-          if (rev !== this.revision) return;
-        }
         for (const c of CHANNELS) {
           if (rev !== this.revision) return;
           await this.reconcile(c, rev, force);

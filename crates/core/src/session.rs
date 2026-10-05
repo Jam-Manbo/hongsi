@@ -65,9 +65,7 @@ pub struct SchoolSessionSnapshot {
     version: u8,
     sso_cookies: Vec<(String, String)>,
     pub(crate) moodle: Option<MoodleAuth>,
-    #[serde(default)]
     service_cookies: Vec<ServiceCookies>,
-    #[serde(default)]
     current_term: Option<AcademicTerm>,
 }
 

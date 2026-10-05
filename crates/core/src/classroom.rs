@@ -326,23 +326,13 @@ impl SchoolSession {
         })
     }
 
-    pub async fn submit_files(
-        &self,
-        assign_id: i64,
-        files: Vec<(String, Vec<u8>)>,
-        drafts: bool,
-        accept_statement: bool,
-    ) -> Result<()> {
-        self.submit_files_with_progress(assign_id, files, drafts, accept_statement, None).await
-    }
-
     pub async fn submit_files_with_progress(
         &self,
         assign_id: i64,
         files: Vec<(String, Vec<u8>)>,
         drafts: bool,
         accept_statement: bool,
-        job: Option<std::sync::Arc<crate::submission::Job>>,
+        job: std::sync::Arc<crate::submission::Job>,
     ) -> Result<()> {
         use crate::submission::{Progress, Stage};
         let token = self.moodle().await?.token.clone();
@@ -351,7 +341,7 @@ impl SchoolSession {
         for (uploaded_files, (name, bytes)) in files.into_iter().enumerate() {
             let total_bytes = bytes.len() as u64;
             let progress = Progress { stage: Stage::Upload, file_name: Some(name.clone()), file_count, uploaded_files, sent_bytes: 0, total_bytes };
-            if let Some(job) = &job { job.progress(progress.clone()); }
+            job.progress(progress.clone());
             let upload_job = job.clone();
             let stream = futures::stream::unfold((bytes, 0usize, std::time::Instant::now()), move |(bytes, offset, mut notified)| {
                 let job = upload_job.clone();
@@ -362,7 +352,7 @@ impl SchoolSession {
                     let chunk = bytes[offset..end].to_vec();
                     if end == bytes.len() || notified.elapsed() >= std::time::Duration::from_millis(100) {
                         progress.sent_bytes = end as u64;
-                        if let Some(job) = job { job.progress(progress); }
+                        job.progress(progress);
                         notified = std::time::Instant::now();
                     }
                     Some((Ok::<_, std::io::Error>(chunk), (bytes, end, notified)))
@@ -382,14 +372,12 @@ impl SchoolSession {
             item_id = uploaded["itemid"]
                 .as_i64()
                 .ok_or_else(|| CoreError::Upstream(format!("'{name}' 파일을 올리지 못했어요: {}", v["error"].as_str().unwrap_or("알 수 없는 오류"))))?;
-            if let Some(job) = &job {
-                job.progress(Progress { stage: Stage::Upload, file_name: Some(name), file_count, uploaded_files: uploaded_files + 1, sent_bytes: total_bytes, total_bytes });
-            }
+            job.progress(Progress { stage: Stage::Upload, file_name: Some(name), file_count, uploaded_files: uploaded_files + 1, sent_bytes: total_bytes, total_bytes });
         }
         if item_id == 0 {
             return Err(CoreError::Upstream("제출할 파일이 없어요.".into()));
         }
-        if let Some(job) = &job { job.progress(Progress::at(Stage::Submit)); }
+        job.progress(Progress::at(Stage::Submit));
         let saved = self
             .ws(
                 "mod_assign_save_submission",
@@ -414,19 +402,6 @@ impl SchoolSession {
             }
         }
         Ok(())
-    }
-
-    pub async fn submission_state(&self, course_id: i64, cmid: i64) -> Result<SubmissionState> {
-        let body = self.moodle_page(&format!("{CN2}/mod/assign/index.php?id={course_id}")).await?;
-        Ok(parse_submission_states(&body)
-            .into_iter()
-            .find(|(id, _)| *id == cmid)
-            .map(|(_, state)| state)
-            .unwrap_or(SubmissionState::Unknown))
-    }
-
-    pub async fn courses(&self) -> Result<Vec<Course>> {
-        Ok(self.courses_for(SemesterDisplay::Current).await?.1)
     }
 
     pub fn remember_current_term(&self, term: AcademicTerm) {
@@ -516,10 +491,6 @@ impl SchoolSession {
             out.extend(r?);
         }
         Ok(out)
-    }
-
-    pub async fn vod_state(&self, course_id: i64, cmid: i64) -> Result<Option<VodState>> {
-        Ok(self.course_vods(course_id).await?.into_iter().find(|v| v.cmid == Some(cmid)).map(|v| v.state))
     }
 
     async fn course_vods(&self, course_id: i64) -> Result<Vec<Vod>> {

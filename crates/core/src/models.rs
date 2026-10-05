@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub name: String,
-    #[serde(default)]
     pub has_picture: bool,
-    #[serde(default)]
     pub department: Option<String>,
 }
 
@@ -17,7 +15,6 @@ pub struct ActiveLecture {
     pub key: String,
     pub name: String,
     pub time: String,
-    #[serde(default)]
     pub code: Option<String>,
 }
 
@@ -118,7 +115,6 @@ pub struct Course {
     pub id: i64,
     pub name: String,
     pub code: Option<String>,
-    #[serde(default)]
     pub term: Option<AcademicTerm>,
 }
 
@@ -146,7 +142,6 @@ pub enum SemesterDisplay {
 #[serde(rename_all = "snake_case")]
 pub enum SubmissionState {
     Submitted,
-    #[serde(alias = "draft")]
     NotSubmitted,
     Unknown,
 }
@@ -161,7 +156,7 @@ pub struct Attachment {
     pub url: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitConfig {
     pub files: bool,
@@ -185,9 +180,7 @@ pub struct SubmissionInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Assignment {
-    #[serde(default)]
     pub id: i64,
-    #[serde(default)]
     pub config: SubmitConfig,
     pub cmid: i64,
     pub course_id: i64,

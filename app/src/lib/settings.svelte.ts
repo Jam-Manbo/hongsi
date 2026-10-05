@@ -85,7 +85,7 @@ function apply(value: AccountPreferences, changes: AccountPreferenceChanges = {}
   const next = { ...value, ...changes };
   settings.mealPlace = next.mealPlace;
   settings.timetableDisplay = next.timetableDisplay;
-  settings.semesterDisplay = next.semesterDisplay === 'all' ? 'all' : 'current';
+  settings.semesterDisplay = next.semesterDisplay;
   setCalendarSemesterDisplay(settings.semesterDisplay);
   settings.alertLeads = [...next.alertLeads];
   accountPreferences.updatedAt = value.updatedAt;

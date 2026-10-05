@@ -122,7 +122,7 @@ create table todos (
     parent_key text,
     title      text not null check (char_length(title) between 1 and 200),
     note       text not null default '' check (char_length(note) <= 2000),
-    due_at     timestamptz,
+    due        timestamptz,
     all_day    boolean not null default true,
     done_at    timestamptz,
     notify     boolean not null default true,
@@ -130,7 +130,7 @@ create table todos (
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
-create index todos_user_due on todos (user_id, due_at);
+create index todos_user_due on todos (user_id, due);
 
 create table item_alerts_off (
     user_id    bigint not null references users (id) on delete cascade,

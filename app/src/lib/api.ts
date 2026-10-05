@@ -41,7 +41,7 @@ export function onSessionRevoked(listener: () => void) {
   return () => sessionRevokedListeners.delete(listener);
 }
 
-const SCHOOL_PATH = /^\/api\/(calendar(\?|$)|calendar\/items\/[^/]+\/verify|attendance\/|timetable|notifications|assign\/|modules\/|board\/)/;
+const SCHOOL_PATH = /^\/api\/(calendar(\?|$)|attendance\/|timetable|notifications|assign\/|modules\/|board\/)/;
 
 function note(path: string, status: number, data: unknown, server?: boolean | null) {
   if (isApp) {
@@ -174,11 +174,6 @@ export const api = {
   logout: () => request<{ ok: boolean }>('POST', '/api/auth/logout'),
   logoutAll: () => request<{ ok: boolean }>('POST', '/api/auth/logout-all'),
   me: () => request<{ profile: Profile; remembered: boolean }>('GET', '/api/me'),
-  verifyItem: (key: string, courseId: number) =>
-    request<{ key: string; status: string; finished: boolean }>(
-      'POST',
-      `/api/calendar/items/${encodeURIComponent(key)}/verify?course=${courseId}`,
-    ),
   fileUrl(src: FileSource, inline = false) {
     const base =
       src.kind === 'assign'

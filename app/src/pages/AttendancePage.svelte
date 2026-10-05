@@ -36,11 +36,6 @@
     setPref('attendance-view', v);
   }
 
-  function openWeek() {
-    if (phone.current) weekOpen = true;
-    else if (!desktop.current) setView('week');
-  }
-
   onMount(() => {
     attendance.load();
     calendar.load();

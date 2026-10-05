@@ -27,7 +27,7 @@ export function homeAgenda(items: CalendarItem[], todos: Todo[], nowMs: number, 
     const { due } = entry;
     if (due === null) groups.undated.push(entry);
     else if (due <= now) groups.overdue.push(entry);
-    else groups[dayKey(value.dueAt! * 1000) <= today ? 'today' : 'upcoming'].push(entry);
+    else groups[dueKey(due) <= today ? 'today' : 'upcoming'].push(entry);
   }
   for (const entries of Object.values(groups)) {
     entries.sort(compareAgendaEntries);

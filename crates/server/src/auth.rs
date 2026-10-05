@@ -153,7 +153,7 @@ pub async fn persist_web(state: &Shared, token: &str, session: &Arc<UserSession>
     if changed || extend {
         let sealed = vault::Sealed {
             device: false, name: session.name.clone(), student_id: session.student_id.clone(),
-            cookies: school.sso_cookies().to_vec(), school: Some(snapshot.clone()),
+            school: Some(snapshot.clone()),
         };
         let (nonce, ciphertext) = vault::seal(&state.pepper, token, &sealed)
             .ok_or_else(|| ApiError::conflict("로그인 상태를 저장하지 못했어요."))?;

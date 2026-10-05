@@ -103,8 +103,7 @@ fn respond(shell: &Shell, r: Reply) -> ApiResponse {
 struct Saved {
     id: String,
     password: String,
-    #[serde(default)]
-    auth: Option<AuthSnapshot>,
+    auth: AuthSnapshot,
 }
 
 #[derive(Default)]
@@ -149,10 +148,11 @@ async fn persist_auth_locked(shell: &Shell) -> Result<(), String> {
         return Ok(());
     }
     if let Some(mut saved) = saved_login(shell).await? {
-        let auth = shell.direct.snapshot().await;
-        if auth.is_some() && saved.auth != auth {
-            saved.auth = auth;
-            save_credentials(shell, Some(saved)).await?;
+        if let Some(auth) = shell.direct.snapshot().await {
+            if saved.auth != auth {
+                saved.auth = auth;
+                save_credentials(shell, Some(saved)).await?;
+            }
         }
     }
     Ok(())
@@ -254,10 +254,8 @@ async fn ensure_login(shell: &Shell) -> Result<(), Reply> {
             .await
             .map_err(|e| Reply::error(503, "credentials_unavailable", e))?;
         if let Some(saved) = saved {
-            if let Some(auth) = saved.auth {
-                if shell.direct.restore(&saved.id, auth).await {
-                    return Ok(());
-                }
+            if shell.direct.restore(&saved.id, saved.auth).await {
+                return Ok(());
             }
             save_credentials(shell, None)
                 .await
@@ -350,9 +348,7 @@ async fn api(
         let _guard = shell.login_lock.lock().await;
         if !shell.direct.logged_in().await {
             if let Some(saved) = saved_login(&shell).await? {
-                if let Some(auth) = saved.auth {
-                    shell.direct.restore(&saved.id, auth).await;
-                }
+                shell.direct.restore(&saved.id, saved.auth).await;
             }
         }
         let reply = if path == "/api/auth/logout-all" {
@@ -386,7 +382,7 @@ async fn api(
                     Some(Saved {
                         id: id.trim().to_uppercase(),
                         password,
-                        auth: shell.direct.snapshot().await,
+                        auth: shell.direct.snapshot().await.ok_or_else(|| credentials::SAVE_ERROR.to_string())?,
                     }),
                 )
                 .await?;

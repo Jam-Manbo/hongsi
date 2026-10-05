@@ -87,7 +87,7 @@ async fn submit(st: &Shared, user: &CurrentUser, cmid: i64, upload: Upload, job:
     }
     files.extend(upload.files);
     job.expect(&before, &files);
-    school.submit_files_with_progress(assignment.id, files, assignment.config.drafts, upload.statement, Some(job.clone())).await?;
+    school.submit_files_with_progress(assignment.id, files, assignment.config.drafts, upload.statement, job.clone()).await?;
     job.acknowledge();
     job.progress(Progress::at(Stage::Verify));
     let info = school.submission_info(assignment.id).await?;

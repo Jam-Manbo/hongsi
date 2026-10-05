@@ -1,6 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { api } from './api';
-import { dayKey } from './format';
+import { dueKey } from './format';
 import { errorText, writeBlocked } from './net.svelte';
 import { calendar, handleAuthError, todos } from './store.svelte';
 import { settings } from './settings.svelte';
@@ -15,15 +15,11 @@ export function displayedTodos(): Todo[] {
 
 
 export function todoKey(t: Todo): string | null {
-  return t.dueAt === null ? null : dayKey(t.dueAt * 1000);
-}
-
-export function todoDeadline(t: Todo): number | null {
-  return t.dueAt === null ? null : t.dueAt + (t.allDay ? 86_400 : 0);
+  return t.due === null ? null : dueKey(t.due);
 }
 
 export function isTodoPending(t: Todo, now = Date.now() / 1000): boolean {
-  const due = todoDeadline(t);
+  const due = t.due;
   return t.doneAt === null && (due === null || due > now);
 }
 
@@ -43,7 +39,7 @@ export function fromUnix(sec: number): { date: string; time: string } {
 }
 
 function replace(list: Todo[]) {
-  todos.set([...list].sort((a, b) => (a.dueAt ?? Infinity) - (b.dueAt ?? Infinity) || a.id - b.id));
+  todos.set([...list].sort((a, b) => (a.due ?? Infinity) - (b.due ?? Infinity) || a.id - b.id));
 }
 
 function fail(e: unknown, fallback: string) {

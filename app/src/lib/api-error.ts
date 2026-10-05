@@ -38,7 +38,7 @@ export function reportApiFailure(status: number, code: string, context: Context)
   console.warn('[홍시 API]', diagnostic);
 }
 
-export function fallbackMessage(status: number): string {
+function fallbackMessage(status: number): string {
   if (status === 401) return '로그인이 필요해요.';
   if (status === 403) return '이 요청은 허용되지 않았어요.';
   if (status === 404) return '요청한 정보를 찾지 못했어요.';

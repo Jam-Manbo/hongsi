@@ -41,7 +41,6 @@ pub struct Renewal {
     device_id: String,
     #[serde(default)]
     consent: bool,
-    #[serde(default)]
     cookies: Option<Vec<(String, String)>>,
 }
 #[derive(Deserialize)]
@@ -131,7 +130,7 @@ pub async fn renew(State(st): State<Shared>, user: CurrentUser, Json(b): Json<Re
 async fn save_sync(st: &Shared, user: &CurrentUser, b: Renewal, renew_only: bool) -> Result<Json<Value>, ApiError> {
     let uid = user.session.user_id;
     let school = verified_school(st, user, b.cookies).await?;
-    let sealed = vault::Sealed { device: false, name: user.session.name.clone(), student_id: user.session.student_id.clone(), cookies: school.sso_cookies().to_vec(), school: Some(school.snapshot()) };
+    let sealed = vault::Sealed { device: false, name: user.session.name.clone(), student_id: user.session.student_id.clone(), school: Some(school.snapshot()) };
     let (nonce, ciphertext) = vault::seal(&st.pepper, &format!("background:{uid}:{}", b.device_id), &sealed)
         .ok_or_else(|| ApiError::conflict("학교 세션을 암호화하지 못했어요."))?;
     let mut tx = st.db.begin().await?;
@@ -230,10 +229,6 @@ pub async fn disable(State(st): State<Shared>, user: CurrentUser, Query(q): Quer
     Ok(Json(json!({"ok":true})))
 }
 
-pub async fn disable_sync(State(st): State<Shared>, user: CurrentUser, Query(q): Query<DeviceQuery>) -> Result<Json<Value>, ApiError> {
-    disable(State(st), user, Query(q)).await
-}
-
 pub async fn revoke_login(db: &PgPool, token: &str) -> sqlx::Result<Vec<String>> {
     let hash = vault::token_hash(token);
     let mut tx = db.begin().await?;
@@ -325,8 +320,8 @@ async fn queue_notices(db: &mut sqlx::PgConnection, uid: i64, account: &str, sna
                 let fingerprint = notice_key(notice);
                 if baseline.contains(&fingerprint) { break; }
                 let (key, at, payload) = event(
-                    format!("notice:{epoch}:{fingerprint}"), Utc::now().timestamp(), "새 클래스룸 알림이 있어요.",
-                    &format!("{} · {}", notice["course"].as_str().unwrap_or("클래스룸"), notice["message"].as_str().unwrap_or("새 알림")),
+                    format!("notice:{epoch}:{fingerprint}"), Utc::now().timestamp(), "홍시 · 클래스룸 알림",
+                    &format!("{}\n{}", notice["course"].as_str().unwrap_or("클래스룸"), notice["message"].as_str().unwrap_or("새 알림")),
                     account, json!({"kind":"notices","url":notice["url"]}),
                 );
                 enqueue(&mut *db, &id, &key, at, &payload, 3600).await?;

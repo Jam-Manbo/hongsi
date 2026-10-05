@@ -1,7 +1,7 @@
 import { ApiError, api, isApp, onSessionRevoked, onSchoolAuthRequired } from './api';
 import { normalizeCalendar } from './calendar-data';
 import { errorText, onReconnect, troubleOf, type Trouble } from './net.svelte';
-import { clearLegacyData, clearUserData, isStaleSession, onSessionChange, readUserData, setSessionUser, writeUserData } from './session';
+import { clearUserData, isStaleSession, onSessionChange, readUserData, setSessionUser, writeUserData } from './session';
 import type {
   ActiveLectures,
   AttendanceCourse,
@@ -47,8 +47,7 @@ export function onBeforeLogout(prepare: () => Promise<void>) {
   return () => logoutPreparations.delete(prepare);
 }
 
-export function startSession(profile: Profile, remembered: boolean, id = profile.studentId ?? '') {
-  clearLegacyData();
+export function startSession(profile: Profile, remembered: boolean, id = profile.studentId) {
   app.account = id.trim().toUpperCase() || null;
   setSessionUser(app.account);
   app.notice = '';
@@ -260,7 +259,7 @@ export const seats = new Resource<SeatsData>('seats', () => api.seats(), MIN);
 export const seatSession = new Resource<{ session: SeatSession | null }>('seat-session', () => api.seatSession(), MIN);
 export const meals = new Resource<MealDay[]>('meals', () => api.meals(), 30 * MIN);
 export const lectures = new Resource<ActiveLectures>('lectures', () => api.activeLectures(), MIN / 2);
-export const attendanceReceipts = new Resource<AttendanceReceipt[]>('attendance-receipts-v1', () => api.attendanceReceipts(), 5_000);
+export const attendanceReceipts = new Resource<AttendanceReceipt[]>('attendance-receipts', () => api.attendanceReceipts(), 5_000);
 export const attendance = new Resource<AttendanceCourse[]>('attendance', () => api.attendanceStatus(), 10 * MIN);
 export const timetable = new Resource<Timetable>('timetable', (force) => api.timetable(force), 360 * MIN);
 

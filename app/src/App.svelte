@@ -9,7 +9,7 @@
   import DownloadPage from './pages/DownloadPage.svelte';
   import { ApiError, api, isApp, native } from './lib/api';
   import { isPending } from './lib/colors';
-  import { displayedTodos, isTodoPending, todoDeadline } from './lib/todos.svelte';
+  import { displayedTodos, isTodoPending } from './lib/todos.svelte';
   import { errorText } from './lib/net.svelte';
   import { syncSeatReminders } from './lib/seat.svelte';
   import { syncDueReminders } from './lib/reminders';
@@ -21,17 +21,12 @@
   import { settings, accountPreferences, watchAccountPreferences } from './lib/settings.svelte';
   import {
     app,
-    attendance,
     calendar,
     endSession,
     logoutSession,
     startSession,
     lectures,
-    meals,
-    notices,
     seatSession,
-    seats,
-    timetable,
     todos,
   } from './lib/store.svelte';
   import { TABS, go, openSeats, route, toast } from './lib/ui.svelte';
@@ -56,7 +51,7 @@
   const weekDue = $derived.by(() => {
     const now = Date.now() / 1000;
     const school = (calendar.data?.items ?? []).filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86_400).length;
-    const personal = displayedTodos().filter((t) => isTodoPending(t, now) && todoDeadline(t) !== null && todoDeadline(t)! - now < 7 * 86_400).length;
+    const personal = displayedTodos().filter((t) => isTodoPending(t, now) && t.due !== null && t.due - now < 7 * 86_400).length;
     return school + personal;
   });
   const attendOpen = $derived(lectures.at > Date.now() - 10 * 60_000 && (lectures.data?.items.length ?? 0) > 0);

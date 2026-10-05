@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post, put};
@@ -29,7 +29,7 @@ pub fn router() -> Router<Shared> {
         .route("/api/{*path}", any(api_not_found))
         .route("/api/push/status", get(crate::background::status))
         .route("/api/push/device", post(crate::background::register).delete(crate::background::disable))
-        .route("/api/background/session", post(crate::background::enable_sync).delete(crate::background::disable_sync))
+        .route("/api/background/session", post(crate::background::enable_sync))
         .route("/api/background/renew", post(crate::background::renew))
         .route("/api/push/preferences", put(crate::background::preferences))
         .route("/api/health", get(|| async { Json(json!({ "ok": true })) }))
@@ -50,13 +50,9 @@ pub fn router() -> Router<Shared> {
         .route("/api/modules/{cmid}/files/{index}", get(module_file))
         .route("/api/board/{cmid}/{bwid}", get(board_get))
         .route("/api/board/{cmid}/{bwid}/files/{index}", get(board_file))
-        .route("/api/calendar/items/{key}/verify", post(verify_item))
         .route("/api/notifications", get(notifications))
         .route("/api/notices/seen", get(notices_seen_get).post(notices_seen_add))
-        .route(
-            "/api/assign/{cmid}/submission",
-            get(submission_get).post(submission_post).layer(DefaultBodyLimit::max(110 * 1024 * 1024)),
-        )
+        .route("/api/assign/{cmid}/submission", get(submission_get))
         .route(
             "/api/assign/{cmid}/submission/jobs/{id}",
             get(crate::submissions::status).post(crate::submissions::start).layer(DefaultBodyLimit::max(110 * 1024 * 1024)),
@@ -92,7 +88,6 @@ async fn api_not_found() -> ApiError {
 struct LoginBody {
     id: String,
     password: String,
-    #[serde(default)]
     remember: bool,
 }
 
@@ -112,7 +107,7 @@ async fn login(State(st): State<Shared>, headers: HeaderMap, Json(body): Json<Lo
     };
     let user_id = db::upsert_user(&st.db, &auth::user_key(&st.pepper, &id)).await?;
     let _account_access = st.sessions.account_access(user_id).read_owned().await;
-    let sealed = vault::Sealed { device: false, name: name.clone(), student_id: id.clone(), cookies: school.sso_cookies().to_vec(), school: Some(school.snapshot()) };
+    let sealed = vault::Sealed { device: false, name: name.clone(), student_id: id.clone(), school: Some(school.snapshot()) };
     let session = UserSession::new(Some(school), user_id, name.clone(), id.clone(), body.remember);
     let expires_at = session.expires_at();
     let token = st.sessions.insert(session);
@@ -207,7 +202,6 @@ async fn me(user: CurrentUser) -> ApiResult<Value> {
 #[derive(Deserialize)]
 struct DeviceLoginBody {
     token: String,
-    #[serde(default)]
     remember: bool,
 }
 
@@ -242,7 +236,7 @@ async fn device_login(State(st): State<Shared>, headers: HeaderMap, Json(b): Jso
         if record.revoked_at.is_some() { return Err(ApiError::session_revoked()); }
         if record.user_id != user_id { return Err(ApiError::conflict("기존 계정에서 먼저 로그아웃해 주세요.")); }
     }
-    let sealed = vault::Sealed { device: true, name: name.clone(), student_id: student_id.clone(), cookies: Vec::new(), school: None };
+    let sealed = vault::Sealed { device: true, name: name.clone(), student_id: student_id.clone(), school: None };
     let session = UserSession::new(None, user_id, name.clone(), student_id, b.remember);
     let expires_at = session.expires_at();
     let token = st.sessions.insert(session);
@@ -375,48 +369,6 @@ async fn board_file(
         .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요."))?;
     let (mime, bytes) = school.download(&file.url, 100 * 1024 * 1024).await?;
     file_response(&file.name, &mime, bytes, q.inline.unwrap_or(0) == 1)
-}
-
-
-#[derive(Deserialize)]
-struct VerifyQuery {
-    course: i64,
-}
-
-async fn verify_item(State(st): State<Shared>, user: CurrentUser, Path(key): Path<String>, Query(q): Query<VerifyQuery>) -> ApiResult<Value> {
-    use hongsi_core::models::{SubmissionState, VodState};
-    let (kind, id) = key.split_once(':').ok_or_else(|| ApiError::bad_request("잘못된 항목이에요."))?;
-    let cmid: i64 = id.parse().map_err(|_| ApiError::bad_request("잘못된 항목이에요."))?;
-    let status: &'static str = match kind {
-        "assign" => match user.session.school()?.submission_state(q.course, cmid).await? {
-            SubmissionState::Submitted => "submitted",
-            SubmissionState::NotSubmitted => "not_submitted",
-            SubmissionState::Unknown => "unknown",
-        },
-        "vod" => match user.session.school()?.vod_state(q.course, cmid).await? {
-            Some(VodState::Done) => "done",
-            Some(VodState::Partial) => "partial",
-            Some(VodState::Missed) => "missed",
-            Some(VodState::Todo) => "todo",
-            Some(VodState::Upcoming) => "upcoming",
-            None => "unknown",
-        },
-        _ => return Err(ApiError::bad_request("과제와 강의만 확인할 수 있어요.")),
-    };
-    if status != "unknown" {
-        calendar::sync_parents(&st.db, &user.session, vec![calendar::TodoParent {
-            key: key.clone(), course_id: q.course, finished: matches!(status, "submitted" | "done"),
-        }]).await?;
-        if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
-            for item in data.items.iter_mut().filter(|i| i.key == key) {
-                item.status = status;
-                if item.done_override.is_none() {
-                    item.done = status == "submitted" || status == "done";
-                }
-            }
-        }
-    }
-    Ok(Json(json!({ "key": key, "status": status, "finished": status == "submitted" || status == "done" })))
 }
 
 
@@ -709,66 +661,6 @@ async fn submission_get(user: CurrentUser, Path(cmid): Path<i64>) -> ApiResult<V
     Ok(Json(submission_view(&a, &info)))
 }
 
-async fn submission_post(State(st): State<Shared>, user: CurrentUser, Path(cmid): Path<i64>, mut form: Multipart) -> ApiResult<Value> {
-    let mut keep: Vec<String> = Vec::new();
-    let mut new_files: Vec<(String, Vec<u8>)> = Vec::new();
-    let (mut late_confirmed, mut accept_statement) = (false, false);
-    while let Some(field) = form.next_field().await.map_err(|_| ApiError::bad_request("파일을 읽지 못했어요."))? {
-        match field.name().unwrap_or("") {
-            "keep" => keep.push(field.text().await.unwrap_or_default()),
-            "lateConfirmed" => late_confirmed = field.text().await.unwrap_or_default() == "1",
-            "acceptStatement" => accept_statement = field.text().await.unwrap_or_default() == "1",
-            "file" => {
-                let name = field.file_name().unwrap_or("file").to_string();
-                let bytes = field.bytes().await.map_err(|_| ApiError::bad_request("파일 용량이 너무 크거나 업로드가 중단됐어요."))?;
-                new_files.push((name, bytes.to_vec()));
-            }
-            _ => {}
-        }
-    }
-
-    let a = find_assignment(&user, cmid).await?;
-    let info = user.session.school()?.submission_info(a.id).await?;
-    let now = Utc::now().timestamp();
-    let sizes: Vec<(String, usize)> = new_files.iter().map(|(n, b)| (n.clone(), b.len())).collect();
-    hongsi_core::calendar::check_submission(&a, &info, now, &keep, &sizes, late_confirmed, accept_statement).map_err(|r| {
-        use hongsi_core::calendar::SubmitRejection;
-        match r {
-            SubmitRejection::BadRequest(m) => ApiError::bad_request(m),
-            SubmitRejection::Conflict(m) => ApiError::conflict(m),
-            SubmitRejection::LateConfirmRequired => ApiError::new(
-                axum::http::StatusCode::PRECONDITION_REQUIRED,
-                "late_confirm_required",
-                "마감이 지난 과제예요. 지각 제출을 확인해 주세요.",
-            ),
-        }
-    })?;
-    let total = keep.len() + new_files.len();
-
-    let mut files = Vec::with_capacity(total);
-    for name in &keep {
-        let existing = info.files.iter().find(|f| &f.name == name).ok_or_else(|| ApiError::bad_request(format!("'{name}' 파일을 찾을 수 없어요.")))?;
-        let (_, bytes) = user.session.school()?.download(&existing.url, 110 * 1024 * 1024).await?;
-        files.push((existing.name.clone(), bytes));
-    }
-    files.extend(new_files);
-
-    user.session.school()?.submit_files(a.id, files, a.config.drafts, accept_statement).await?;
-    tracing::info!(cmid, "과제 제출 완료");
-
-    let key = format!("assign:{cmid}");
-    db::set_item_check(&st.db, user.session.user_id, &key, true).await?;
-    if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
-        for item in data.items.iter_mut().filter(|i| i.key == key) {
-            item.status = "submitted";
-            item.done = true;
-        }
-    }
-    let info = user.session.school()?.submission_info(a.id).await?;
-    Ok(Json(submission_view(&a, &info)))
-}
-
-
 #[derive(Deserialize)]
 struct PageQuery {
     page: Option<u32>,
@@ -810,7 +702,7 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTim
     if title.is_empty() || title.chars().count() > 200 || t.note.chars().count() > 2000 {
         return Err(ApiError::bad_request("제목은 1~200자, 메모는 2000자까지예요."));
     }
-    let timestamp = t.due_at.ok_or_else(|| ApiError::bad_request("날짜를 선택해 주세요."))?;
+    let timestamp = t.due.ok_or_else(|| ApiError::bad_request("날짜를 선택해 주세요."))?;
     let due = Utc.timestamp_opt(timestamp, 0).single()
         .ok_or_else(|| ApiError::bad_request("날짜가 올바르지 않아요."))?;
     if let Some(key) = &t.parent_key {

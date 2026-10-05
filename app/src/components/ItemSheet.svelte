@@ -85,7 +85,7 @@
     {#if alertable}
       {#key item.key}
         <div class="alert-settings">
-          <DeadlineAlerts enabled={item.alert !== false} leads={item.alertLeads ?? null}
+          <DeadlineAlerts enabled={item.alert} leads={item.alertLeads}
             label="이 {item.kind === 'vod' ? '강의' : '과제'} 마감 알림"
             ontoggle={(on) => item ? setItemAlert(item, on) : undefined}
             onchange={(leads) => item ? setItemAlertLeads(item, leads) : undefined} />

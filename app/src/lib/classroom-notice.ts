@@ -1,4 +1,4 @@
-export type ClassroomDestination =
+type ClassroomDestination =
   | { kind: 'item'; key: string }
   | { kind: 'board'; cmid: number; bwid: number }
   | { kind: 'module'; cmid: number };

@@ -56,7 +56,7 @@
       discardOpen = false;
       deleteOpen = false;
       if (!open) return;
-      const due = todo?.dueAt ? fromUnix(todo.dueAt) : null;
+      const due = todo?.due != null ? fromUnix(todo.due - (todo.allDay ? 86_400 : 0)) : null;
       title = todo?.title ?? '';
       note = todo?.note ?? '';
       courseId = todo ? todo.courseId : (draft.courseId ?? null);
@@ -99,7 +99,7 @@
       note: note.trim(),
       courseId: parentKey ? (parent?.courseId ?? courseId) : courseId,
       parentKey,
-      dueAt: toUnix(date, time),
+      due: toUnix(date, time) + (!time ? 86_400 : 0),
       allDay: !time,
       notify,
       alertLeads,

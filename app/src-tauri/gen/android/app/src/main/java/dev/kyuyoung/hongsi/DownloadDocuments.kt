@@ -31,7 +31,6 @@ internal object DownloadFiles {
     fun mime(file: File): String = MimeTypeMap.getSingleton()
         .getMimeTypeFromExtension(file.extension.lowercase()) ?: "application/octet-stream"
     fun authority(context: Context) = "${context.packageName}.downloads"
-    fun rootUri(context: Context) = DocumentsContract.buildRootUri(authority(context), ROOT_ID)
     fun documentUri(context: Context) = DocumentsContract.buildDocumentUri(authority(context), ROOT_ID)
 }
 

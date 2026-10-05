@@ -5,11 +5,11 @@
   import { agendaEntries, type AgendaEntry } from '../lib/agenda';
   import { toggleDone } from '../lib/actions.svelte';
   import { courseColors, isOverdue, isPending } from '../lib/colors';
-  import { ago, dueKey, dueTime, longDay, time, todayKey } from '../lib/format';
+  import { ago, dueKey, dueTime, longDay, todayKey } from '../lib/format';
   import { calendar, pref, setPref, todos } from '../lib/store.svelte';
   import { refreshState, refreshTab } from '../lib/refresh.svelte';
   import { settings } from '../lib/settings.svelte';
-  import { displayedTodos, isTodoPending, todoDeadline, todoKey } from '../lib/todos.svelte';
+  import { displayedTodos, isTodoPending, todoKey } from '../lib/todos.svelte';
   import { courseLabel, termLabel } from '../lib/semester';
   import { focus, toast } from '../lib/ui.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
@@ -118,7 +118,7 @@
   const remainingTodos = $derived(courseTodos.filter((t) => t.doneAt === null));
   const weekTodos = $derived.by(() => {
     const now = Date.now() / 1000;
-    return remainingTodos.filter((t) => isTodoPending(t, now) && todoDeadline(t) !== null && todoDeadline(t)! - now < 7 * 86400);
+    return remainingTodos.filter((t) => isTodoPending(t, now) && t.due !== null && t.due - now < 7 * 86400);
   });
   const upcomingTodos = $derived(
     myTodos
@@ -438,7 +438,7 @@
                   <i class="shape" class:todo={entry.kind === 'todo'} class:vod={entry.kind === 'item' && entry.value.kind === 'vod'} aria-hidden="true"></i>
                   <span class="pt">{entry.value.title}</span>
                   {#if entry.kind === 'todo'}
-                    <span class="ptime">{entry.value.allDay || entry.value.dueAt === null ? '하루 종일' : time(entry.value.dueAt)}</span>
+                    <span class="ptime">{entry.value.allDay || entry.value.due === null ? '하루 종일' : dueTime(entry.value.due)}</span>
                   {:else if entry.value.due !== null}
                     <span class="ptime">{dueTime(entry.value.due)}</span>
                   {/if}

@@ -79,7 +79,7 @@ fn cached<T: Clone>(slot: &Option<(Instant, T)>, max_age: Duration) -> Option<T>
 struct School {
     session: SchoolSession,
     student_id: String,
-    calendar: Mutex<Option<(Instant, (CalendarData, Vec<Assignment>))>>,
+    calendar: Mutex<Option<(Instant, CalendarData)>>,
     lectures: Mutex<Option<(Instant, ActiveLectures)>>,
     timetable: Mutex<Option<(Instant, Timetable)>>,
     courses: Mutex<HashMap<String, (Instant, AttendanceCourse)>>,
@@ -103,7 +103,7 @@ impl School {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct ServerAuth {
     token: String,
-    expires_at: Option<i64>,
+    expires_at: i64,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -249,8 +249,12 @@ impl Direct {
         if self.session_revoked() {
             return Self::revoked_reply();
         }
-        let name = profile.map(|p| p.name).unwrap_or_default();
-        Reply::ok(json!({ "profile": { "name": name } }))
+        Reply::ok(json!({ "profile": {
+            "name": profile.as_ref().map(|p| p.name.as_str()).unwrap_or(""),
+            "hasPicture": profile.as_ref().is_some_and(|p| p.has_picture),
+            "department": profile.and_then(|p| p.department),
+            "studentId": school.student_id,
+        } }))
     }
 
     pub async fn refresh_classroom(&self) -> Reply {
@@ -327,7 +331,7 @@ impl Direct {
 
     fn server_auth_valid(&self) -> bool {
         self.server_auth.lock().ok().is_some_and(|auth| {
-            auth.as_ref().is_some_and(|auth| auth.expires_at.is_none_or(|at| at > Utc::now().timestamp()))
+            auth.as_ref().is_some_and(|auth| auth.expires_at > Utc::now().timestamp())
         })
     }
 
@@ -359,7 +363,9 @@ impl Direct {
             let _ = self.http.post(format!("{}/api/auth/logout", self.base)).bearer_auth(token).header("X-Client", "tauri").send().await;
             return Err(Reply::error(409, "account_changed", "로그인 상태가 변경됐어요."));
         }
-        self.set_server_auth(Some(ServerAuth { token: token.to_string(), expires_at: r.body["expiresAt"].as_i64() }));
+        let expires_at = r.body["expiresAt"].as_i64()
+            .ok_or_else(|| Reply::error(502, "server_error", "서버의 로그인 응답을 확인하지 못했어요."))?;
+        self.set_server_auth(Some(ServerAuth { token: token.to_string(), expires_at }));
         Ok(())
     }
 
@@ -507,11 +513,6 @@ impl Direct {
                 self.calendar(refresh, display).await.map(Reply::ok)
             }
             ("GET", "/api/meals") => Ok(self.meals().await),
-            ("POST", r) if r.starts_with("/api/calendar/items/") && r.ends_with("/verify") => {
-                let key = decode(r.trim_start_matches("/api/calendar/items/").trim_end_matches("/verify"));
-                let course: i64 = q.get("course").and_then(|c| c.parse().ok()).unwrap_or(0);
-                self.verify(&key, course).await.map(Reply::ok)
-            }
             ("PUT", r) if r.starts_with("/api/calendar/items/") && r.ends_with("/done") => {
                 let key = decode(r.trim_start_matches("/api/calendar/items/").trim_end_matches("/done"));
                 Ok(self.set_done(&key, &json_body).await)
@@ -670,15 +671,15 @@ impl Direct {
         let s = self.current().await?;
         let mut slot = s.calendar.lock().await;
         if !refresh {
-            if let Some((mut data, _)) = cached(&slot, Duration::from_secs(180))
-                .filter(|(data, _)| data.semester_display == display) {
+            if let Some(mut data) = cached(&slot, Duration::from_secs(180))
+                .filter(|data| data.semester_display == display) {
                 let parents: Vec<_> = data.items.iter().map(calendar::TodoParent::from).collect();
                 let body = json!({ "courses": data.courses, "parents": parents });
                 let reply = self.server(&Method::POST, "/api/calendar/state", Some(&body)).await;
                 if reply.status == 200 {
                     if let Ok(state) = serde_json::from_value::<calendar::CalendarState>(reply.body) {
                         state.apply(&mut data.items);
-                        if let Some((_, (cached_data, _))) = slot.as_mut() {
+                        if let Some((_, cached_data)) = slot.as_mut() {
                             *cached_data = data.clone();
                         }
                     }
@@ -698,7 +699,7 @@ impl Direct {
             courses,
             fetched_at: now,
         };
-        *slot = Some((Instant::now(), (data.clone(), assignments)));
+        *slot = Some((Instant::now(), data.clone()));
         Ok(json!(data))
     }
 
@@ -722,36 +723,9 @@ impl Direct {
     }
 
     async fn patch_items(&self, s: &School, key: &str, f: impl Fn(&mut calendar::CalendarItem)) {
-        if let Some((_, (data, _))) = s.calendar.lock().await.as_mut() {
+        if let Some((_, data)) = s.calendar.lock().await.as_mut() {
             data.items.iter_mut().filter(|i| i.key == key).for_each(f);
         }
-    }
-
-    async fn verify(&self, key: &str, course: i64) -> R<Value> {
-        let s = self.current().await?;
-        let bad = || Reply::error(400, "bad_request", "잘못된 항목이에요.");
-        let (kind, id) = key.split_once(':').ok_or_else(bad)?;
-        let cmid: i64 = id.parse().map_err(|_| bad())?;
-        let status = match kind {
-            "assign" => calendar::submission_status(s.session.submission_state(course, cmid).await?),
-            "vod" => calendar::vod_status(s.session.vod_state(course, cmid).await?),
-            _ => return Err(Reply::error(400, "bad_request", "과제와 강의만 확인할 수 있어요.")),
-        };
-        if status != "unknown" {
-            let body = json!({ "parents": [calendar::TodoParent {
-                key: key.to_string(), course_id: course, finished: matches!(status, "submitted" | "done"),
-            }] });
-            let reply = self.server(&Method::POST, "/api/calendar/state", Some(&body)).await;
-            if reply.status != 200 { return Err(reply); }
-            self.patch_items(&s, key, |item| {
-                item.status = status;
-                if item.done_override.is_none() {
-                    item.done = status == "submitted" || status == "done";
-                }
-            })
-            .await;
-        }
-        Ok(json!({ "key": key, "status": status, "finished": status == "submitted" || status == "done" }))
     }
 
     async fn set_done(&self, key: &str, body: &Value) -> Reply {
@@ -815,20 +789,6 @@ impl Direct {
         Ok(Self::view(&a, &info))
     }
 
-    pub async fn submit(
-        &self,
-        cmid: i64,
-        keep: Vec<String>,
-        files: Vec<(String, Vec<u8>)>,
-        late_confirmed: bool,
-        accept_statement: bool,
-    ) -> Reply {
-        match self.submit_inner(cmid, keep, files, late_confirmed, accept_statement, None).await {
-            Ok(v) => Reply::ok(v),
-            Err(r) => r,
-        }
-    }
-
     pub async fn begin_submission(&self, cmid: i64, id: &str) -> Result<(Arc<Job>, bool), Reply> {
         let school = self.current().await?;
         self.submissions.start(&school.student_id, cmid, id).map_err(|message| Reply::error(409, "conflict", message))
@@ -837,7 +797,7 @@ impl Direct {
     pub async fn submit_job(
         &self, cmid: i64, keep: Vec<String>, files: Vec<(String, Vec<u8>)>, late: bool, statement: bool, job: Arc<Job>,
     ) -> Reply {
-        match tokio::time::timeout(JOB_TIMEOUT, self.submit_inner(cmid, keep, files, late, statement, Some(job.clone()))).await {
+        match tokio::time::timeout(JOB_TIMEOUT, self.submit_inner(cmid, keep, files, late, statement, job.clone())).await {
             Ok(Ok(result)) => job.complete(result),
             Ok(Err(reply)) => job.fail(reply.status, reply.code().unwrap_or("school_error"), reply.body["error"]["message"].as_str().unwrap_or("제출 결과를 확인하지 못했어요.")),
             Err(_) => job.fail(504, "timeout", "학교의 응답이 늦어지고 있어요."),
@@ -872,7 +832,7 @@ impl Direct {
         files: Vec<(String, Vec<u8>)>,
         late_confirmed: bool,
         accept_statement: bool,
-        job: Option<Arc<Job>>,
+        job: Arc<Job>,
     ) -> R<Value> {
         let s = self.current().await?;
         let a = self.find_assignment(&s, cmid).await?;
@@ -891,14 +851,12 @@ impl Direct {
             all.push((existing.name.clone(), bytes));
         }
         all.extend(files);
-        if let Some(job) = &job { job.expect(&info, &all); }
+        job.expect(&info, &all);
         s.session.submit_files_with_progress(a.id, all, a.config.drafts, accept_statement, job.clone()).await?;
-        if let Some(job) = &job {
-            job.acknowledge();
-            job.progress(Progress::at(Stage::Verify));
-        }
+        job.acknowledge();
+        job.progress(Progress::at(Stage::Verify));
         let info = s.session.submission_info(a.id).await?;
-        if job.as_ref().is_some_and(|job| !job.matches(&info)) {
+        if !job.matches(&info) {
             return Err(Reply::error(502, "submission_unconfirmed", "제출 상태와 파일 목록이 아직 확인되지 않았어요."));
         }
         tracing::info!(cmid, "과제 제출 완료 (기기)");

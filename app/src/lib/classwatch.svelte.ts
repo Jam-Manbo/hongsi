@@ -4,13 +4,13 @@ import { attendance, attendanceReceipts, handleAuthError, lectures, timetable } 
 import { isCurrentSession, onSessionChange, readUserData, sessionVersion, writeUserData } from './session';
 import type { ActiveLecture, AttendanceCourse, AttendanceReceipt, AttendanceSubmission, ClassSlot, MarkKind } from './types';
 
-export const WATCH_BEFORE = 3 * 60_000;
-export const WATCH_AFTER = 10 * 60_000;
+const WATCH_BEFORE = 3 * 60_000;
+const WATCH_AFTER = 10 * 60_000;
 export const POLL_MS = 10_000;
 const STATUS_MS = 60_000;
 const MIN_SPIN_MS = 700;
 const KST = 9 * 3600_000;
-const STORE = 'attendance-confirmed-v1';
+const STORE = 'attendance-confirmed';
 
 export type TodayClass = ClassSlot & { at: number };
 export type Mark = { label: string; kind: MarkKind; source: 'school' | 'app' };
@@ -276,7 +276,7 @@ export function afterSubmit(submission: AttendanceSubmission) {
   if (ref.code) setTimeout(() => { if (isCurrentSession(version) && todayKey() === day) void checkSchool(ref); }, 1500);
   return true;
 }
-export function resetClassWatch() {
+function resetClassWatch() {
   classWatch.receipts = loadSaved(); classWatch.school = {}; classWatch.seenOpen = []; classWatch.shareError = '';
   classWatch.day = todayKey(); classWatch.polling = false; classWatch.current = null; classWatch.nextAt = 0;
   statusAt = 0; sharedAt = 0; pendingCheck = null; pendingSync = null;

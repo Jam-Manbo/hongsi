@@ -68,7 +68,7 @@ async function saveItemAlert(item: CalendarItem, patch: Partial<CalendarItem>, s
   if (writeBlocked() || savingAlerts.has(item.key)) return;
   const version = sessionVersion();
   const current = calendar.data?.items.find((i) => i.key === item.key) ?? item;
-  const before = { alert: current.alert, alertLeads: current.alertLeads ?? null };
+  const before = { alert: current.alert, alertLeads: current.alertLeads };
   const finishChange = beginCalendarChange();
   savingAlerts.add(item.key);
   update(item.key, patch);
@@ -103,11 +103,6 @@ function remember(record: DownloadRecord) {
   writeUserData(KEY, downloads.list);
 }
 
-export function clearDownloads() {
-  downloads.list = [];
-  writeUserData(KEY, []);
-}
-
 onSessionChange(() => {
   downloads.list = load();
   downloads.busy = '';
@@ -121,8 +116,6 @@ export function fileId(src: FileSource): string {
   if (src.kind === 'module') return `m:${src.cmid}:${src.index}`;
   return `b:${src.cmid}:${src.bwid}:${src.index}`;
 }
-
-const sourceOf = (d: DownloadRecord): FileSource => d.source ?? { kind: 'assign', cmid: d.cmid, index: d.index };
 
 export function savedFile(src: FileSource): DownloadRecord | undefined {
   const id = fileId(src);
@@ -184,8 +177,6 @@ export async function downloadFile(src: FileSource, name: string, course: string
       name: name.split('/').pop() || name,
       course,
       source: src,
-      cmid: src.cmid,
-      index: src.index,
       at: Date.now(),
       path,
     };
@@ -200,14 +191,10 @@ export async function downloadFile(src: FileSource, name: string, course: string
   }
 }
 
-export function downloadAttachment(item: CalendarItem, index: number, course: string) {
-  return downloadFile({ kind: 'assign', cmid: Number(item.key.split(':')[1]), index }, item.attachments[index].name, course);
-}
-
 export async function openDownload(d: DownloadRecord) {
   try {
     if (isApp && d.path) await native.openFile(d.path);
-    else window.open(api.fileUrl(sourceOf(d), true), '_blank', 'noopener');
+    else window.open(api.fileUrl(d.source, true), '_blank', 'noopener');
   } catch (e) {
     toast(fileErrorText(e, '파일이나 링크를 열지 못했어요.'), 'error');
   }

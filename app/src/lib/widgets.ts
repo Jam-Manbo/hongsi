@@ -5,7 +5,7 @@ import { attendanceWidgetSnapshot, afterSubmit } from './classwatch.svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { isApp } from './env';
 import { courseColors, itemStatus } from './colors';
-import { displayedTodos, todoDeadline } from './todos.svelte';
+import { displayedTodos } from './todos.svelte';
 import { focus, go, toast } from './ui.svelte';
 import type { AttendanceReceipt } from './types';
 import { sessionVersion, isCurrentSession } from './session';
@@ -22,16 +22,13 @@ export function widgetSnapshot(): string {
     owner: app.account,
     preferences: { midnight: settings.midnight, showUndated: settings.showUndatedAssignments, timetableDisplay: settings.timetableDisplay },
     attendance: attendanceWidgetSnapshot(),
-    capturedAt: Date.now(),
     errors: { timetable: timetable.error, calendar: calendar.error || todos.error, seats: seatSession.error },
     updatedAt: { preferences: accountPreferences.updatedAt, timetable: timetable.at, calendar: Math.max(calendar.at, todos.at, calendarSync.updatedAt), seats: seatSession.at, lectures: lectures.at },
     slots: (timetable.data?.slots ?? []).map((s) => ({ ...s, color: colors.get(courses.find((c) => c.code === s.code || c.name === s.name)?.id ?? -1) ?? '#3b82f6' })),
     deadlines: [
       ...(calendar.data?.items ?? []).map((i) => ({ key: i.key, title: i.title, course: course(i.courseId)?.name ?? '', due: i.due, start: i.start, done: i.done, kind: i.kind, status: itemStatus(i).label, color: colors.get(i.courseId) ?? '#3b82f6' })),
-      ...displayedTodos().map((t) => ({ key: `todo:${t.id}`, title: t.title, course: course(t.courseId)?.name ?? '공통', dueAt: t.dueAt, allDay: t.allDay, due: todoDeadline(t), start: null, done: t.doneAt !== null, kind: 'todo', status: '', color: colors.get(t.courseId ?? -1) ?? null })),
+      ...displayedTodos().map((t) => ({ key: `todo:${t.id}`, title: t.title, course: course(t.courseId)?.name ?? '공통', due: t.due, allDay: t.allDay, start: null, done: t.doneAt !== null, kind: 'todo', status: '', color: colors.get(t.courseId ?? -1) ?? null })),
     ],
-    active: (lectures.data?.items ?? []).map(({ name, time, code }) => ({ name, time, code })),
-    receipts: (attendanceReceipts.data ?? []).map(({ lecture, date, kind, confirmedAt }) => ({ name: lecture.name, time: lecture.time, date, kind, confirmedAt })),
     seat: seatSession.data?.session ?? null,
   });
 }

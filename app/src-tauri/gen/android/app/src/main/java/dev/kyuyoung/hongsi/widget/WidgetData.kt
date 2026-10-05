@@ -27,10 +27,6 @@ object WidgetData {
     private var cached: JSONObject? = null
     private fun file(context: Context) = AtomicFile(File(context.noBackupFilesDir, "widgets.json"))
     @Synchronized fun read(context: Context): JSONObject {
-        if (cached == null) {
-            AtomicFile(File(context.noBackupFilesDir, "widget-preview.json")).delete()
-            context.getSharedPreferences("widget-preview-state", Context.MODE_PRIVATE).edit().clear().apply()
-        }
         if (cached == null) cached = runCatching { JSONObject(String(file(context).readFully(), Charsets.UTF_8)) }.getOrElse { JSONObject() }
         return JSONObject(cached!!.toString())
     }
@@ -93,7 +89,7 @@ object WidgetData {
     fun save(context: Context, id: Int, state: JSONObject) { context.getSharedPreferences("widgets-state", Context.MODE_PRIVATE).edit().putString("$id", state.toString()).apply() }
     fun delete(context: Context, id: Int) { context.getSharedPreferences("widgets-state", Context.MODE_PRIVATE).edit().remove("$id").apply() }
     fun slots(context: Context) = read(context).array("slots")
-    fun today(context: Context, state: JSONObject): List<JSONObject> = slots(context).filter { it.optInt("weekday") == weekday() }.sortedBy { it.text("start") }
+    fun today(context: Context): List<JSONObject> = slots(context).filter { it.optInt("weekday") == weekday() }.sortedBy { it.text("start") }
     private fun previousMidnight(context: Context, due: Long) = read(context).optJSONObject("preferences")?.text("midnight", "prev") != "same" && dateText(due, "HH:mm") == "00:00"
     fun deadlineLabel(context: Context, due: Long, pattern: String = "M/d"): String {
         val previous = previousMidnight(context, due)
@@ -104,14 +100,12 @@ object WidgetData {
         if (item.isNull("due")) return "마감 없음"
         val due = item.optLong("due")
         if (item.optBoolean("allDay")) {
-            val day = if (item.isNull("dueAt")) due - 86400 else item.optLong("dueAt")
+            val day = if (previousMidnight(context, due)) due - 60 else due
             return dateText(day, "M/d(E)") + " 하루 종일"
         }
         return deadlineLabel(context, due, "M/d(E)") + " 마감"
     }
-    fun deadlineDay(context: Context, item: JSONObject): Long = if (item.optBoolean("allDay")) {
-        Math.floorDiv(item.optLong("due") - 1 + 32400, 86400)
-    } else deadlineDay(context, item.optLong("due"))
+    fun deadlineDay(context: Context, item: JSONObject): Long = deadlineDay(context, item.optLong("due"))
     fun deadlines(context: Context): List<JSONObject> {
         val data = read(context)
         val showUndated = data.optJSONObject("preferences")?.optBoolean("showUndated") == true
@@ -119,6 +113,6 @@ object WidgetData {
             !it.optBoolean("done") && (if (it.isNull("due")) showUndated else it.optLong("due") > nowSeconds()) && (it.text("kind") != "vod" || it.isNull("start") || it.optLong("start") <= nowSeconds())
         }.sortedBy { if (it.isNull("due")) Long.MAX_VALUE else it.optLong("due") }
     }
-    fun seat(context: Context, state: JSONObject): JSONObject? = read(context).optJSONObject("seat")?.takeIf { it.isNull("endedAt") && it.optLong("expiresAt") > nowSeconds() }
+    fun seat(context: Context): JSONObject? = read(context).optJSONObject("seat")?.takeIf { it.isNull("endedAt") && it.optLong("expiresAt") > nowSeconds() }
     fun error(context: Context, resource: String) = read(context).optJSONObject("errors")?.text(resource).orEmpty()
 }
