@@ -9,13 +9,14 @@ use crate::{auth::CurrentUser, calendar, error::ApiError, state::Shared};
 pub struct Preferences {
     pub meal_place: String,
     pub timetable_display: String,
+    pub semester_display: String,
     pub alert_leads: Vec<i32>,
     pub updated_at: i64,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Self { meal_place: "dorm".into(), timetable_display: "fit".into(), alert_leads: vec![60], updated_at: 0 }
+        Self { meal_place: "dorm".into(), timetable_display: "fit".into(), semester_display: "current".into(), alert_leads: vec![60], updated_at: 0 }
     }
 }
 
@@ -24,11 +25,12 @@ impl Default for Preferences {
 pub struct Changes {
     meal_place: Option<String>,
     timetable_display: Option<String>,
+    semester_display: Option<String>,
     alert_leads: Option<Vec<i32>>,
 }
 
 pub async fn load(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, uid: i64) -> sqlx::Result<Preferences> {
-    Ok(sqlx::query_as("select meal_place,timetable_display,alert_leads,floor(extract(epoch from updated_at)*1000)::bigint as updated_at from account_preferences where user_id=$1")
+    Ok(sqlx::query_as("select meal_place,timetable_display,semester_display,alert_leads,floor(extract(epoch from updated_at)*1000)::bigint as updated_at from account_preferences where user_id=$1")
         .bind(uid).fetch_optional(db).await?.unwrap_or_default())
 }
 
@@ -39,6 +41,7 @@ pub async fn get(State(st): State<Shared>, user: CurrentUser) -> Result<Json<Pre
 pub async fn patch(State(st): State<Shared>, user: CurrentUser, Json(mut changes): Json<Changes>) -> Result<Json<Preferences>, ApiError> {
     if changes.meal_place.as_deref().is_some_and(|v| !matches!(v, "dorm" | "staff"))
         || changes.timetable_display.as_deref().is_some_and(|v| !matches!(v, "full" | "fit"))
+        || changes.semester_display.as_deref().is_some_and(|v| !matches!(v, "current" | "all"))
         || changes.alert_leads.as_deref().is_some_and(|v| !calendar::valid_alert_leads(v)) {
         return Err(ApiError::bad_request("설정값을 확인해 주세요."));
     }
@@ -48,14 +51,19 @@ pub async fn patch(State(st): State<Shared>, user: CurrentUser, Json(mut changes
     let uid = user.session.user_id;
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-uid).execute(&mut *tx).await?;
-    let saved = sqlx::query_as("insert into account_preferences(user_id,meal_place,timetable_display,alert_leads)
-        values($1,coalesce($2,'dorm'),coalesce($3,'fit'),coalesce($4,array[60]))
+    let saved = sqlx::query_as("insert into account_preferences(user_id,meal_place,timetable_display,alert_leads,semester_display)
+        values($1,coalesce($2,'dorm'),coalesce($3,'fit'),coalesce($4,array[60]),coalesce($5,'current'))
         on conflict(user_id) do update set meal_place=coalesce($2,account_preferences.meal_place),
         timetable_display=coalesce($3,account_preferences.timetable_display),
+        semester_display=coalesce($5,account_preferences.semester_display),
         alert_leads=coalesce($4,account_preferences.alert_leads),updated_at=clock_timestamp()
-        returning meal_place,timetable_display,alert_leads,floor(extract(epoch from updated_at)*1000)::bigint as updated_at")
-        .bind(uid).bind(&changes.meal_place).bind(&changes.timetable_display).bind(&changes.alert_leads)
+        returning meal_place,timetable_display,semester_display,alert_leads,floor(extract(epoch from updated_at)*1000)::bigint as updated_at")
+        .bind(uid).bind(&changes.meal_place).bind(&changes.timetable_display).bind(&changes.alert_leads).bind(&changes.semester_display)
         .fetch_one(&mut *tx).await?;
+    if changes.semester_display.is_some() {
+        sqlx::query("update background_sessions set next_poll_at=now(),poll_token=null,poll_until=null where user_id=$1")
+            .bind(uid).execute(&mut *tx).await?;
+    }
     if let Some(leads) = &changes.alert_leads {
         sqlx::query("delete from notification_outbox o using notification_devices d
             where o.device_id=d.id and d.user_id=$1 and o.sent_at is null and o.event_key like 'due:%'

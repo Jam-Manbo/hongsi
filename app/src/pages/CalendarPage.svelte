@@ -9,7 +9,8 @@
   import { calendar, pref, setPref, todos } from '../lib/store.svelte';
   import { refreshState, refreshTab } from '../lib/refresh.svelte';
   import { settings } from '../lib/settings.svelte';
-  import { isTodoPending, todoDeadline, todoKey } from '../lib/todos.svelte';
+  import { displayedTodos, isTodoPending, todoDeadline, todoKey } from '../lib/todos.svelte';
+  import { courseLabel, termLabel } from '../lib/semester';
   import { focus, toast } from '../lib/ui.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
   import TodoRow from '../components/TodoRow.svelte';
@@ -49,7 +50,7 @@
     const key = focus.item;
     if (!key || !calendar.data) return;
     if (calendar.data.items.some((i) => i.key === key)) detailKey = key;
-    else toast('이 일정은 삭제됐거나 이번 학기 목록에 없어요.', 'info');
+    else toast('표시할 일정이 없어요.', 'info');
     focus.item = null;
   });
 
@@ -78,9 +79,9 @@
   $effect(() => {
     const id = focus.todo;
     if (id === null || !todos.data) return;
-    const todo = todos.data.find((t) => t.id === id);
+    const todo = displayedTodos().find((t) => t.id === id);
     if (todo) editTodo(todo);
-    else toast('이 할 일은 삭제됐거나 보관 기간이 지났어요.', 'info');
+    else toast('표시할 할 일이 없어요.', 'info');
     focus.todo = null;
   });
 
@@ -88,7 +89,10 @@
   const items = $derived((data?.items ?? []).filter((i) => !hidden.has(i.courseId)
     && (settings.showUndatedAssignments || i.kind !== 'assignment' || i.due !== null)));
   const colors = $derived(courseColors(data?.courses ?? []));
-  const courseName = (id: number) => data?.courses.find((c) => c.id === id)?.name ?? '';
+  const courseName = (id: number) => {
+    const course = data?.courses.find((c) => c.id === id);
+    return course ? courseLabel(course, settings.semesterDisplay) : '';
+  };
 
   const visible = $derived(
     items.filter((i) => {
@@ -101,7 +105,7 @@
   );
 
   const dayItems = $derived(visible.filter((i) => i.due !== null && dueKey(i.due) === selected));
-  const courseTodos = $derived((todos.data ?? []).filter((t) => !hidden.has(t.courseId ?? COMMON)));
+  const courseTodos = $derived(displayedTodos().filter((t) => !hidden.has(t.courseId ?? COMMON)));
   const myTodos = $derived(
     courseTodos.filter((t) => {
       if (filter === 'assignment' || filter === 'vod') return false;
@@ -125,7 +129,7 @@
   );
   const todoColor = (t: Todo) => (t.courseId === null ? 'var(--todo-neutral)' : (colors.get(t.courseId) ?? 'var(--todo-neutral)'));
   const todoCourse = (t: Todo) => (t.courseId === null ? '공통' : courseName(t.courseId));
-  const names = $derived(new Map((data?.courses ?? []).map((c) => [c.id, c.name])));
+  const names = $derived(new Map((data?.courses ?? []).map((c) => [c.id, courseLabel(c, settings.semesterDisplay)])));
   const week = $derived.by(() => {
     const now = Date.now() / 1000;
     return items.filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86400);
@@ -323,6 +327,7 @@
       <Skeleton rows={3} height={64} />
     {/if}
   {:else}
+    <p class="semester-label muted">{settings.semesterDisplay === 'all' ? '전체 학기' : termLabel(data.currentTerm) || '현재 학기'}</p>
     {@render summaryControls()}
     {#if !narrow.current}
       {@render statResults()}
@@ -383,11 +388,7 @@
             <button class="add" onclick={() => addTodo()}><Icon name="plus" size={16} stroke={2.4} />할 일</button>
           </h2>
           {#if dayEntries.length}
-            <div class="list">
-              {#each dayEntries as entry (entry.key)}
-                {@render agendaRow(entry)}
-              {/each}
-            </div>
+            {@render entryList(dayEntries)}
           {:else}
             <EmptyState message="이날 마감인 일정이 없어요." />
           {/if}
@@ -475,6 +476,24 @@
   {/if}
 {/snippet}
 
+{#snippet entryList(entries: AgendaEntry[], showDate = false)}
+  {@const pending = entries.filter((entry) => !entry.done)}
+  {@const completed = entries.filter((entry) => entry.done)}
+  {#if pending.length}
+    <div class="list">
+      {#each pending as entry (entry.key)}{@render agendaRow(entry, showDate)}{/each}
+    </div>
+  {/if}
+  {#if completed.length}
+    <details class="completed-list">
+      <summary>완료한 일정 {completed.length}개</summary>
+      <div class="list">
+        {#each completed as entry (entry.key)}{@render agendaRow(entry, showDate)}{/each}
+      </div>
+    </details>
+  {/if}
+{/snippet}
+
 {#snippet summaryControls()}
   {#if narrow.current}
     <div class="mobile-controls">
@@ -521,11 +540,7 @@
       {#if statLoading}
         <Skeleton rows={1} height={64} />
       {:else if statHasItems}
-        <div class="list">
-          {#each statEntries as entry (entry.key)}
-            {@render agendaRow(entry, true)}
-          {/each}
-        </div>
+        {@render entryList(statEntries, true)}
       {:else if !statNeedsTodos || todos.data !== null}
         <EmptyState message={{ all: '표시할 일정이 없어요.', week: '7일 안에 마감할 일이 없어요.', assign: '남은 과제가 없어요.', vod: '남은 강의가 없어요.', todo: '남은 할 일이 없어요.', missed: '놓친 항목이 없어요.' }[stat]} />
       {/if}
@@ -556,7 +571,7 @@
         onclick={() => toggleCourse(c.id)}
         aria-pressed={!hidden.has(c.id)}
       >
-        <span class="dot"></span>{c.name}
+        <span class="dot"></span>{courseLabel(c, settings.semesterDisplay)}
       </button>
     {/each}
   </div>
@@ -576,7 +591,7 @@
 
 <ItemSheet
   item={detail}
-  subtodos={detail ? (todos.data ?? []).filter((t) => t.parentKey === detail.key) : []}
+  subtodos={detail ? displayedTodos().filter((t) => t.parentKey === detail.key) : []}
   onaddtodo={(i) =>
     addTodo({
       courseId: i.courseId,
@@ -592,6 +607,9 @@
 />
 
 <style>
+  .semester-label { margin-bottom: 10px; font-size: 12px; }
+  .completed-list { margin-top: 12px; }
+  .completed-list summary { padding: 10px 0; cursor: pointer; font-size: 13px; color: var(--text-2); }
   .mobile-controls { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
   .summary-trigger { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 2px; color: var(--text-2); font-size: 13px; font-weight: 650; }
   .summary-trigger strong { font-size: 19px; font-variant-numeric: tabular-nums; color: var(--primary-text); }

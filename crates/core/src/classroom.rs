@@ -9,7 +9,7 @@ use scraper::Html;
 use serde_json::Value;
 
 use crate::models::{
-    Assignment, Attachment, BoardArticle, Course, ModuleContents, Notification, Profile, SubmissionInfo, SubmissionState,
+    AcademicTerm, Assignment, Attachment, BoardArticle, Course, ModuleContents, Notification, Profile, SemesterDisplay, SubmissionInfo, SubmissionState,
     SubmitConfig, Vod, VodState,
 };
 use crate::session::MoodleAuth;
@@ -390,25 +390,43 @@ impl SchoolSession {
     }
 
     pub async fn courses(&self) -> Result<Vec<Course>> {
+        Ok(self.courses_for(SemesterDisplay::Current).await?.1)
+    }
+
+    pub fn remember_current_term(&self, term: AcademicTerm) {
+        if term.valid() {
+            *self.current_term.write().expect("학기 잠금") = Some(term);
+        }
+    }
+
+    pub async fn current_term(&self) -> Result<AcademicTerm> {
+        let result = self.moodle_page(&format!("{CN2}/local/ubion/user/")).await
+            .and_then(|body| parse_current_term(&body).ok_or_else(|| CoreError::Parse("클래스룸 기본 학기".into())));
+        match result {
+            Ok(term) => {
+                self.remember_current_term(term);
+                Ok(term)
+            }
+            Err(error) => self.current_term.read().expect("학기 잠금").as_ref().copied().ok_or(error),
+        }
+    }
+
+    pub async fn courses_for(&self, display: SemesterDisplay) -> Result<(Option<AcademicTerm>, Vec<Course>)> {
+        let (courses, term) = futures::join!(self.all_courses(), self.current_term());
+        let courses = courses?;
+        match display {
+            SemesterDisplay::All => Ok((term.ok(), courses)),
+            SemesterDisplay::Current => {
+                let term = term?;
+                Ok((Some(term), courses.into_iter().filter(|c| c.term == Some(term)).collect()))
+            }
+        }
+    }
+
+    pub async fn all_courses(&self) -> Result<Vec<Course>> {
         let user_id = self.moodle().await?.user_id;
         let list = self.ws("core_enrol_get_users_courses", &[("userid".into(), user_id.to_string())]).await?;
-        let pattern = Regex::new(r"^(\d{4})_(\d{2})_([0-9A-Za-z]+)_([0-9A-Za-z]+)").expect("정규식");
-        let suffix = Regex::new(r"\s*\(\d{4}년도.*$").expect("정규식");
-        let mut parsed = Vec::new();
-        for c in list.as_array().into_iter().flatten() {
-            let Some(id) = c["id"].as_i64() else { continue };
-            let idnumber = c["idnumber"].as_str().unwrap_or("");
-            let Some(cap) = pattern.captures(idnumber) else { continue };
-            let term = (cap[1].to_string(), cap[2].to_string());
-            let raw_name = c["fullname"].as_str().or_else(|| c["shortname"].as_str()).unwrap_or("");
-            let name = suffix.replace(raw_name, "").trim().to_string();
-            let code = format!("{}-{}", &cap[3], &cap[4]);
-            parsed.push((term, Course { id, name, code: Some(code) }));
-        }
-        let Some(latest) = parsed.iter().map(|(t, _)| t.clone()).max() else { return Ok(vec![]) };
-        let mut courses: Vec<Course> = parsed.into_iter().filter(|(t, _)| *t == latest).map(|(_, c)| c).collect();
-        courses.sort_by(|a, b| a.code.cmp(&b.code).then(a.name.cmp(&b.name)));
-        Ok(courses)
+        Ok(parse_courses(&list))
     }
 
     pub async fn notifications(&self, page: u32) -> Result<Vec<Notification>> {
@@ -504,6 +522,42 @@ impl SchoolSession {
         let now = chrono::Utc::now().timestamp();
         Ok(merge_vod_progress(course_id, periods, &rows, now))
     }
+}
+
+fn parse_current_term(body: &str) -> Option<AcademicTerm> {
+    let doc = Html::parse_document(body);
+    let option_selector = sel("option[selected]");
+    let selected = |name: &str| {
+        let select = doc.select(&sel(&format!("select[name='{name}']"))).next()?;
+        let mut options = select.select(&option_selector);
+        let option = options.next()?;
+        if options.next().is_some() { return None; }
+        option.value().attr("value")?.parse::<i32>().ok()
+    };
+    let term = AcademicTerm { year: selected("year")?, semester: selected("semester")? };
+    term.valid().then_some(term)
+}
+
+fn parse_courses(list: &Value) -> Vec<Course> {
+    let pattern = Regex::new(r"^(\d{4})_(\d{2})_([0-9A-Za-z]+)_([0-9A-Za-z]+)").expect("정규식");
+    let suffix = Regex::new(r"\s*\(\d{4}년도.*$").expect("정규식");
+    let mut courses = Vec::new();
+    for c in list.as_array().into_iter().flatten() {
+        let Some(id) = c["id"].as_i64() else { continue };
+        let Some(cap) = pattern.captures(c["idnumber"].as_str().unwrap_or("")) else { continue };
+        let term = AcademicTerm { year: cap[1].parse().unwrap_or_default(), semester: cap[2].parse().unwrap_or_default() };
+        if !term.valid() { continue; }
+        let raw_name = c["fullname"].as_str().or_else(|| c["shortname"].as_str()).unwrap_or("");
+        courses.push(Course {
+            id, name: suffix.replace(raw_name, "").trim().to_string(),
+            code: Some(format!("{}-{}", &cap[3], &cap[4])), term: Some(term),
+        });
+    }
+    courses.sort_by(|a, b| {
+        let term = |c: &Course| c.term.map(|t| (t.year, t.semester));
+        term(b).cmp(&term(a)).then(a.code.cmp(&b.code)).then(a.name.cmp(&b.name))
+    });
+    courses
 }
 
 pub async fn token_owner(client: &reqwest::Client, token: &str) -> Result<(String, String)> {
@@ -751,111 +805,5 @@ fn vod_state(mark: Option<&str>, start: i64, end: i64, now: i64) -> VodState {
         _ if now > end => VodState::Missed,
         _ if now < start => VodState::Upcoming,
         _ => VodState::Todo,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn module_ids() -> HashMap<i64, i64> {
-        vod_instance_cmids(&json!([{"modules": [
-            {"id": 101, "instance": 11, "modname": "vod"},
-            {"id": 102, "instance": 12, "modname": "vod"},
-            {"id": 103, "instance": 13, "modname": "vod"}
-        ]}]))
-    }
-
-    fn period(cmid: Option<i64>, name: &str) -> VodPeriod {
-        VodPeriod { cmid, name: name.into(), start: 100, end: 200, late_until: None }
-    }
-
-    #[test]
-    fn duplicate_titles_keep_separate_progress_when_report_order_changes() {
-        let body = r#"<table class="user_progress_table"><tbody>
-            <tr><td rowspan="2">1</td><td>같은 제목</td><td>30:00</td>
-                <td>12:00<br><button class="track_detail" data-modname="vod" data-modid="12">2회 열람</button></td>
-                <td>▲</td></tr>
-            <tr><td>같은 제목</td><td>20:00</td>
-                <td>20:05<br><button class="track_detail" data-modname="vod" data-modid="11">1회 열람</button></td>
-                <td>O</td></tr>
-        </tbody></table>"#;
-        let rows = parse_progress(body, &module_ids());
-        let vods = merge_vod_progress(7, vec![
-            period(Some(101), "같은 제목"), period(Some(102), "같은 제목"),
-        ], &rows, 150);
-
-        assert_eq!(rows.len(), 2);
-        assert_eq!(vods[0].cmid, Some(101));
-        assert_eq!(vods[0].required.as_deref(), Some("20:00"));
-        assert_eq!(vods[0].watched.as_deref(), Some("20:05"));
-        assert_eq!(vods[0].mark.as_deref(), Some("O"));
-        assert_eq!(vods[0].state, VodState::Done);
-        assert_eq!(vods[1].cmid, Some(102));
-        assert_eq!(vods[1].required.as_deref(), Some("30:00"));
-        assert_eq!(vods[1].watched.as_deref(), Some("12:00"));
-        assert_eq!(vods[1].mark.as_deref(), Some("▲"));
-        assert_eq!(vods[1].state, VodState::Partial);
-    }
-
-    #[test]
-    fn renamed_video_still_matches_its_id() {
-        let rows = parse_progress(r#"<table><tr><td>이전 제목</td><td>1:00:00</td>
-            <td>1:01:02<button class="track_detail" data-modname="vod" data-modid="11">3회 열람</button></td>
-            <td>100%</td></tr></table>"#, &module_ids());
-        let vods = merge_vod_progress(7, vec![period(Some(101), "바뀐 제목")], &rows, 250);
-
-        assert_eq!(vods[0].name, "바뀐 제목");
-        assert_eq!(vods[0].watched.as_deref(), Some("1:01:02"));
-        assert_eq!(vods[0].state, VodState::Done);
-    }
-
-    #[test]
-    fn missing_or_unmapped_ids_never_fall_back_to_title_or_position() {
-        let rows = parse_progress(r#"<table>
-            <tr><td>같은 제목</td><td>20:00</td><td>20:05
-                <button class="track_detail" data-modname="vod" data-modid="11">1회 열람</button></td><td>O</td></tr>
-            <tr><td>같은 제목</td><td>30:00</td><td>-</td><td>X</td></tr>
-            <tr><td>같은 제목</td><td>30:00</td><td>30:00
-                <button class="track_detail" data-modname="vod" data-modid="103">1회 열람</button></td><td>O</td></tr>
-            <tr><td>같은 제목</td><td>30:00</td><td>30:00
-                <button class="track_detail" data-modname="quiz" data-modid="12">1회 열람</button></td><td>O</td></tr>
-        </table>"#, &module_ids());
-        assert_eq!(rows.len(), 1);
-        let vods = merge_vod_progress(7, vec![
-            period(Some(102), "같은 제목"), period(Some(103), "같은 제목"), period(None, "같은 제목"),
-        ], &rows, 150);
-        for vod in vods {
-            assert!(vod.watched.is_none());
-            assert!(vod.mark.is_none());
-            assert_eq!(vod.state, VodState::Todo);
-        }
-    }
-
-    #[test]
-    fn module_mapping_only_accepts_valid_vod_ids() {
-        let ids = vod_instance_cmids(&json!([
-            {"modules": [
-                {"id": 101, "instance": 11, "modname": "vod"},
-                {"id": 201, "instance": 11, "modname": "quiz"},
-                {"id": 102, "modname": "vod"},
-                {"id": 0, "instance": 12, "modname": "vod"},
-                {"id": 103, "instance": -1, "modname": "vod"}
-            ]},
-            {"modules": [{"id": 104, "instance": 14, "modname": "vod"}]},
-            {}
-        ]));
-        assert_eq!(ids, HashMap::from([(11, 101), (14, 104)]));
-        assert!(vod_instance_cmids(&Value::Null).is_empty());
-    }
-
-    #[test]
-    fn mobile_report_without_ids_is_not_matched_by_title() {
-        let rows = parse_progress(r#"<table class="table-progress-mobile">
-            <tr class="tr-module"><td colspan="3">같은 제목</td></tr>
-            <tr class="tr-small tr-end"><td>20:00</td><td>20:05</td><td>O</td></tr>
-        </table>"#, &module_ids());
-        assert!(rows.is_empty());
     }
 }

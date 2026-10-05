@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
 use chrono::{Duration as Span, TimeZone, Utc};
-use hongsi_core::models::{ActiveLectures, AttendanceCourse, BoardArticle, MealDay, ModuleContents, Timetable};
+use hongsi_core::models::{ActiveLectures, AttendanceCourse, BoardArticle, MealDay, ModuleContents, SemesterDisplay, Timetable};
 use hongsi_core::seats::validity_hours;
 use hongsi_core::SchoolSession;
 use serde::Deserialize;
@@ -301,7 +301,7 @@ async fn download_file(
     let file = match cached {
         Some(f) => f,
         None => {
-            let courses = user.session.school()?.courses().await?;
+            let courses = user.session.school()?.all_courses().await?;
             let assignments = user.session.school()?.assignments(&courses).await?;
             assignments
                 .into_iter()
@@ -511,12 +511,19 @@ struct RefreshQuery {
     refresh: Option<u8>,
 }
 
-async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Query<RefreshQuery>) -> ApiResult<CalendarData> {
+#[derive(Deserialize)]
+struct CalendarQuery {
+    refresh: Option<u8>,
+    #[serde(default)]
+    semester: SemesterDisplay,
+}
+
+async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Query<CalendarQuery>) -> ApiResult<CalendarData> {
     let s = &user.session;
     let mut cache = s.calendar_cache.lock().await;
     if q.refresh.unwrap_or(0) == 0 {
         if let Some((at, data)) = cache.as_ref() {
-            if at.elapsed() < Duration::from_secs(180) {
+            if at.elapsed() < Duration::from_secs(180) && data.semester_display == q.semester {
                 let mut data = data.clone();
                 drop(cache);
                 calendar::load_state(&st.db, s.user_id).await?.apply(&mut data.items);
@@ -525,7 +532,7 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
         }
     }
     let school = s.school()?;
-    let courses = school.courses().await?;
+    let (current_term, courses) = school.courses_for(q.semester).await?;
     let (assignments, vods) = tokio::join!(school.assignments(&courses), school.vods(&courses));
     let (assignments, vods) = (assignments?, vods?);
     let snapshots = db::sync_assignments(&st.db, s.user_id, &assignments).await?;
@@ -534,6 +541,8 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
     let alert_leads = db::item_alert_leads(&st.db, s.user_id).await?;
     let now = Utc::now().timestamp();
     let data = CalendarData {
+        semester_display: q.semester,
+        current_term,
         items: calendar::build(&assignments, &vods, &calendar::snapshot_infos(snapshots), &checks, &alerts_off, &alert_leads, now),
         courses,
         fetched_at: now,
@@ -655,7 +664,7 @@ async fn notices_seen_add(State(st): State<Shared>, user: CurrentUser, Json(b): 
 
 async fn find_assignment(user: &CurrentUser, cmid: i64) -> Result<hongsi_core::models::Assignment, ApiError> {
     let school = user.session.school()?;
-    let courses = school.courses().await?;
+    let courses = school.all_courses().await?;
     school
         .assignments(&courses)
         .await?
@@ -800,15 +809,15 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTim
             .as_ref()
             .map(|(_, d)| d.courses.iter().any(|c| c.id == course));
         let known = match (cached, user.session.school().ok()) {
-            (Some(k), _) => k,
-            (None, Some(school)) => school.courses().await?.iter().any(|c| c.id == course),
-            (None, None) => {
+            (Some(true), _) => true,
+            (_, Some(school)) => school.all_courses().await?.iter().any(|c| c.id == course),
+            (_, None) => {
                 let known = user.session.device_courses.lock().expect("세션 잠금");
                 known.is_empty() || known.contains(&course)
             }
         };
         if !known {
-            return Err(ApiError::bad_request("이번 학기 수강 과목이 아니에요."));
+            return Err(ApiError::bad_request("수강 과목을 확인할 수 없어요."));
         }
     }
     Ok(due)

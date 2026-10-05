@@ -1,8 +1,8 @@
 import { api } from './api';
-import { app, handleAuthError, onBeforeLogout, pref, setPref } from './store.svelte';
+import { app, handleAuthError, onBeforeLogout, pref, setPref, setCalendarSemesterDisplay } from './store.svelte';
 import { isCurrentSession, onSessionChange, readUserData, sessionUser, sessionVersion, writeUserData } from './session';
 import { toastOnce } from './ui.svelte';
-import type { AccountPreferences, AccountPreferenceChanges } from './types';
+import type { AccountPreferences, AccountPreferenceChanges, SemesterDisplay } from './types';
 
 export type Theme = 'system' | 'light' | 'dark';
 export type Midnight = 'prev' | 'same';
@@ -23,6 +23,7 @@ export const settings = $state({
   showUndatedAssignments: pref<boolean>('show-undated-assignments', false),
   mealPlace: 'dorm' as MealPlace,
   timetableDisplay: 'fit' as TimetableDisplay,
+  semesterDisplay: 'current' as SemesterDisplay,
   alertLeads: [60],
 });
 
@@ -35,6 +36,10 @@ export function toggleAlertLead(min: number) {
 
 export function setTimetableDisplay(value: TimetableDisplay) {
   changeAccountPreferences({ timetableDisplay: value });
+}
+
+export function setSemesterDisplay(value: SemesterDisplay) {
+  changeAccountPreferences({ semesterDisplay: value });
 }
 
 export function setMealPlace(value: MealPlace) {
@@ -67,7 +72,7 @@ export function setShowUndatedAssignments(value: boolean) {
   setPref('show-undated-assignments', value);
 }
 
-const defaults = (): AccountPreferences => ({ mealPlace: 'dorm', timetableDisplay: 'fit', alertLeads: [60], updatedAt: 0 });
+const defaults = (): AccountPreferences => ({ mealPlace: 'dorm', timetableDisplay: 'fit', semesterDisplay: 'current', alertLeads: [60], updatedAt: 0 });
 export const accountPreferences = $state({ loaded: false, saving: false, error: '', updatedAt: 0 });
 let confirmed = defaults();
 let pending: AccountPreferenceChanges = {};
@@ -80,6 +85,8 @@ function apply(value: AccountPreferences, changes: AccountPreferenceChanges = {}
   const next = { ...value, ...changes };
   settings.mealPlace = next.mealPlace;
   settings.timetableDisplay = next.timetableDisplay;
+  settings.semesterDisplay = next.semesterDisplay === 'all' ? 'all' : 'current';
+  setCalendarSemesterDisplay(settings.semesterDisplay);
   settings.alertLeads = [...next.alertLeads];
   accountPreferences.updatedAt = value.updatedAt;
 }
@@ -97,6 +104,7 @@ function changeAccountPreferences(changes: AccountPreferenceChanges) {
   revision++;
   pending = { ...pending, ...changes };
   Object.assign(settings, changes);
+  if (changes.semesterDisplay) setCalendarSemesterDisplay(changes.semesterDisplay);
   if (saving) return;
   const version = sessionVersion();
   accountPreferences.saving = true;

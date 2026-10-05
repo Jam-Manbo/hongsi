@@ -5,6 +5,7 @@ import { focus, go, toast } from './ui.svelte';
 import { sessionVersion, isCurrentSession } from './session';
 import type { NotificationIntent } from './notification-model';
 import { classroomDestination } from './classroom-notice';
+import { displayedTodos } from './todos.svelte';
 
 let navigation = 0;
 
@@ -47,7 +48,7 @@ export async function openNotification(intent: NotificationIntent) {
       return true;
     }
     if (target.kind === 'todo') {
-      const todo = todos.data?.find((t) => t.id === target.id);
+      const todo = displayedTodos().find((t) => t.id === target.id);
       if (!todo) return false;
       if (todo.doneAt !== null) toast('이미 완료한 할 일이에요.', 'info');
       focus.todo = target.id;
@@ -68,6 +69,6 @@ export async function openNotification(intent: NotificationIntent) {
     const seat = seatSession.data?.session;
     if (!seat || seat.id !== target.id || seat.endedAt !== null) toast('현재 이용 중인 좌석이 아니에요.', 'info');
   } else if (!openDetail()) {
-    toast(target.kind === 'item' ? '이 일정은 삭제됐거나 이번 학기 목록에 없어요.' : '이 할 일은 삭제됐거나 보관 기간이 지났어요.', 'info');
+    toast(target.kind === 'item' ? '표시할 일정이 없어요.' : '표시할 할 일이 없어요.', 'info');
   }
 }

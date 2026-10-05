@@ -24,6 +24,7 @@ import type {
   SeatSession,
   SeatsData,
   SubmissionView,
+  SemesterDisplay,
   Timetable,
   Todo,
   TodoInput,
@@ -199,7 +200,7 @@ export const api = {
     request<AttendanceCourse>('GET', `/api/attendance/course?code=${encodeURIComponent(code)}`),
   timetable: (refresh = false) => request<Timetable>('GET', `/api/timetable${refresh ? '?refresh=1' : ''}`),
 
-  calendar: (refresh = false) => request<CalendarData>('GET', `/api/calendar${refresh ? '?refresh=1' : ''}`),
+  calendar: (refresh = false, semester: SemesterDisplay = 'current') => request<CalendarData>('GET', `/api/calendar?semester=${semester}${refresh ? '&refresh=1' : ''}`),
   calendarState: () => request<CalendarState>('GET', '/api/calendar/state'),
   setDone: (key: string, done: boolean | null) =>
     request<{ key: string; done: boolean }>('PUT', `/api/calendar/items/${encodeURIComponent(key)}/done`, { done }),

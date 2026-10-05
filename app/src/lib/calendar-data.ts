@@ -5,6 +5,8 @@ export function normalizeCalendar(data: CalendarData): CalendarData {
   const ids = new Set<number>();
   return {
     ...data,
+    semesterDisplay: data.semesterDisplay ?? 'current',
+    currentTerm: data.currentTerm ?? null,
     items: data.items.filter((item) => {
       if (keys.has(item.key)) return false;
       keys.add(item.key);

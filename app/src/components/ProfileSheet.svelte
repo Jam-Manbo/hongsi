@@ -7,6 +7,7 @@
     refreshAccountPreferences,
     setMealPlace,
     setTimetableDisplay,
+    setSemesterDisplay,
     setShowUndatedAssignments,
     setMidnight,
     setTheme,
@@ -96,8 +97,18 @@
         <button role="radio" aria-checked={settings.timetableDisplay === 'fit'} class:on={settings.timetableDisplay === 'fit'} disabled={!accountPreferences.loaded} onclick={() => setTimetableDisplay('fit')}>최적화 표시</button>
       </div>
       <p class="set-hint muted">{settings.timetableDisplay === 'full'
-        ? '앞뒤 공강을 포함하여 전체 시간표를 표시합니다.'
-        : '앞뒤 공강이 있을 경우 해당 시간을 제외하고 시간표를 표시합니다.'}</p>
+        ? '공강을 포함한 전체 시간표를 표시해요.'
+        : '앞뒤 공강을 줄여 시간표를 표시해요.'}</p>
+    </div>
+    <div class="set">
+      <span class="set-label">학기 표시</span>
+      <div class="seg" role="group" aria-label="학기 표시">
+        <button aria-pressed={settings.semesterDisplay === 'current'} class:on={settings.semesterDisplay === 'current'} disabled={!accountPreferences.loaded} onclick={() => setSemesterDisplay('current')}>현재 학기</button>
+        <button aria-pressed={settings.semesterDisplay === 'all'} class:on={settings.semesterDisplay === 'all'} disabled={!accountPreferences.loaded} onclick={() => setSemesterDisplay('all')}>전체 학기</button>
+      </div>
+      <p class="set-hint muted">{settings.semesterDisplay === 'current'
+        ? '현재 학기만 표시해요.'
+        : '지난 학기까지 모두 표시해요.'}</p>
     </div>
     <div class="set">
       <span class="set-label">마감일 없는 과제 표시<Switch checked={settings.showUndatedAssignments} label="마감일 없는 과제 표시" onchange={setShowUndatedAssignments} /></span>

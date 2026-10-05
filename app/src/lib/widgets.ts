@@ -5,7 +5,7 @@ import { attendanceWidgetSnapshot, afterSubmit } from './classwatch.svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { isApp } from './env';
 import { courseColors, itemStatus } from './colors';
-import { todoDeadline } from './todos.svelte';
+import { displayedTodos, todoDeadline } from './todos.svelte';
 import { focus, go, toast } from './ui.svelte';
 import type { AttendanceReceipt } from './types';
 import { sessionVersion, isCurrentSession } from './session';
@@ -28,7 +28,7 @@ export function widgetSnapshot(): string {
     slots: (timetable.data?.slots ?? []).map((s) => ({ ...s, color: colors.get(courses.find((c) => c.code === s.code || c.name === s.name)?.id ?? -1) ?? '#3b82f6' })),
     deadlines: [
       ...(calendar.data?.items ?? []).map((i) => ({ key: i.key, title: i.title, course: course(i.courseId)?.name ?? '', due: i.due, start: i.start, done: i.done, kind: i.kind, status: itemStatus(i).label, color: colors.get(i.courseId) ?? '#3b82f6' })),
-      ...(todos.data ?? []).map((t) => ({ key: `todo:${t.id}`, title: t.title, course: course(t.courseId)?.name ?? '공통', dueAt: t.dueAt, allDay: t.allDay, due: todoDeadline(t), start: null, done: t.doneAt !== null, kind: 'todo', status: '', color: colors.get(t.courseId ?? -1) ?? null })),
+      ...displayedTodos().map((t) => ({ key: `todo:${t.id}`, title: t.title, course: course(t.courseId)?.name ?? '공통', dueAt: t.dueAt, allDay: t.allDay, due: todoDeadline(t), start: null, done: t.doneAt !== null, kind: 'todo', status: '', color: colors.get(t.courseId ?? -1) ?? null })),
     ],
     active: (lectures.data?.items ?? []).map(({ name, time, code }) => ({ name, time, code })),
     receipts: (attendanceReceipts.data ?? []).map(({ lecture, date, kind, confirmedAt }) => ({ name: lecture.name, time: lecture.time, date, kind, confirmedAt })),
@@ -85,7 +85,7 @@ export async function openWidgetIntent() {
       const todo = key.startsWith('todo:');
       const resource = todo ? todos : calendar;
       const openDetail = () => {
-        if (todo && todos.data?.some((t) => t.id === Number(key.slice(5)))) {
+        if (todo && displayedTodos().some((t) => t.id === Number(key.slice(5)))) {
           focus.todo = Number(key.slice(5));
           return true;
         }
@@ -101,7 +101,7 @@ export async function openWidgetIntent() {
       }
       await resource.load(true);
       if (!isCurrentSession(version)) return;
-      if (!openDetail()) toast(resource.error ? '다시 시도해 주세요.' : '이 일정은 삭제됐거나 목록에 없어요.', 'info');
+      if (!openDetail()) toast(resource.error ? '다시 시도해 주세요.' : '표시할 일정이 없어요.', 'info');
     }
   } catch { toast('위젯에 해당하는 화면을 열지 못했어요.', 'error'); }
   finally { opening = false; }

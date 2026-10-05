@@ -8,6 +8,8 @@
   import { dayKey, dueDateTime, hourNow, todayKey } from '../lib/format';
   import { homeAgenda, type HomeEntry } from '../lib/home-agenda';
   import { settings } from '../lib/settings.svelte';
+  import { displayedTodos } from '../lib/todos.svelte';
+  import { courseLabel } from '../lib/semester';
   import { calendar, meals, seatSession, seats, timetable, todos } from '../lib/store.svelte';
   import { go, openSeats } from '../lib/ui.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
@@ -35,8 +37,11 @@
   });
 
   const colors = $derived(courseColors(calendar.data?.courses ?? []));
-  const courseName = (id: number) => calendar.data?.courses.find((c) => c.id === id)?.name ?? '';
-  const agenda = $derived(homeAgenda(calendar.data?.items ?? [], todos.data ?? [], classWatch.now, settings.showUndatedAssignments));
+  const courseName = (id: number) => {
+    const course = calendar.data?.courses.find((c) => c.id === id);
+    return course ? courseLabel(course, settings.semesterDisplay) : '';
+  };
+  const agenda = $derived(homeAgenda(calendar.data?.items ?? [], displayedTodos(), classWatch.now, settings.showUndatedAssignments));
   const agendaLoading = $derived((calendar.data === null && !calendar.error) || (todos.data === null && !todos.error));
   const agendaComplete = $derived(calendar.data !== null && todos.data !== null);
   const groups = $derived([
@@ -204,7 +209,7 @@
   course={detail ? courseName(detail.courseId) : ''}
   color={detail ? (colors.get(detail.courseId) ?? 'var(--text-3)') : ''}
   ontoggle={toggleDone}
-  subtodos={detail ? (todos.data ?? []).filter((t) => t.parentKey === detail.key) : []}
+  subtodos={detail ? displayedTodos().filter((t) => t.parentKey === detail.key) : []}
   onaddtodo={addTodo}
   oneditodo={editTodo}
 />

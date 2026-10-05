@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::classroom::CN2;
-use crate::models::{Assignment, Attachment, Course, SubmissionState, SubmitConfig, Vod, VodState};
+use crate::models::{AcademicTerm, Assignment, Attachment, Course, SemesterDisplay, SubmissionState, SubmitConfig, Vod, VodState};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,9 +36,23 @@ impl CalendarState {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CalendarData {
+    pub semester_display: SemesterDisplay,
+    pub current_term: Option<AcademicTerm>,
     pub courses: Vec<Course>,
     pub items: Vec<CalendarItem>,
     pub fetched_at: i64,
+}
+
+pub fn todo_visible(
+    display: SemesterDisplay,
+    course_id: Option<i64>,
+    parent_key: Option<&str>,
+    course_ids: &HashSet<i64>,
+    item_keys: &HashSet<String>,
+) -> bool {
+    if display == SemesterDisplay::All { return true; }
+    if let Some(id) = course_id { return course_ids.contains(&id); }
+    parent_key.is_none_or(|key| item_keys.contains(key))
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,6 +1,7 @@
 export type AccountPreferences = {
   mealPlace: 'dorm' | 'staff';
   timetableDisplay: 'full' | 'fit';
+  semesterDisplay: SemesterDisplay;
   alertLeads: number[];
   updatedAt: number;
 };
@@ -43,7 +44,9 @@ export type AttendanceCourse = {
   summary: AttendanceSummary;
 };
 
-export type Course = { id: number; name: string; code: string | null };
+export type SemesterDisplay = 'current' | 'all';
+export type AcademicTerm = { year: number; semester: number };
+export type Course = { id: number; name: string; code: string | null; term?: AcademicTerm | null };
 export type Attachment = { name: string; size: number | null; mime: string | null };
 export type ItemStatus =
   | 'submitted'
@@ -111,7 +114,10 @@ export type CalendarState = {
   alertLeads: Record<string, number[]>;
 };
 
-export type CalendarData = { courses: Course[]; items: CalendarItem[]; fetchedAt: number };
+export type CalendarData = {
+  courses: Course[]; items: CalendarItem[]; fetchedAt: number;
+  semesterDisplay: SemesterDisplay; currentTerm: AcademicTerm | null;
+};
 
 export type Meal = { name: string; start: string | null; end: string | null; price: string | null; items: string[] };
 export type MealPlace = { name: string; meals: Meal[] };

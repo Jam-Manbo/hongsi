@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use regex::Regex;
@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::sync::OnceCell;
 
 use crate::{CoreError, Result};
+use crate::models::AcademicTerm;
 
 pub(crate) const UA: &str = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) \
                              Chrome/128.0.0.0 Mobile Safari/537.36";
@@ -66,6 +67,8 @@ pub struct SchoolSessionSnapshot {
     pub(crate) moodle: Option<MoodleAuth>,
     #[serde(default)]
     service_cookies: Vec<ServiceCookies>,
+    #[serde(default)]
+    current_term: Option<AcademicTerm>,
 }
 
 pub struct SchoolSession {
@@ -76,6 +79,7 @@ pub struct SchoolSession {
     pub(crate) attendance_forms: OnceCell<Vec<Vec<(String, String)>>>,
     pub(crate) moodle_web_ready: OnceCell<()>,
     pub(crate) moodle: OnceCell<MoodleAuth>,
+    pub(crate) current_term: RwLock<Option<AcademicTerm>>,
     sso_cookies: Vec<(String, String)>,
 }
 
@@ -132,6 +136,7 @@ impl SchoolSession {
             attendance_forms: OnceCell::new(),
             moodle_web_ready: OnceCell::new(),
             moodle: OnceCell::new(),
+            current_term: RwLock::new(None),
             sso_cookies,
         }
     }
@@ -158,7 +163,8 @@ impl SchoolSession {
             cookies.sort();
             (!cookies.is_empty()).then(|| ServiceCookies { origin: origin.to_string(), cookies })
         }).collect();
-        SchoolSessionSnapshot { version: 1, sso_cookies: self.sso_cookies.clone(), moodle: self.moodle.get().cloned(), service_cookies }
+        SchoolSessionSnapshot { version: 1, sso_cookies: self.sso_cookies.clone(), moodle: self.moodle.get().cloned(), service_cookies,
+            current_term: *self.current_term.read().expect("학기 잠금") }
     }
 
     pub fn from_snapshot(snapshot: SchoolSessionSnapshot) -> Result<Self> {
@@ -182,6 +188,7 @@ impl SchoolSession {
             return Err(CoreError::Parse("저장된 학교 세션".into()));
         }
         let mut session = Self::from_sso_cookies(snapshot.sso_cookies)?;
+        session.current_term = RwLock::new(snapshot.current_term.filter(|term| term.valid()));
         session.moodle = OnceCell::new_with(snapshot.moodle);
         for service in snapshot.service_cookies {
             let origin = Url::parse(&service.origin).map_err(|_| CoreError::Parse("저장된 학교 주소".into()))?;

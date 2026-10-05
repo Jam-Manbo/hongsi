@@ -12,6 +12,7 @@ import type {
   Profile,
   SeatSession,
   SeatsData,
+  SemesterDisplay,
   Timetable,
   Todo,
 } from './types';
@@ -145,6 +146,12 @@ export class Resource<T> {
     }
   }
 
+  setKey(key: string) {
+    if (this.key === key) return;
+    this.key = key;
+    this.restore();
+  }
+
   get stale() {
     return Date.now() - this.at > this.maxAgeMs;
   }
@@ -219,7 +226,15 @@ export class Resource<T> {
 }
 
 const MIN = 60_000;
-export const calendar = new Resource<CalendarData>('calendar', (force) => api.calendar(force), 5 * MIN, normalizeCalendar);
+let calendarSemesterDisplay: SemesterDisplay = 'current';
+export const calendar = new Resource<CalendarData>('calendar-current-v2', (force) => api.calendar(force, calendarSemesterDisplay), 5 * MIN, normalizeCalendar);
+
+export function setCalendarSemesterDisplay(display: SemesterDisplay) {
+  if (calendarSemesterDisplay === display) return;
+  calendarSemesterDisplay = display;
+  calendar.setKey(`calendar-${display}-v2`);
+  if (app.profile) void calendar.load();
+}
 export const seats = new Resource<SeatsData>('seats', () => api.seats(), MIN);
 export const seatSession = new Resource<{ session: SeatSession | null }>('seat-session', () => api.seatSession(), MIN);
 export const meals = new Resource<MealDay[]>('meals', () => api.meals(), 30 * MIN);

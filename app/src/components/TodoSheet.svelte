@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
   import { settings } from '../lib/settings.svelte';
+  import { courseLabel } from '../lib/semester';
   import { pendingTodos, removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
   import TimeWheel from './TimeWheel.svelte';
   import DateField from './DateField.svelte';
@@ -138,7 +139,7 @@
         </button>
         {#each courses as c (c.id)}
           <button type="button" class="c" class:on={courseId === c.id} style:--c={colors.get(c.id)} onclick={() => (courseId = c.id)} role="radio" aria-checked={courseId === c.id}>
-            <i></i>{c.name}
+            <i></i>{courseLabel(c, settings.semesterDisplay)}
           </button>
         {/each}
       </div>

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use hongsi_core::calendar::{self, CalendarData, SnapshotInfo, SubmitRejection};
-use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SubmissionInfo, Timetable};
+use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SemesterDisplay, SubmissionInfo, Timetable};
 use hongsi_core::{api_error, CoreError, SchoolSession, SchoolSessionSnapshot};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -493,7 +493,14 @@ impl Direct {
                 payload["cookies"] = json!(school.session.sso_cookies());
                 Ok(self.server(&Method::POST, route, Some(&payload)).await)
             }
-            ("GET", "/api/calendar") => self.calendar(refresh).await.map(Reply::ok),
+            ("GET", "/api/calendar") => {
+                let display = match q.get("semester").map(String::as_str).unwrap_or("current") {
+                    "current" => SemesterDisplay::Current,
+                    "all" => SemesterDisplay::All,
+                    _ => return Err(Reply::error(400, "bad_request", "학기 표시 설정을 확인해 주세요.")),
+                };
+                self.calendar(refresh, display).await.map(Reply::ok)
+            }
             ("GET", "/api/meals") => Ok(self.meals().await),
             ("POST", r) if r.starts_with("/api/calendar/items/") && r.ends_with("/verify") => {
                 let key = decode(r.trim_start_matches("/api/calendar/items/").trim_end_matches("/verify"));
@@ -654,11 +661,12 @@ impl Direct {
         Ok(json!(all))
     }
 
-    async fn calendar(&self, refresh: bool) -> R<Value> {
+    async fn calendar(&self, refresh: bool, display: SemesterDisplay) -> R<Value> {
         let s = self.current().await?;
         let mut slot = s.calendar.lock().await;
         if !refresh {
-            if let Some((mut data, _)) = cached(&slot, Duration::from_secs(180)) {
+            if let Some((mut data, _)) = cached(&slot, Duration::from_secs(180))
+                .filter(|(data, _)| data.semester_display == display) {
                 let reply = self.server(&Method::GET, "/api/calendar/state", None).await;
                 if reply.status == 200 {
                     if let Ok(state) = serde_json::from_value::<calendar::CalendarState>(reply.body) {
@@ -671,12 +679,14 @@ impl Direct {
                 return Ok(json!(data));
             }
         }
-        let courses = s.session.courses().await?;
+        let (current_term, courses) = s.session.courses_for(display).await?;
         let (assignments, vods) = tokio::join!(s.session.assignments(&courses), s.session.vods(&courses));
         let (assignments, vods) = (assignments?, vods?);
         let (snapshots, checks, alerts_off, alert_leads) = self.calendar_state(&courses, &assignments).await;
         let now = Utc::now().timestamp();
         let data = CalendarData {
+            semester_display: display,
+            current_term,
             items: calendar::build(&assignments, &vods, &snapshots, &checks, &alerts_off, &alert_leads, now),
             courses,
             fetched_at: now,
@@ -779,7 +789,7 @@ impl Direct {
         if let Some(a) = cached {
             return Ok(a);
         }
-        let courses = s.session.courses().await?;
+        let courses = s.session.all_courses().await?;
         s.session
             .assignments(&courses)
             .await?

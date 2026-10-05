@@ -118,6 +118,28 @@ pub struct Course {
     pub id: i64,
     pub name: String,
     pub code: Option<String>,
+    #[serde(default)]
+    pub term: Option<AcademicTerm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AcademicTerm {
+    pub year: i32,
+    pub semester: i32,
+}
+
+impl AcademicTerm {
+    pub fn valid(self) -> bool {
+        (1900..=9999).contains(&self.year) && matches!(self.semester, 10 | 11 | 20 | 21)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SemesterDisplay {
+    #[default]
+    Current,
+    All,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,10 +2,16 @@ import { SvelteSet } from 'svelte/reactivity';
 import { api } from './api';
 import { dayKey } from './format';
 import { errorText, writeBlocked } from './net.svelte';
-import { handleAuthError, todos } from './store.svelte';
+import { calendar, handleAuthError, todos } from './store.svelte';
+import { settings } from './settings.svelte';
+import { filterSemesterTodos } from './semester';
 import { isCurrentSession, onSessionChange, sessionVersion } from './session';
 import { toast, toastOnce } from './ui.svelte';
 import type { Todo, TodoInput } from './types';
+
+export function displayedTodos(): Todo[] {
+  return filterSemesterTodos(todos.data ?? [], calendar.data, settings.semesterDisplay);
+}
 
 
 export function todoKey(t: Todo): string | null {

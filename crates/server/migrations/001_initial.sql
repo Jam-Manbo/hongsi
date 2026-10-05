@@ -9,6 +9,7 @@ create table account_preferences (
     user_id bigint primary key references users(id) on delete cascade,
     meal_place text not null default 'dorm' check (meal_place in ('dorm', 'staff')),
     timetable_display text not null default 'fit' check (timetable_display in ('full', 'fit')),
+    semester_display text not null default 'current' check (semester_display in ('current', 'all')),
     alert_leads integer[] not null default array[60] check (cardinality(alert_leads) <= 5 and alert_leads <@ array[1440, 180, 60, 10, 0]),
     updated_at timestamptz not null default now()
 );

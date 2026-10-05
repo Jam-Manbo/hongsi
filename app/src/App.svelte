@@ -9,7 +9,7 @@
   import DownloadPage from './pages/DownloadPage.svelte';
   import { ApiError, api, isApp, native } from './lib/api';
   import { isPending } from './lib/colors';
-  import { isTodoPending, todoDeadline } from './lib/todos.svelte';
+  import { displayedTodos, isTodoPending, todoDeadline } from './lib/todos.svelte';
   import { errorText } from './lib/net.svelte';
   import { syncSeatReminders } from './lib/seat.svelte';
   import { syncDueReminders } from './lib/reminders';
@@ -56,7 +56,7 @@
   const weekDue = $derived.by(() => {
     const now = Date.now() / 1000;
     const school = (calendar.data?.items ?? []).filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86_400).length;
-    const personal = (todos.data ?? []).filter((t) => isTodoPending(t, now) && todoDeadline(t) !== null && todoDeadline(t)! - now < 7 * 86_400).length;
+    const personal = displayedTodos().filter((t) => isTodoPending(t, now) && todoDeadline(t) !== null && todoDeadline(t)! - now < 7 * 86_400).length;
     return school + personal;
   });
   const attendOpen = $derived(lectures.at > Date.now() - 10 * 60_000 && (lectures.data?.items.length ?? 0) > 0);
@@ -199,7 +199,7 @@
     if (on && !accountPreferences.loaded) return;
     syncDueReminders(
       on ? (calendar.data?.items ?? []) : [],
-      on ? (todos.data ?? []) : [],
+      on ? displayedTodos() : [],
       calendar.data?.courses ?? [],
       settings.alertLeads,
     );

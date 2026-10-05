@@ -4,7 +4,7 @@ use crate::{
 };
 use chrono::Utc;
 use futures::{stream, StreamExt};
-use hongsi_core::models::{Assignment, Course, Vod};
+use hongsi_core::models::{AcademicTerm, Assignment, Course, SemesterDisplay, Vod};
 use serde_json::{json, Value};
 use sqlx::{FromRow, PgConnection, PgPool};
 use std::{
@@ -32,6 +32,8 @@ struct PollJob {
 
 struct SchoolData {
     account: String,
+    semester_display: SemesterDisplay,
+    current_term: Option<AcademicTerm>,
     courses: Vec<Course>,
     assignments: Vec<Assignment>,
     vods: Vec<Vod>,
@@ -115,9 +117,13 @@ async fn claim_poll(db: &PgPool) -> sqlx::Result<Option<PollJob>> {
 async fn fetch_school(
     sealed: &vault::Sealed,
     previous: Option<&Value>,
+    display: SemesterDisplay,
 ) -> Result<SchoolData, ApiError> {
     let school = sealed.school_session()?;
-    let courses = school.courses().await?;
+    if let Some(term) = previous.and_then(|v| serde_json::from_value(v["currentTerm"].clone()).ok()) {
+        school.remember_current_term(term);
+    }
+    let (current_term, courses) = school.courses_for(display).await?;
     let (assignments, vods, notices) = tokio::join!(
         school.assignments(&courses),
         school.vods(&courses),
@@ -125,6 +131,8 @@ async fn fetch_school(
     );
     Ok(SchoolData {
         account: sealed.student_id.clone(),
+        semester_display: display,
+        current_term,
         courses,
         assignments: assignments?,
         vods: vods?,
@@ -133,6 +141,9 @@ async fn fetch_school(
 }
 
 async fn poll(st: &Shared, job: PollJob) -> sqlx::Result<()> {
+    let display = if preferences::load(&st.db, job.user_id).await?.semester_display == "all" {
+        SemesterDisplay::All
+    } else { SemesterDisplay::Current };
     let result = match vault::open(
         &st.pepper,
         &format!("background:{}:{}", job.user_id, job.id),
@@ -140,7 +151,7 @@ async fn poll(st: &Shared, job: PollJob) -> sqlx::Result<()> {
         &job.ciphertext,
     ) {
         Some(sealed) => {
-            match tokio::time::timeout(POLL_TIMEOUT, fetch_school(&sealed, job.snapshot.as_ref()))
+            match tokio::time::timeout(POLL_TIMEOUT, fetch_school(&sealed, job.snapshot.as_ref(), display))
                 .await
             {
                 Ok(result) => result.map_err(|e| e.code.to_owned()),
@@ -178,6 +189,8 @@ async fn finish_poll(
             let snapshots =
                 db::sync_assignments_in(&mut tx, job.user_id, &data.assignments).await?;
             let snapshot = json!({
+                "semesterDisplay": data.semester_display,
+                "currentTerm": data.current_term,
                 "courses": data.courses,
                 "items": calendar::build(&data.assignments, &data.vods, &calendar::snapshot_infos(snapshots),
                     &HashMap::new(), &HashSet::new(), &HashMap::new(), Utc::now().timestamp()),
@@ -292,13 +305,25 @@ async fn load_reminders(
     uid: i64,
     snapshot: Option<&Value>,
 ) -> sqlx::Result<ReminderState> {
+    let prefs = preferences::load(&mut *db, uid).await?;
+    let display = if prefs.semester_display == "all" { SemesterDisplay::All } else { SemesterDisplay::Current };
+    let mut items = snapshot.and_then(|v| v["items"].as_array()).cloned().unwrap_or_default();
+    let courses: Vec<Course> = snapshot.and_then(|v| serde_json::from_value(v["courses"].clone()).ok()).unwrap_or_default();
+    let term: Option<AcademicTerm> = snapshot.and_then(|v| serde_json::from_value(v["currentTerm"].clone()).ok());
+    let current_snapshot = snapshot.is_some_and(|v| v["semesterDisplay"].as_str().unwrap_or("current") == "current");
+    let course_ids: HashSet<i64> = courses.iter().filter(|c| {
+        display == SemesterDisplay::All || term.is_some_and(|term| c.term == Some(term)) || (term.is_none() && current_snapshot)
+    }).map(|c| c.id).collect();
+    if display == SemesterDisplay::Current {
+        items.retain(|i| i["courseId"].as_i64().is_some_and(|id| course_ids.contains(&id)));
+    }
+    let item_keys = items.iter().filter_map(|i| i["key"].as_str().map(str::to_string)).collect();
+    let mut tasks = todos::list(&mut *db, uid).await?;
+    tasks.retain(|t| hongsi_core::calendar::todo_visible(display, t.course_id, t.parent_key.as_deref(), &course_ids, &item_keys));
     Ok(ReminderState {
-        items: snapshot
-            .and_then(|v| v["items"].as_array())
-            .cloned()
-            .unwrap_or_default(),
-        defaults: preferences::load(&mut *db, uid).await?.alert_leads,
-        tasks: todos::list(&mut *db, uid).await?,
+        items,
+        defaults: prefs.alert_leads,
+        tasks,
         seat: db::active_seat_session(&mut *db, uid).await?,
         checks: db::item_checks(&mut *db, uid).await?,
         off: db::item_alerts_off(&mut *db, uid).await?,

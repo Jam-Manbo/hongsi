@@ -44,7 +44,7 @@ const COLUMNS: &str = "id, course_id, parent_key, title, note, due_at, all_day, 
 pub async fn list(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<Vec<Todo>> {
     sqlx::query_as(&format!(
         "select {COLUMNS} from todos
-         where user_id = $1 and (done_at is null or done_at > now() - interval '30 days')
+         where user_id = $1
          order by due_at nulls last, id"
     ))
     .bind(user_id)
