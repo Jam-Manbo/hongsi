@@ -383,7 +383,7 @@ struct VerifyQuery {
     course: i64,
 }
 
-async fn verify_item(user: CurrentUser, Path(key): Path<String>, Query(q): Query<VerifyQuery>) -> ApiResult<Value> {
+async fn verify_item(State(st): State<Shared>, user: CurrentUser, Path(key): Path<String>, Query(q): Query<VerifyQuery>) -> ApiResult<Value> {
     use hongsi_core::models::{SubmissionState, VodState};
     let (kind, id) = key.split_once(':').ok_or_else(|| ApiError::bad_request("잘못된 항목이에요."))?;
     let cmid: i64 = id.parse().map_err(|_| ApiError::bad_request("잘못된 항목이에요."))?;
@@ -404,6 +404,9 @@ async fn verify_item(user: CurrentUser, Path(key): Path<String>, Query(q): Query
         _ => return Err(ApiError::bad_request("과제와 강의만 확인할 수 있어요.")),
     };
     if status != "unknown" {
+        calendar::sync_parents(&st.db, &user.session, vec![calendar::TodoParent {
+            key: key.clone(), course_id: q.course, finished: matches!(status, "submitted" | "done"),
+        }]).await?;
         if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
             for item in data.items.iter_mut().filter(|i| i.key == key) {
                 item.status = status;
@@ -528,6 +531,7 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
                 let mut data = data.clone();
                 drop(cache);
                 calendar::load_state(&st.db, s.user_id).await?.apply(&mut data.items);
+                calendar::sync_parents(&st.db, s, data.items.iter().map(calendar::TodoParent::from).collect()).await?;
                 return Ok(Json(data));
             }
         }
@@ -548,6 +552,7 @@ async fn calendar_data(State(st): State<Shared>, user: CurrentUser, Query(q): Qu
         courses,
         fetched_at: now,
     };
+    calendar::sync_parents(&st.db, s, data.items.iter().map(calendar::TodoParent::from).collect()).await?;
     *cache = Some((Instant::now(), data.clone()));
     Ok(Json(data))
 }
@@ -558,20 +563,36 @@ async fn calendar_state_get(State(st): State<Shared>, user: CurrentUser) -> ApiR
 
 #[derive(Deserialize)]
 struct StateBody {
+    #[serde(default)]
     courses: Vec<hongsi_core::models::Course>,
+    #[serde(default)]
     assignments: Vec<hongsi_core::models::Assignment>,
+    #[serde(default)]
+    vods: Vec<hongsi_core::models::Vod>,
+    #[serde(default)]
+    parents: Vec<calendar::TodoParent>,
 }
 
 async fn calendar_state(State(st): State<Shared>, user: CurrentUser, Json(b): Json<StateBody>) -> ApiResult<Value> {
-    if b.courses.len() > 200 || b.assignments.len() > 3000 {
+    if b.courses.len() > 200 || b.assignments.len() > 3000 || b.vods.len() > 6000 || b.parents.len() > 6000 {
         return Err(ApiError::bad_request("요청이 너무 커요."));
     }
-    *user.session.device_courses.lock().expect("세션 잠금") = b.courses.iter().map(|c| c.id).collect();
+    if b.parents.iter().any(|p| p.key.len() > 300 || !(p.key.starts_with("assign:") || p.key.starts_with("vod:"))) {
+        return Err(ApiError::bad_request("잘못된 연결 항목이에요."));
+    }
+    if !b.courses.is_empty() {
+        *user.session.device_courses.lock().expect("세션 잠금") = b.courses.iter().map(|c| c.id).collect();
+    }
     let snapshots = db::sync_assignments(&st.db, user.session.user_id, &b.assignments).await?;
     let checks = db::item_checks(&st.db, user.session.user_id).await?;
     let alerts_off = db::item_alerts_off(&st.db, user.session.user_id).await?;
     let alert_leads = db::item_alert_leads(&st.db, user.session.user_id).await?;
-    Ok(Json(json!({ "snapshots": calendar::snapshot_infos(snapshots), "checks": checks, "alertsOff": alerts_off, "alertLeads": alert_leads })))
+    let snapshots = calendar::snapshot_infos(snapshots);
+    let items = calendar::build(&b.assignments, &b.vods, &snapshots, &checks, &alerts_off, &alert_leads, Utc::now().timestamp());
+    let mut parents: Vec<_> = items.iter().map(calendar::TodoParent::from).collect();
+    parents.extend(b.parents);
+    calendar::sync_parents(&st.db, &user.session, parents).await?;
+    Ok(Json(json!({ "snapshots": snapshots, "checks": checks, "alertsOff": alerts_off, "alertLeads": alert_leads })))
 }
 
 #[derive(Deserialize)]
@@ -591,7 +612,10 @@ async fn set_done(State(st): State<Shared>, user: CurrentUser, Path(key): Path<S
     }
     match b.done {
         Some(done) => db::set_item_check(&st.db, user.session.user_id, &key, done).await?,
-        None => db::clear_item_check(&st.db, user.session.user_id, &key).await?,
+        None => {
+            let parent = calendar::parent(&st.db, &user.session, &key).await?;
+            db::clear_item_check(&st.db, user.session.user_id, &key, parent.is_some_and(|p| p.finished)).await?;
+        }
     }
     if let Some((_, data)) = user.session.calendar_cache.lock().await.as_mut() {
         for item in data.items.iter_mut().filter(|i| i.key == key) {
@@ -818,15 +842,30 @@ async fn check_todo(user: &CurrentUser, t: &TodoInput) -> Result<chrono::DateTim
 }
 
 async fn todo_list(State(st): State<Shared>, user: CurrentUser) -> ApiResult<Vec<Todo>> {
+    let parents = calendar::known_parents(&st.db, &user.session).await?;
+    todos::sync_parents(&st.db, user.session.user_id, &parents).await?;
     Ok(Json(todos::list(&st.db, user.session.user_id).await?))
 }
 
-async fn todo_create(State(st): State<Shared>, user: CurrentUser, Json(t): Json<TodoInput>) -> ApiResult<Todo> {
+async fn todo_create(State(st): State<Shared>, user: CurrentUser, Json(mut t): Json<TodoInput>) -> ApiResult<Todo> {
+    let parent = match &t.parent_key {
+        Some(key) => Some(calendar::parent(&st.db, &user.session, key).await?
+            .ok_or_else(|| ApiError::bad_request("연결할 과제·강의를 확인할 수 없어요. 일정을 새로고침해 주세요."))?),
+        None => None,
+    };
+    if let Some(parent) = &parent { t.course_id = Some(parent.course_id); }
     let due = check_todo(&user, &t).await?;
-    Ok(Json(todos::create(&st.db, user.session.user_id, &t, due).await?))
+    Ok(Json(todos::create(&st.db, user.session.user_id, &t, due, parent.is_some_and(|p| p.finished)).await?))
 }
 
 async fn todo_update(State(st): State<Shared>, user: CurrentUser, Path(id): Path<i64>, Json(t): Json<TodoInput>) -> ApiResult<Todo> {
+    let parents = calendar::known_parents(&st.db, &user.session).await?;
+    todos::sync_parents(&st.db, user.session.user_id, &parents).await?;
+    let existing = todos::get(&st.db, user.session.user_id, id).await?
+        .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요."))?;
+    if t.parent_key != existing.parent_key || (existing.parent_key.is_some() && t.course_id != existing.course_id) {
+        return Err(ApiError::bad_request("연결된 과제·강의와 과목은 바꿀 수 없어요."));
+    }
     let due = check_todo(&user, &t).await?;
     todos::update(&st.db, user.session.user_id, id, &t, due)
         .await?
@@ -835,7 +874,13 @@ async fn todo_update(State(st): State<Shared>, user: CurrentUser, Path(id): Path
 }
 
 async fn todo_done(State(st): State<Shared>, user: CurrentUser, Path(id): Path<i64>, Json(b): Json<DoneBody>) -> ApiResult<Todo> {
-    todos::set_done(&st.db, user.session.user_id, id, b.done)
+    let existing = todos::get(&st.db, user.session.user_id, id).await?
+        .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요."))?;
+    let school_done = match existing.parent_key {
+        Some(key) => calendar::parent(&st.db, &user.session, &key).await?.is_some_and(|p| p.finished),
+        None => false,
+    };
+    todos::set_done(&st.db, user.session.user_id, id, b.done, school_done)
         .await?
         .map(Json)
         .ok_or_else(|| ApiError::not_found("할 일을 찾지 못했어요."))

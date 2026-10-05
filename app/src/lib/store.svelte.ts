@@ -129,6 +129,7 @@ export class Resource<T> {
   private generation = 0;
   private mutations = 0;
   private pending: Promise<void> | null = null;
+  private refreshAfterMutation = false;
 
   constructor(
     private key: string,
@@ -170,6 +171,17 @@ export class Resource<T> {
     return pending;
   }
 
+  refresh(): Promise<void> {
+    if (this.mutations) {
+      this.refreshAfterMutation = true;
+      return Promise.resolve();
+    }
+    this.revision += 1;
+    this.pending = null;
+    this.lastStart = 0;
+    return this.load(true);
+  }
+
   private async fetch(force: boolean, revision: number) {
     try {
       const data = await this.fetcher(force);
@@ -208,12 +220,17 @@ export class Resource<T> {
       this.mutations -= 1;
       this.revision += 1;
       this.lastStart = 0;
+      if (!this.mutations && this.refreshAfterMutation) {
+        this.refreshAfterMutation = false;
+        void this.refresh();
+      }
     };
   }
 
   reset() {
     this.generation += 1;
     this.mutations = 0;
+    this.refreshAfterMutation = false;
     this.revision += 1;
     this.pending = null;
     this.lastStart = 0;
@@ -227,12 +244,16 @@ export class Resource<T> {
 
 const MIN = 60_000;
 let calendarSemesterDisplay: SemesterDisplay = 'current';
-export const calendar = new Resource<CalendarData>('calendar-current-v2', (force) => api.calendar(force, calendarSemesterDisplay), 5 * MIN, normalizeCalendar);
+export const calendar = new Resource<CalendarData>('calendar-current', async (force) => {
+  const data = await api.calendar(force, calendarSemesterDisplay);
+  await todos.refresh();
+  return data;
+}, 5 * MIN, normalizeCalendar);
 
 export function setCalendarSemesterDisplay(display: SemesterDisplay) {
   if (calendarSemesterDisplay === display) return;
   calendarSemesterDisplay = display;
-  calendar.setKey(`calendar-${display}-v2`);
+  calendar.setKey(`calendar-${display}`);
   if (app.profile) void calendar.load();
 }
 export const seats = new Resource<SeatsData>('seats', () => api.seats(), MIN);

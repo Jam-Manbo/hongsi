@@ -152,6 +152,8 @@ pub async fn item_checks(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
 }
 
 pub async fn set_item_check(db: &PgPool, user_id: i64, key: &str, done: bool) -> sqlx::Result<()> {
+    let mut tx = db.begin().await?;
+    crate::todos::lock(&mut tx, user_id).await?;
     sqlx::query(
         "insert into item_checks (user_id, item_key, done) values ($1, $2, $3)
          on conflict (user_id, item_key) do update set done = excluded.done, updated_at = now()",
@@ -159,15 +161,23 @@ pub async fn set_item_check(db: &PgPool, user_id: i64, key: &str, done: bool) ->
     .bind(user_id)
     .bind(key)
     .bind(done)
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
-    Ok(())
+    if done {
+        crate::todos::complete_children_in(&mut tx, user_id, &[key.to_string()]).await?;
+    }
+    tx.commit().await
 }
 
-pub async fn clear_item_check(db: &PgPool, user_id: i64, key: &str) -> sqlx::Result<()> {
+pub async fn clear_item_check(db: &PgPool, user_id: i64, key: &str, school_done: bool) -> sqlx::Result<()> {
+    let mut tx = db.begin().await?;
+    crate::todos::lock(&mut tx, user_id).await?;
     sqlx::query("delete from item_checks where user_id=$1 and item_key=$2")
-        .bind(user_id).bind(key).execute(db).await?;
-    Ok(())
+        .bind(user_id).bind(key).execute(&mut *tx).await?;
+    if school_done {
+        crate::todos::complete_children_in(&mut tx, user_id, &[key.to_string()]).await?;
+    }
+    tx.commit().await
 }
 
 pub async fn item_alerts_off(db: impl sqlx::Executor<'_, Database = sqlx::Postgres>, user_id: i64) -> sqlx::Result<HashSet<String>> {

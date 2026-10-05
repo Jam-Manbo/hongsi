@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
   import { settings } from '../lib/settings.svelte';
+  import { calendar } from '../lib/store.svelte';
   import { courseLabel } from '../lib/semester';
   import { pendingTodos, removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
   import TimeWheel from './TimeWheel.svelte';
@@ -31,6 +32,8 @@
   let date = $state('');
   let time = $state('');
   let parentKey = $state<string | null>(null);
+  const parent = $derived(calendar.data?.items.find((item) => item.key === parentKey));
+  const linkedCourse = $derived(courses.find((course) => course.id === (parent?.courseId ?? courseId)));
   let notify = $state(true);
   let alertLeads = $state<number[] | null>(null);
   let busy = $state(false);
@@ -43,22 +46,28 @@
     alertLeads: [...(alertLeads ?? settings.alertLeads)].sort((a, b) => b - a),
   }));
   let titleEl: HTMLInputElement | undefined = $state();
+  let editing: number | 'new' | null = null;
 
   $effect(() => {
-    discardOpen = false;
-    deleteOpen = false;
-    if (!open) return;
-    const due = todo?.dueAt ? fromUnix(todo.dueAt) : null;
-    title = todo?.title ?? '';
-    note = todo?.note ?? '';
-    courseId = todo ? todo.courseId : (draft.courseId ?? null);
-    date = due?.date ?? draft.date ?? '';
-    time = todo && !todo.allDay && due ? due.time : '';
-    parentKey = todo ? todo.parentKey : (draft.parentKey ?? null);
-    notify = todo?.notify ?? true;
-    alertLeads = todo?.alertLeads ? [...todo.alertLeads] : null;
-    initialValues = untrack(() => formValues);
-    if (!todo) queueMicrotask(() => titleEl?.focus());
+    const next = open ? (todo?.id ?? 'new') : null;
+    if (editing === next) return;
+    editing = next;
+    untrack(() => {
+      discardOpen = false;
+      deleteOpen = false;
+      if (!open) return;
+      const due = todo?.dueAt ? fromUnix(todo.dueAt) : null;
+      title = todo?.title ?? '';
+      note = todo?.note ?? '';
+      courseId = todo ? todo.courseId : (draft.courseId ?? null);
+      date = due?.date ?? draft.date ?? '';
+      time = todo && !todo.allDay && due ? due.time : '';
+      parentKey = todo ? todo.parentKey : (draft.parentKey ?? null);
+      notify = todo?.notify ?? true;
+      alertLeads = todo?.alertLeads ? [...todo.alertLeads] : null;
+      initialValues = formValues;
+      if (!todo) queueMicrotask(() => titleEl?.focus());
+    });
   });
 
   $effect(() => {
@@ -88,7 +97,7 @@
     const ok = await saveTodo(todo?.id ?? null, {
       title: title.trim(),
       note: note.trim(),
-      courseId,
+      courseId: parentKey ? (parent?.courseId ?? courseId) : courseId,
       parentKey,
       dueAt: toUnix(date, time),
       allDay: !time,
@@ -118,8 +127,8 @@
 
 <Sheet bind:open title={todo ? '할 일' : '할 일 추가'} onbeforeclose={canClose}>
   <form id="todo-form" class="form" onsubmit={submit}>
-    {#if parentKey && draft.parentTitle && !todo}
-      <p class="linked"><Icon name="file" size={15} />{draft.parentTitle} 관련 할 일</p>
+    {#if parentKey}
+      <p class="linked"><Icon name="file" size={15} />{parent?.title ?? draft.parentTitle ?? '연결된 과제·강의'} 관련 할 일</p>
     {/if}
     <input
       class="title"
@@ -133,16 +142,24 @@
 
     <div class="field">
       <span>분류</span>
-      <div class="chips" role="radiogroup" aria-label="과목">
-        <button type="button" class="c" class:on={courseId === null} style:--c="var(--todo-neutral)" onclick={() => (courseId = null)} role="radio" aria-checked={courseId === null}>
-          <i></i>공통
-        </button>
-        {#each courses as c (c.id)}
-          <button type="button" class="c" class:on={courseId === c.id} style:--c={colors.get(c.id)} onclick={() => (courseId = c.id)} role="radio" aria-checked={courseId === c.id}>
-            <i></i>{courseLabel(c, settings.semesterDisplay)}
+      {#if parentKey}
+        <div class="chips">
+          <span class="c on" style:--c={colors.get(parent?.courseId ?? courseId ?? 0) ?? 'var(--todo-neutral)'}>
+            <i></i>{linkedCourse ? courseLabel(linkedCourse, settings.semesterDisplay) : '연결된 과목'}
+          </span>
+        </div>
+      {:else}
+        <div class="chips" role="radiogroup" aria-label="과목">
+          <button type="button" class="c" class:on={courseId === null} style:--c="var(--todo-neutral)" onclick={() => (courseId = null)} role="radio" aria-checked={courseId === null}>
+            <i></i>공통
           </button>
-        {/each}
-      </div>
+          {#each courses as c (c.id)}
+            <button type="button" class="c" class:on={courseId === c.id} style:--c={colors.get(c.id)} onclick={() => (courseId = c.id)} role="radio" aria-checked={courseId === c.id}>
+              <i></i>{courseLabel(c, settings.semesterDisplay)}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
 
     {#if isApp}

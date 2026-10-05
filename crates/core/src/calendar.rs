@@ -43,6 +43,24 @@ pub struct CalendarData {
     pub fetched_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoParent {
+    pub key: String,
+    pub course_id: i64,
+    pub finished: bool,
+}
+
+impl From<&CalendarItem> for TodoParent {
+    fn from(item: &CalendarItem) -> Self {
+        Self {
+            key: item.key.clone(),
+            course_id: item.course_id,
+            finished: matches!(item.status, "submitted" | "done"),
+        }
+    }
+}
+
 pub fn todo_visible(
     display: SemesterDisplay,
     course_id: Option<i64>,

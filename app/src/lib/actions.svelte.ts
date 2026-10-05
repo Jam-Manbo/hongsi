@@ -3,7 +3,7 @@ import { connectionError, responseError, responseFormat } from './api-error';
 import { beginCalendarChange } from './calendar-sync.svelte';
 import { errorText, reportServer, writeBlocked } from './net.svelte';
 import { schoolFinished } from './colors';
-import { calendar, handleAuthError } from './store.svelte';
+import { calendar, handleAuthError, todos } from './store.svelte';
 import { inSession, isCurrentSession, isStaleSession, onSessionChange, readUserData, sessionVersion, writeUserData } from './session';
 import { toast, toastOnce } from './ui.svelte';
 import type { CalendarItem, DownloadRecord, FileSource } from './types';
@@ -52,6 +52,7 @@ async function saveDone(item: CalendarItem, done: boolean) {
   update(item.key, { done, doneOverride: override });
   try {
     await api.setDone(item.key, override);
+    if (isCurrentSession(version)) await todos.refresh();
   } catch (e) {
     if (isStaleSession(e)) return;
     update(item.key, before);

@@ -89,6 +89,10 @@ export async function toggleTodo(t: Todo) {
   if (writeBlocked()) return;
   const current = todos.data?.find((x) => x.id === t.id);
   if (!current) return;
+  if (current.doneAt !== null && current.parentKey && calendar.data?.items.some((item) => item.key === current.parentKey && item.done)) {
+    toastOnce('연결된 일정의 완료를 먼저 해제해 주세요.', 'error');
+    return;
+  }
   const change = begin(t.id);
   if (!change) return;
   const before = current.doneAt, done = before === null;

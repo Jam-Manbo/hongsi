@@ -2,7 +2,7 @@ import { api, ApiError } from './api';
 import { beginCalendarChange } from './calendar-sync.svelte';
 import { errorText } from './net.svelte';
 import { isCurrentSession, onSessionChange, readUserData, sessionVersion, writeUserData } from './session';
-import { calendar, handleAuthError } from './store.svelte';
+import { calendar, handleAuthError, todos } from './store.svelte';
 import type { SubmissionJob } from './types';
 
 type Pending = { id: string; created: number };
@@ -60,6 +60,7 @@ function lock(operation: SubmissionOperation) {
 function receive(operation: SubmissionOperation, snapshot: SubmissionJob) {
   if (operation.job?.id !== snapshot.id || snapshot.revision < operation.job.revision) return;
   if (operation.job.status !== 'running' && snapshot.status === 'running') return;
+  const completed = operation.job.status === 'complete';
   operation.job = snapshot;
   operation.error = snapshot.error?.message ?? '';
   operation.delayed = snapshot.status === 'uncertain';
@@ -69,6 +70,7 @@ function receive(operation: SubmissionOperation, snapshot: SubmissionJob) {
       items: calendar.data.items.map((item) => item.key === key ? { ...item, status: 'submitted', done: true, doneOverride: true } : item),
     });
     pending(operation.cmid, null);
+    if (!completed) void todos.refresh();
   } else if (snapshot.status === 'failed') {
     pending(operation.cmid, null);
     if (snapshot.error) handleAuthError(new ApiError(snapshot.error.status, snapshot.error.code, snapshot.error.message));

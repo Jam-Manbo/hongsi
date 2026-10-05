@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use hongsi_core::calendar::{self, CalendarData, SnapshotInfo, SubmitRejection};
-use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SemesterDisplay, SubmissionInfo, Timetable};
+use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SemesterDisplay, SubmissionInfo, Timetable, Vod};
 use hongsi_core::{api_error, CoreError, SchoolSession, SchoolSessionSnapshot};
 pub use hongsi_core::submission;
 use submission::{Job, Progress, Stage, Status, JOB_TIMEOUT};
@@ -672,7 +672,9 @@ impl Direct {
         if !refresh {
             if let Some((mut data, _)) = cached(&slot, Duration::from_secs(180))
                 .filter(|(data, _)| data.semester_display == display) {
-                let reply = self.server(&Method::GET, "/api/calendar/state", None).await;
+                let parents: Vec<_> = data.items.iter().map(calendar::TodoParent::from).collect();
+                let body = json!({ "courses": data.courses, "parents": parents });
+                let reply = self.server(&Method::POST, "/api/calendar/state", Some(&body)).await;
                 if reply.status == 200 {
                     if let Ok(state) = serde_json::from_value::<calendar::CalendarState>(reply.body) {
                         state.apply(&mut data.items);
@@ -687,7 +689,7 @@ impl Direct {
         let (current_term, courses) = s.session.courses_for(display).await?;
         let (assignments, vods) = tokio::join!(s.session.assignments(&courses), s.session.vods(&courses));
         let (assignments, vods) = (assignments?, vods?);
-        let (snapshots, checks, alerts_off, alert_leads) = self.calendar_state(&courses, &assignments).await;
+        let (snapshots, checks, alerts_off, alert_leads) = self.calendar_state(&courses, &assignments, &vods).await;
         let now = Utc::now().timestamp();
         let data = CalendarData {
             semester_display: display,
@@ -704,8 +706,9 @@ impl Direct {
         &self,
         courses: &[Course],
         assignments: &[Assignment],
+        vods: &[Vod],
     ) -> (HashMap<i64, SnapshotInfo>, HashMap<String, bool>, HashSet<String>, HashMap<String, Vec<i32>>) {
-        let body = json!({ "courses": courses, "assignments": assignments });
+        let body = json!({ "courses": courses, "assignments": assignments, "vods": vods });
         let r = self.server(&Method::POST, "/api/calendar/state", Some(&body)).await;
         if r.status != 200 {
             tracing::warn!(status = r.status, "서버 기록(완료 체크·첫 기록)을 받지 못해 학교 기준만 보여준다");
@@ -735,6 +738,11 @@ impl Direct {
             _ => return Err(Reply::error(400, "bad_request", "과제와 강의만 확인할 수 있어요.")),
         };
         if status != "unknown" {
+            let body = json!({ "parents": [calendar::TodoParent {
+                key: key.to_string(), course_id: course, finished: matches!(status, "submitted" | "done"),
+            }] });
+            let reply = self.server(&Method::POST, "/api/calendar/state", Some(&body)).await;
+            if reply.status != 200 { return Err(reply); }
             self.patch_items(&s, key, |item| {
                 item.status = status;
                 if item.done_override.is_none() {

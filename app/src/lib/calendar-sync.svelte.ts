@@ -1,6 +1,6 @@
 import { api } from './api';
 import { schoolFinished } from './colors';
-import { app, calendar, handleAuthError } from './store.svelte';
+import { app, calendar, handleAuthError, todos } from './store.svelte';
 import { isCurrentSession, onSessionChange, sessionVersion } from './session';
 
 export const calendarSync = $state({ updatedAt: 0 });
@@ -45,6 +45,7 @@ async function refreshCalendarState() {
         calendar.set({ ...before, items }, calendar.at);
         calendarSync.updatedAt = Date.now();
       }
+      await todos.refresh();
     } catch (e) {
       if (isCurrentSession(version)) handleAuthError(e);
     }

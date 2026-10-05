@@ -28,6 +28,7 @@ pub struct UserSession {
     pub timetable_cache: tokio::sync::Mutex<Option<(Instant, Timetable)>>,
     pub course_cache: tokio::sync::Mutex<HashMap<String, (Instant, AttendanceCourse)>>,
     pub device_courses: Mutex<Vec<i64>>,
+    pub todo_parents: Mutex<HashMap<String, hongsi_core::calendar::TodoParent>>,
 }
 
 impl UserSession {
@@ -47,6 +48,7 @@ impl UserSession {
             timetable_cache: tokio::sync::Mutex::new(None),
             course_cache: tokio::sync::Mutex::new(HashMap::new()),
             device_courses: Mutex::new(Vec::new()),
+            todo_parents: Mutex::new(HashMap::new()),
         }
     }
 

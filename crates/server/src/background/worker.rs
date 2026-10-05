@@ -188,12 +188,15 @@ async fn finish_poll(
         Ok(data) => {
             let snapshots =
                 db::sync_assignments_in(&mut tx, job.user_id, &data.assignments).await?;
+            let items = calendar::build(&data.assignments, &data.vods, &calendar::snapshot_infos(snapshots),
+                &HashMap::new(), &HashSet::new(), &HashMap::new(), Utc::now().timestamp());
+            let parents: Vec<_> = items.iter().map(calendar::TodoParent::from).collect();
+            todos::sync_parents_in(&mut tx, job.user_id, &parents).await?;
             let snapshot = json!({
                 "semesterDisplay": data.semester_display,
                 "currentTerm": data.current_term,
                 "courses": data.courses,
-                "items": calendar::build(&data.assignments, &data.vods, &calendar::snapshot_infos(snapshots),
-                    &HashMap::new(), &HashSet::new(), &HashMap::new(), Utc::now().timestamp()),
+                "items": items,
                 "notices": data.notices,
                 "fetchedAt": Utc::now().timestamp(),
             });
