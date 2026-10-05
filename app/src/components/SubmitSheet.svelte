@@ -1,18 +1,18 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api';
-  import { beginCalendarChange } from '../lib/calendar-sync.svelte';
   import { dueDateTime, sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
-  import { calendar, handleAuthError } from '../lib/store.svelte';
+  import { handleAuthError } from '../lib/store.svelte';
   import { isCurrentSession, sessionVersion } from '../lib/session';
-  import { toast } from '../lib/ui.svelte';
+  import { clearSubmission, resumeSubmission, sendSubmission, submissionOperation } from '../lib/submission.svelte';
   import type { CalendarItem, SubmissionView } from '../lib/types';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
   import Skeleton from './Skeleton.svelte';
+  import SubmissionProgress from './SubmissionProgress.svelte';
 
-  let { open = $bindable(false), item }: { open: boolean; item: CalendarItem | null } = $props();
+  let { open = $bindable(false), item, course = '' }: { open: boolean; item: CalendarItem | null; course?: string } = $props();
 
   let view = $state<SubmissionView | null>(null);
   let error = $state('');
@@ -21,12 +21,17 @@
   let statement = $state(false);
   let lateChecked = $state(false);
   let step = $state<'edit' | 'confirm'>('edit');
-  let busy = $state(false);
   let picker: HTMLInputElement | undefined = $state();
   let generation = 0;
   onDestroy(() => { generation += 1; });
 
   const cmid = $derived(item ? Number(item.key.split(':')[1]) : 0);
+  const operation = $derived(submissionOperation(cmid));
+  const showProgress = $derived(!!operation.job && operation.job.status !== 'failed');
+  const complete = $derived(operation.job?.status === 'complete');
+  const busy = $derived(operation.checking || (showProgress && !complete && !operation.delayed));
+  const failure = $derived(error || (operation.job?.status === 'failed' ? operation.error : ''));
+  const progressLabel = $derived(operation.job ? ({ prepare: '파일 준비 중…', transfer: '홍시로 파일 전송 중…', upload: '클래스룸에 업로드 중…', submit: '제출 처리 중…', verify: '제출 결과 확인 중…' })[operation.job.progress.stage] : '제출 준비 중…');
 
   $effect(() => {
     const request = ++generation;
@@ -38,6 +43,7 @@
     statement = false;
     lateChecked = false;
     step = 'edit';
+    untrack(() => { void resumeSubmission(operation); });
     api
       .submission(cmid)
       .then((v) => {
@@ -93,39 +99,40 @@
   async function send() {
     if (busy || !view || !item) return;
     if (writeBlocked('school', '제출할')) return;
-    const key = item.key, target = cmid, wasEdited = edited;
-    const request = generation, version = sessionVersion();
-    const isCurrentView = () => request === generation && open && item?.key === key;
-    const finishMutation = calendar.beginMutation();
-    const finishChange = beginCalendarChange();
-    busy = true;
+    error = '';
+    step = 'edit';
+    await sendSubmission(operation, [...keep], added, view.late && lateChecked, statement);
+  }
+
+  function close() {
+    if (complete) clearSubmission(operation);
+    open = false;
+  }
+
+  async function inspectFiles() {
+    if (operation.checking) return;
+    const request = generation, version = sessionVersion(), target = operation;
+    target.checking = true;
     try {
-      const v = await api.submit(target, [...keep], added, view.late && lateChecked, statement);
-      if (!isCurrentSession(version)) return;
-      if (calendar.data) {
-        calendar.set({
-          ...calendar.data,
-          items: calendar.data.items.map((i) => (i.key === key ? { ...i, status: 'submitted', done: true } : i)),
-        });
-      }
-      toast(wasEdited ? '제출한 파일을 수정했어요.' : '과제를 제출했어요.', 'success', 4000);
-      if (isCurrentView()) { view = v; open = false; }
+      const current = await api.submission(cmid);
+      if (request !== generation || !isCurrentSession(version)) return;
+      view = current;
+      keep = new Set(current.info.files.map((file) => file.name));
+      added = [];
+      step = 'edit';
+      clearSubmission(target);
     } catch (e) {
-      if (isCurrentSession(version) && !handleAuthError(e) && isCurrentView()) {
-        error = errorText(e, '제출하지 못했어요.');
-        step = 'edit';
-      }
-    } finally {
-      finishMutation();
-      finishChange();
-      busy = false;
-    }
+      if (request === generation && isCurrentSession(version)) target.error = errorText(e, '제출 파일을 확인하지 못했어요.');
+    } finally { target.checking = false; }
   }
 </script>
 
-<Sheet bind:open onbeforeclose={() => !busy} title={step === 'confirm' ? (view?.late ? '마감이 지난 과제예요.' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
-  {#if error}<div class="error-box"><Icon name="alert" size={18} /><span class="sentence-message">{sentenceLines(error)}</span></div>{/if}
-  {#if !view && !error}
+<Sheet bind:open onbeforeclose={() => !busy} onclose={close} closeDisabled={busy} title={showProgress ? (complete ? '제출 완료' : operation.delayed ? '제출 결과 확인' : '과제를 제출하고 있어요') : step === 'confirm' ? (view?.late ? '마감이 지난 과제예요.' : '제출할까요?') : edited ? '제출 파일 수정' : '과제 제출'}>
+  {#if showProgress && operation.job}
+    <SubmissionProgress job={operation.job} delayed={operation.delayed} error={operation.error} title={item?.title ?? '과제'} {course} />
+  {:else}
+  {#if failure}<div class="error-box"><Icon name="alert" size={18} /><span class="sentence-message">{sentenceLines(failure)}</span></div>{/if}
+  {#if !view && !failure}
     <Skeleton rows={3} height={52} />
   {:else if view && step === 'edit'}
     <div class="due" class:late={view.late}>
@@ -201,10 +208,20 @@
       <p class="confirm">{edited ? '수정한 파일이 클래스룸에 다시 제출돼요.' : '파일이 클래스룸에 제출돼요.'}<br />파일 {total}개를 보낼게요.</p>
     {/if}
   {/if}
+  {/if}
 
   {#snippet footer()}
-    {#if step === 'edit'}
-      <button class="btn btn-ghost w1" disabled={busy} onclick={() => (open = false)}>닫기</button>
+    {#if showProgress}
+      {#if complete}
+        <button class="btn btn-primary w2" onclick={close}>확인</button>
+      {:else if operation.delayed}
+        <button class="btn btn-ghost w1" disabled={operation.checking} onclick={close}>닫기</button>
+        <button class="btn btn-primary w2" disabled={operation.checking} onclick={() => operation.missing ? inspectFiles() : resumeSubmission(operation)}>{operation.checking ? '제출 결과 확인 중…' : operation.missing ? '제출 파일 확인' : '제출 상태 확인'}</button>
+      {:else}
+        <button class="btn btn-ghost w2" disabled>{operation.checking ? '제출 결과 확인 중…' : progressLabel}</button>
+      {/if}
+    {:else if step === 'edit'}
+      <button class="btn btn-ghost w1" disabled={busy} onclick={close}>닫기</button>
       <button class="btn btn-primary w2" disabled={busy || !canSend} onclick={() => (step = 'confirm')}>
         <Icon name="check" size={18} />{edited ? '제출 파일 수정' : '제출하기'}
       </button>

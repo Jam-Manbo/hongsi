@@ -71,7 +71,7 @@ struct Shell {
     credentials: credentials::Store,
     login_lock: Mutex<()>,
     saved: Mutex<CredentialState>,
-    operations: tokio::sync::RwLock<()>,
+    operations: Arc<tokio::sync::RwLock<()>>,
     revoked: AtomicBool,
 }
 
@@ -80,7 +80,7 @@ fn shared_shell(credentials: credentials::Store) -> Arc<Shell> {
     SHARED_SHELL.get_or_init(|| Arc::new(Shell {
         direct: Direct::new(server_base()), credentials,
         login_lock: Mutex::new(()), saved: Mutex::new(CredentialState::default()),
-        operations: tokio::sync::RwLock::new(()), revoked: AtomicBool::new(false),
+        operations: Arc::new(tokio::sync::RwLock::new(())), revoked: AtomicBool::new(false),
     })).clone()
 }
 
@@ -441,24 +441,53 @@ async fn submit_assignment(
     files: Vec<UploadFile>,
     late_confirmed: bool,
     accept_statement: bool,
+    job_id: String,
+    progress: tauri::ipc::Channel<hongsi_direct::submission::Snapshot>,
 ) -> Result<ApiResponse, String> {
     use base64::Engine;
-    let _operations = shell.operations.read().await;
-    let mut decoded = Vec::with_capacity(files.len());
-    for f in files {
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(f.data)
-            .map_err(|_| format!("'{}' 파일을 읽지 못했어요.", f.name))?;
-        decoded.push((f.name, bytes));
-    }
+    let operations = shell.operations.clone().read_owned().await;
     if let Err(reply) = ensure_login(&shell).await {
         return Ok(respond(&shell, reply));
     }
-    let reply = shell
-        .direct
-        .submit(cmid, keep, decoded, late_confirmed, accept_statement)
-        .await;
-    persist_auth(&shell).await;
+    let (job, created) = match shell.direct.begin_submission(cmid, &job_id).await {
+        Ok(job) => job,
+        Err(reply) => return Ok(respond(&shell, reply)),
+    };
+    if !created {
+        return Ok(respond(&shell, Reply { status: 200, body: serde_json::json!(job.snapshot()) }));
+    }
+    let guard = job.guard();
+    job.observe(Arc::new(move |snapshot| { let _ = progress.send(snapshot); }));
+    if files.len() + keep.len() > 100 || files.iter().map(|file| file.data.len() as u64).sum::<u64>() > 140 * 1024 * 1024 {
+        job.fail(413, "too_large", "파일 개수나 용량이 너무 커요.");
+        return Ok(respond(&shell, Reply { status: 200, body: serde_json::json!(job.snapshot()) }));
+    }
+    let mut decoded = Vec::with_capacity(files.len());
+    for f in files {
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(f.data) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                job.fail(400, "bad_request", format!("'{}' 파일을 읽지 못했어요.", f.name));
+                return Ok(respond(&shell, Reply { status: 200, body: serde_json::json!(job.snapshot()) }));
+            }
+        };
+        decoded.push((f.name, bytes));
+    }
+    let initial = respond(&shell, Reply { status: 202, body: serde_json::json!(job.snapshot()) });
+    let shell = shell.inner().clone();
+    tauri::async_runtime::spawn(async move {
+        let _operations = operations;
+        let _guard = guard;
+        shell.direct.submit_job(cmid, keep, decoded, late_confirmed, accept_statement, job).await;
+        persist_auth(&shell).await;
+    });
+    Ok(initial)
+}
+
+#[tauri::command]
+async fn submission_status(shell: State<'_, Arc<Shell>>, cmid: i64, job_id: String, verify: bool) -> Result<ApiResponse, String> {
+    let _operations = shell.operations.read().await;
+    let reply = call(&shell, || shell.direct.submission_status(cmid, &job_id, verify)).await;
     Ok(respond(&shell, reply))
 }
 
@@ -690,7 +719,8 @@ pub fn run_app() {
             open_file,
             open_url,
             reveal_file,
-            submit_assignment
+            submit_assignment,
+            submission_status
         ])
         .run(tauri::generate_context!())
         .expect("앱을 실행하지 못했어요");

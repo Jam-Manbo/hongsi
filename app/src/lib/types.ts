@@ -108,6 +108,24 @@ export type SubmissionView = {
   late: boolean;
   closed: boolean;
 };
+
+export type SubmissionStage = 'prepare' | 'transfer' | 'upload' | 'submit' | 'verify';
+export type SubmissionProgress = {
+  stage: SubmissionStage;
+  fileName: string | null;
+  fileCount: number;
+  uploadedFiles: number;
+  sentBytes: number;
+  totalBytes: number;
+};
+export type SubmissionJob = {
+  id: string;
+  revision: number;
+  status: 'running' | 'complete' | 'failed' | 'uncertain';
+  progress: SubmissionProgress;
+  result: SubmissionView | null;
+  error: { status: number; code: string; message: string } | null;
+};
 export type CalendarState = {
   checks: Record<string, boolean>;
   alertsOff: string[];

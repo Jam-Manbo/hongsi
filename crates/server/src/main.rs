@@ -12,6 +12,7 @@ mod preferences;
 mod seat_watch;
 mod sessions;
 mod state;
+mod submissions;
 mod todos;
 mod updates;
 mod vault;
@@ -78,6 +79,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         login_attempts: Default::default(),
         meals: Default::default(),
         seats: Default::default(),
+        submissions: Default::default(),
         config,
     });
 

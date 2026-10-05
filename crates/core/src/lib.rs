@@ -8,6 +8,7 @@ pub mod food;
 pub mod models;
 pub mod seats;
 mod session;
+pub mod submission;
 pub mod timetable;
 mod util;
 

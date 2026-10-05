@@ -3,7 +3,7 @@ import { ApiError, connectionError, errorOf, invalidResponse, reportApiFailure, 
 export { ApiError } from './api-error';
 import { ReadTimeoutError, withReadTimeout } from './http';
 import { reportSchool, reportServer } from './net.svelte';
-import { inSession, sessionUser, sessionVersion } from './session';
+import { inSession, isCurrentSession, onSessionChange, sessionUser, sessionVersion } from './session';
 import type {
   AccountPreferences,
   AccountPreferenceChanges,
@@ -24,6 +24,7 @@ import type {
   SeatSession,
   SeatsData,
   SubmissionView,
+  SubmissionJob,
   SemesterDisplay,
   Timetable,
   Todo,
@@ -212,17 +213,22 @@ export const api = {
   meals: () => request<MealDay[]>('GET', '/api/meals'),
 
   submission: (cmid: number) => request<SubmissionView>('GET', `/api/assign/${cmid}/submission`),
-  async submit(cmid: number, keep: string[], files: File[], lateConfirmed: boolean, acceptStatement: boolean): Promise<SubmissionView> {
+  async submit(cmid: number, keep: string[], files: File[], lateConfirmed: boolean, acceptStatement: boolean, jobId: string, progress: (job: SubmissionJob) => void): Promise<SubmissionJob> {
     return inSession(async (check) => {
       let status = 0;
       let data: unknown = null;
       let format: ResponseFormat = isApp ? 'native' : 'none';
-      const path = `/api/assign/${cmid}/submission`, method = 'POST';
+      const path = `/api/assign/${cmid}/submission/jobs/${jobId}`, method = 'POST';
       try {
         if (isApp) {
           const encoded = await Promise.all(files.map(async (f) => ({ name: f.name, data: await toBase64(f) })));
           check();
-          const res = await native.call<Envelope>('submit_assignment', { cmid, keep, files: encoded, lateConfirmed, acceptStatement });
+          const { Channel } = await import('@tauri-apps/api/core');
+          check();
+          const version = sessionVersion();
+          const channel = new Channel<SubmissionJob>();
+          channel.onmessage = (job) => { if (isCurrentSession(version) && job.id === jobId) progress(job); };
+          const res = await submissionTimeout(native.call<Envelope>('submit_assignment', { cmid, keep, files: encoded, lateConfirmed, acceptStatement, jobId, progress: channel }), 60_000);
           status = res.status;
           data = res.body;
           note(`/api/assign/${cmid}/submission`, status, data, res.server);
@@ -232,17 +238,37 @@ export const api = {
           form.append('lateConfirmed', lateConfirmed ? '1' : '0');
           form.append('acceptStatement', acceptStatement ? '1' : '0');
           files.forEach((f) => form.append('file', f, f.name));
-          let res: Response;
+          let res: { status: number; data: unknown; format: ResponseFormat };
           try {
-            res = await fetch(`/api/assign/${cmid}/submission`, { method: 'POST', body: form, credentials: 'same-origin' });
-          } catch {
+            res = await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              const off = onSessionChange(() => xhr.abort());
+              const finish = (error?: unknown) => {
+                off();
+                if (error) reject(error);
+                else resolve({ status: xhr.status, data: xhr.response, format: responseFormat(xhr.getResponseHeader('content-type')) });
+              };
+              xhr.open('POST', path);
+              xhr.responseType = 'json';
+              xhr.timeout = 120_000;
+              xhr.upload.onprogress = (event) => progress({
+                id: jobId, revision: 0, status: 'running', result: null, error: null,
+                progress: { stage: 'transfer', fileName: null, fileCount: files.length, uploadedFiles: 0, sentBytes: event.loaded, totalBytes: event.lengthComputable ? event.total : 0 },
+              });
+              xhr.onload = () => finish();
+              xhr.onerror = () => finish(connectionError(false, { method, path, format }));
+              xhr.ontimeout = () => finish(connectionError(true, { method, path, format }));
+              xhr.onabort = () => finish(connectionError(false, { method, path, format }));
+              xhr.send(form);
+            });
+          } catch (e) {
             check();
             reportServer(false);
-            throw connectionError(false, { method, path, format });
+            throw e;
           }
           status = res.status;
-          format = responseFormat(res.headers.get('content-type'));
-          data = await res.json().catch(() => null);
+          format = res.format;
+          data = res.data;
           check();
           note(`/api/assign/${cmid}/submission`, status, data);
         }
@@ -260,9 +286,16 @@ export const api = {
           throw error;
         }
         if (!data || typeof data !== 'object' || Array.isArray(data)) throw invalidResponse(status, { method, path, format });
-        return data as SubmissionView;
+        return data as SubmissionJob;
       } catch (e) { throw submissionError(e, 'assignment'); }
     });
+  },
+  async submissionJob(cmid: number, jobId: string, verify = false): Promise<SubmissionJob> {
+    if (!isApp) return request<SubmissionJob>('GET', `/api/assign/${cmid}/submission/jobs/${jobId}${verify ? '?verify=true' : ''}`);
+    const res = await submissionTimeout(native.call<Envelope>('submission_status', { cmid, jobId, verify }));
+    const context = { method: 'GET', path: `/api/assign/${cmid}/submission/jobs/${jobId}`, format: 'native' as const };
+    if (res.status >= 400) throw responseError(res.status, res.body, context);
+    return res.body as SubmissionJob;
   },
 
   notifications: () => request<ClassNotification[]>('GET', '/api/notifications'),
@@ -292,6 +325,15 @@ async function toBase64(file: File): Promise<string> {
   let binary = '';
   for (let i = 0; i < buf.length; i += 0x8000) binary += String.fromCharCode(...buf.subarray(i, i + 0x8000));
   return btoa(binary);
+}
+
+async function submissionTimeout<T>(request: Promise<T>, milliseconds = 30_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([request, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new ApiError(0, 'timeout', '제출 결과를 확인하지 못했어요. 제출 상태를 확인해 주세요.')), milliseconds);
+    })]);
+  } finally { clearTimeout(timer); }
 }
 
 export const native = {

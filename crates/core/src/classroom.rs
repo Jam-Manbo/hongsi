@@ -333,16 +333,48 @@ impl SchoolSession {
         drafts: bool,
         accept_statement: bool,
     ) -> Result<()> {
+        self.submit_files_with_progress(assign_id, files, drafts, accept_statement, None).await
+    }
+
+    pub async fn submit_files_with_progress(
+        &self,
+        assign_id: i64,
+        files: Vec<(String, Vec<u8>)>,
+        drafts: bool,
+        accept_statement: bool,
+        job: Option<std::sync::Arc<crate::submission::Job>>,
+    ) -> Result<()> {
+        use crate::submission::{Progress, Stage};
         let token = self.moodle().await?.token.clone();
         let mut item_id: i64 = 0;
-        for (name, bytes) in files {
-            let part = reqwest::multipart::Part::bytes(bytes).file_name(name.clone());
+        let file_count = files.len();
+        for (uploaded_files, (name, bytes)) in files.into_iter().enumerate() {
+            let total_bytes = bytes.len() as u64;
+            let progress = Progress { stage: Stage::Upload, file_name: Some(name.clone()), file_count, uploaded_files, sent_bytes: 0, total_bytes };
+            if let Some(job) = &job { job.progress(progress.clone()); }
+            let upload_job = job.clone();
+            let stream = futures::stream::unfold((bytes, 0usize, std::time::Instant::now()), move |(bytes, offset, mut notified)| {
+                let job = upload_job.clone();
+                let mut progress = progress.clone();
+                async move {
+                    if offset == bytes.len() { return None; }
+                    let end = (offset + 64 * 1024).min(bytes.len());
+                    let chunk = bytes[offset..end].to_vec();
+                    if end == bytes.len() || notified.elapsed() >= std::time::Duration::from_millis(100) {
+                        progress.sent_bytes = end as u64;
+                        if let Some(job) = job { job.progress(progress); }
+                        notified = std::time::Instant::now();
+                    }
+                    Some((Ok::<_, std::io::Error>(chunk), (bytes, end, notified)))
+                }
+            });
+            let part = reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total_bytes).file_name(name.clone());
             let form = reqwest::multipart::Form::new()
                 .text("token", token.clone())
                 .text("filearea", "draft")
                 .text("itemid", item_id.to_string())
                 .part("file_1", part);
-            let v: Value = self.client.post(format!("{CN2}/webservice/upload.php")).multipart(form).send().await?.json().await?;
+            let v: Value = self.client.post(format!("{CN2}/webservice/upload.php")).timeout(std::time::Duration::from_secs(120)).multipart(form).send().await?.json().await?;
             if v["errorcode"].as_str() == Some("invalidtoken") {
                 return Err(CoreError::ClassroomTokenExpired);
             }
@@ -350,10 +382,14 @@ impl SchoolSession {
             item_id = uploaded["itemid"]
                 .as_i64()
                 .ok_or_else(|| CoreError::Upstream(format!("'{name}' 파일을 올리지 못했어요: {}", v["error"].as_str().unwrap_or("알 수 없는 오류"))))?;
+            if let Some(job) = &job {
+                job.progress(Progress { stage: Stage::Upload, file_name: Some(name), file_count, uploaded_files: uploaded_files + 1, sent_bytes: total_bytes, total_bytes });
+            }
         }
         if item_id == 0 {
             return Err(CoreError::Upstream("제출할 파일이 없어요.".into()));
         }
+        if let Some(job) = &job { job.progress(Progress::at(Stage::Submit)); }
         let saved = self
             .ws(
                 "mod_assign_save_submission",

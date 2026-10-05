@@ -18,6 +18,7 @@
     wide = false,
     confirm = false,
     showClose = true,
+    closeDisabled = false,
     onbeforeclose,
     onclose,
     children,
@@ -30,6 +31,7 @@
     wide?: boolean;
     confirm?: boolean;
     showClose?: boolean;
+    closeDisabled?: boolean;
     onbeforeclose?: () => boolean;
     onclose?: () => void;
     children?: Snippet;
@@ -110,7 +112,7 @@
         {#if titleIcon}<span class="title-icon"><Icon name={titleIcon} size={21} /></span>{/if}
         {#if titleMeta}<span>{title}</span><span class="title-meta">{titleMeta}</span>{:else}{title}{/if}
       </h2>
-      {#if showClose}<button class="icon-btn" onclick={close} aria-label="닫기"><Icon name="close" /></button>{/if}
+      {#if showClose}<button class="icon-btn" disabled={closeDisabled} onclick={close} aria-label="닫기"><Icon name="close" /></button>{/if}
     </header>
     {#if children}<div class="body">{@render children()}</div>{/if}
     {#if footer}<footer>{@render footer()}</footer>{/if}

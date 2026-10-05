@@ -7,6 +7,8 @@ use chrono::Utc;
 use hongsi_core::calendar::{self, CalendarData, SnapshotInfo, SubmitRejection};
 use hongsi_core::models::{ActiveLectures, Assignment, AttendanceCourse, Course, Notification, SemesterDisplay, SubmissionInfo, Timetable};
 use hongsi_core::{api_error, CoreError, SchoolSession, SchoolSessionSnapshot};
+pub use hongsi_core::submission;
+use submission::{Job, Progress, Stage, Status, JOB_TIMEOUT};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -122,6 +124,7 @@ pub struct Direct {
     server_ok: AtomicU8,
     school: RwLock<Option<Arc<School>>>,
     generation: AtomicU64,
+    submissions: submission::Jobs,
 }
 
 impl Direct {
@@ -137,6 +140,7 @@ impl Direct {
             server_ok: AtomicU8::new(0),
             school: RwLock::new(None),
             generation: AtomicU64::new(0),
+            submissions: Default::default(),
         }
     }
 
@@ -307,6 +311,7 @@ impl Direct {
         self.remember.store(false, Ordering::SeqCst);
         *self.school.write().await = None;
         self.generation.fetch_add(1, Ordering::SeqCst);
+        self.submissions.clear();
     }
 
 
@@ -825,10 +830,46 @@ impl Direct {
         late_confirmed: bool,
         accept_statement: bool,
     ) -> Reply {
-        match self.submit_inner(cmid, keep, files, late_confirmed, accept_statement).await {
+        match self.submit_inner(cmid, keep, files, late_confirmed, accept_statement, None).await {
             Ok(v) => Reply::ok(v),
             Err(r) => r,
         }
+    }
+
+    pub async fn begin_submission(&self, cmid: i64, id: &str) -> Result<(Arc<Job>, bool), Reply> {
+        let school = self.current().await?;
+        self.submissions.start(&school.student_id, cmid, id).map_err(|message| Reply::error(409, "conflict", message))
+    }
+
+    pub async fn submit_job(
+        &self, cmid: i64, keep: Vec<String>, files: Vec<(String, Vec<u8>)>, late: bool, statement: bool, job: Arc<Job>,
+    ) -> Reply {
+        match tokio::time::timeout(JOB_TIMEOUT, self.submit_inner(cmid, keep, files, late, statement, Some(job.clone()))).await {
+            Ok(Ok(result)) => job.complete(result),
+            Ok(Err(reply)) => job.fail(reply.status, reply.code().unwrap_or("school_error"), reply.body["error"]["message"].as_str().unwrap_or("제출 결과를 확인하지 못했어요.")),
+            Err(_) => job.fail(504, "timeout", "학교의 응답이 늦어지고 있어요."),
+        }
+        Reply::ok(json!(job.snapshot()))
+    }
+
+    pub async fn submission_status(&self, cmid: i64, id: &str, verify: bool) -> Reply {
+        let result = async {
+            let school = self.current().await?;
+            let job = self.submissions.get(&school.student_id, cmid, id)
+                .ok_or_else(|| Reply::error(404, "not_found", "제출 진행 기록을 찾지 못했어요. 클래스룸에서 제출 상태를 확인해 주세요."))?;
+            if verify && job.snapshot().status == Status::Uncertain {
+                let assignment = self.find_assignment(&school, cmid).await?;
+                let info = school.session.submission_info(assignment.id).await?;
+                if job.matches(&info) {
+                    let key = format!("assign:{cmid}");
+                    let _ = self.set_done(&key, &json!({ "done": true })).await;
+                    self.patch_items(&school, &key, |item| { item.status = "submitted"; item.done = true; }).await;
+                    job.complete(Self::view(&assignment, &info));
+                }
+            }
+            Ok(json!(job.snapshot()))
+        }.await;
+        match result { Ok(value) => Reply::ok(value), Err(reply) => reply }
     }
 
     async fn submit_inner(
@@ -838,6 +879,7 @@ impl Direct {
         files: Vec<(String, Vec<u8>)>,
         late_confirmed: bool,
         accept_statement: bool,
+        job: Option<Arc<Job>>,
     ) -> R<Value> {
         let s = self.current().await?;
         let a = self.find_assignment(&s, cmid).await?;
@@ -856,7 +898,16 @@ impl Direct {
             all.push((existing.name.clone(), bytes));
         }
         all.extend(files);
-        s.session.submit_files(a.id, all, a.config.drafts, accept_statement).await?;
+        if let Some(job) = &job { job.expect(&info, &all); }
+        s.session.submit_files_with_progress(a.id, all, a.config.drafts, accept_statement, job.clone()).await?;
+        if let Some(job) = &job {
+            job.acknowledge();
+            job.progress(Progress::at(Stage::Verify));
+        }
+        let info = s.session.submission_info(a.id).await?;
+        if job.as_ref().is_some_and(|job| !job.matches(&info)) {
+            return Err(Reply::error(502, "submission_unconfirmed", "제출 상태와 파일 목록이 아직 확인되지 않았어요."));
+        }
         tracing::info!(cmid, "과제 제출 완료 (기기)");
         let key = format!("assign:{cmid}");
         let _ = self.set_done(&key, &json!({ "done": true })).await;
@@ -865,7 +916,6 @@ impl Direct {
             item.done = true;
         })
         .await;
-        let info = s.session.submission_info(a.id).await?;
         Ok(Self::view(&a, &info))
     }
 

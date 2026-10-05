@@ -57,6 +57,10 @@ pub fn router() -> Router<Shared> {
             "/api/assign/{cmid}/submission",
             get(submission_get).post(submission_post).layer(DefaultBodyLimit::max(110 * 1024 * 1024)),
         )
+        .route(
+            "/api/assign/{cmid}/submission/jobs/{id}",
+            get(crate::submissions::status).post(crate::submissions::start).layer(DefaultBodyLimit::max(110 * 1024 * 1024)),
+        )
         .route("/api/todos", get(todo_list).post(todo_create))
         .route("/api/todos/{id}", put(todo_update).delete(todo_delete))
         .route("/api/todos/{id}/done", post(todo_done))
@@ -662,7 +666,7 @@ async fn notices_seen_add(State(st): State<Shared>, user: CurrentUser, Json(b): 
 }
 
 
-async fn find_assignment(user: &CurrentUser, cmid: i64) -> Result<hongsi_core::models::Assignment, ApiError> {
+pub(crate) async fn find_assignment(user: &CurrentUser, cmid: i64) -> Result<hongsi_core::models::Assignment, ApiError> {
     let school = user.session.school()?;
     let courses = school.all_courses().await?;
     school
@@ -673,7 +677,7 @@ async fn find_assignment(user: &CurrentUser, cmid: i64) -> Result<hongsi_core::m
         .ok_or_else(|| ApiError::not_found("과제를 찾지 못했어요."))
 }
 
-fn submission_view(a: &hongsi_core::models::Assignment, info: &hongsi_core::models::SubmissionInfo) -> Value {
+pub(crate) fn submission_view(a: &hongsi_core::models::Assignment, info: &hongsi_core::models::SubmissionInfo) -> Value {
     let now = Utc::now().timestamp();
     json!({
         "info": info,

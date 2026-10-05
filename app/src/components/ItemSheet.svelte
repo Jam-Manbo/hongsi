@@ -147,7 +147,7 @@
   {/snippet}
 </Sheet>
 
-<SubmitSheet bind:open={submitOpen} {item} />
+<SubmitSheet bind:open={submitOpen} {item} {course} />
 
 <style>
   .head {

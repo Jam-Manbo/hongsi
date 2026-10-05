@@ -47,6 +47,7 @@ pub struct AppState {
     pub pepper: Vec<u8>,
     pub meals: Mutex<Option<(Instant, Vec<MealDay>)>>,
     pub seats: RwLock<Option<SeatSnapshot>>,
+    pub submissions: hongsi_core::submission::Jobs,
 }
 
 pub type Shared = Arc<AppState>;
