@@ -44,6 +44,8 @@
 
   let panel: HTMLDivElement | undefined = $state();
   let backdrop: HTMLDivElement | undefined = $state();
+  let body: HTMLDivElement | undefined = $state();
+  let bodyContent: HTMLDivElement | undefined = $state();
   let dragY = $state(0);
   let dragging = $state(false);
 
@@ -86,6 +88,36 @@
       return registerSheet(currentPanel, currentBackdrop, close);
     });
   });
+
+  $effect(() => {
+    if (!open || !body || !bodyContent || !footer || wide || confirm) return;
+    const container = body, content = bodyContent;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      container.style.removeProperty('--body-bottom-space');
+      const style = getComputedStyle(container);
+      const preferred = parseFloat(style.getPropertyValue('--body-bottom'));
+      const remaining = container.getBoundingClientRect().height - parseFloat(style.paddingTop)
+        - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth) - content.getBoundingClientRect().height;
+      const space = remaining >= -1 ? Math.max(0, Math.min(preferred, remaining)) : preferred;
+      container.style.setProperty('--body-bottom-space', `${space}px`);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(container);
+    observer.observe(content);
+    window.addEventListener('resize', schedule);
+    window.visualViewport?.addEventListener('resize', schedule);
+    measure();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      window.visualViewport?.removeEventListener('resize', schedule);
+      container.style.removeProperty('--body-bottom-space');
+    };
+  });
 </script>
 
 {#if open}
@@ -114,7 +146,7 @@
       </h2>
       {#if showClose}<button class="icon-btn" disabled={closeDisabled} onclick={close} aria-label="닫기"><Icon name="close" /></button>{/if}
     </header>
-    {#if children}<div class="body">{@render children()}</div>{/if}
+    {#if children}<div class="body" bind:this={body}><div class="body-content" bind:this={bodyContent}>{@render children()}</div></div>{/if}
     {#if footer}<footer>{@render footer()}</footer>{/if}
   </div>
 {/if}
@@ -154,6 +186,7 @@
   .sheet.dragging { transition: none; user-select: none; }
 
   .grip {
+    flex: none;
     width: 40px;
     height: 4px;
     border-radius: 4px;
@@ -207,11 +240,18 @@
   }
 
   .body {
+    --body-bottom: 24px;
     min-height: 0;
     overflow-y: auto;
-    overscroll-behavior-y: contain;
-    padding: 4px 20px 24px;
+    overscroll-behavior-y: none;
+    padding: 4px 20px var(--body-bottom-space, var(--body-bottom));
+    transition: none;
   }
+
+  .body:has(+ footer) { --body-bottom: 16px; }
+
+  .body-content { display: flow-root; }
+  .body-content > :global(:last-child) { margin-bottom: 0; }
 
   footer {
     display: flex;

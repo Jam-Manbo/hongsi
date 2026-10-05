@@ -286,6 +286,8 @@
     margin: 0 0 8px;
   }
 
+  .intro > :global(:last-child) { margin-bottom: 0; }
+
   .files {
     margin-top: 14px;
   }
