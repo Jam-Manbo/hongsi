@@ -4,7 +4,7 @@ use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine;
 use futures::future::join_all;
 use regex::Regex;
-use reqwest::header::LOCATION;
+use reqwest::header::{LOCATION, USER_AGENT};
 use scraper::Html;
 use serde_json::Value;
 
@@ -48,8 +48,12 @@ impl SchoolSession {
     }
 
     async fn moodle_page(&self, url: &str) -> Result<String> {
+        self.moodle_page_with_user_agent(url, crate::session::UA).await
+    }
+
+    async fn moodle_page_with_user_agent(&self, url: &str, user_agent: &str) -> Result<String> {
         self.ensure_moodle_web().await?;
-        let body = self.get_text(url, None).await?;
+        let body = self.client.get(url).header(USER_AGENT, user_agent).send().await?.text().await?;
         if body.contains("loginform") || body.contains("id=\"login\"") {
             return Err(CoreError::SessionExpired);
         }
@@ -487,29 +491,18 @@ impl SchoolSession {
         if periods.is_empty() {
             return Ok(vec![]);
         }
-        let progress = self.moodle_page(&format!("{CN2}/report/ubcompletion/progress.php?id={course_id}")).await?;
-        let rows = parse_progress(&progress);
+        let progress = self.moodle_page_with_user_agent(
+            &format!("{CN2}/report/ubcompletion/progress.php?id={course_id}"),
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        ).await?;
+        let contents = self.ws("core_course_get_contents", &[
+            ("courseid".into(), course_id.to_string()),
+            ("options[0][name]".into(), "modname".into()),
+            ("options[0][value]".into(), "vod".into()),
+        ]).await?;
+        let rows = parse_progress(&progress, &vod_instance_cmids(&contents));
         let now = chrono::Utc::now().timestamp();
-        Ok(periods
-            .into_iter()
-            .map(|p| {
-                let row = rows.get(&p.name);
-                let mark = row.map(|r| r.2.clone());
-                let state = vod_state(mark.as_deref(), p.start, p.end, now);
-                Vod {
-                    cmid: p.cmid,
-                    course_id,
-                    name: p.name,
-                    start: p.start,
-                    end: p.end,
-                    late_until: p.late_until,
-                    required: row.map(|r| r.0.clone()),
-                    watched: row.map(|r| r.1.clone()),
-                    mark,
-                    state,
-                }
-            })
-            .collect())
+        Ok(merge_vod_progress(course_id, periods, &rows, now))
     }
 }
 
@@ -688,21 +681,66 @@ fn parse_vod_periods(body: &str) -> Vec<VodPeriod> {
     out
 }
 
-fn parse_progress(body: &str) -> HashMap<String, (String, String, String)> {
+struct VodProgress {
+    required: String,
+    watched: String,
+    mark: String,
+}
+
+fn vod_instance_cmids(contents: &Value) -> HashMap<i64, i64> {
+    contents.as_array().into_iter().flatten()
+        .flat_map(|section| section["modules"].as_array().into_iter().flatten())
+        .filter(|module| module["modname"].as_str() == Some("vod"))
+        .filter_map(|module| {
+            let instance = module["instance"].as_i64().filter(|id| *id > 0)?;
+            let cmid = module["id"].as_i64().filter(|id| *id > 0)?;
+            Some((instance, cmid))
+        })
+        .collect()
+}
+
+fn parse_progress(body: &str, instance_cmids: &HashMap<i64, i64>) -> HashMap<i64, VodProgress> {
     let doc = Html::parse_document(body);
     let time = Regex::new(r"^\d+:\d{2}").expect("정규식");
+    let module = sel("[data-modname='vod'][data-modid]");
+    let td = sel("td");
     let mut rows = HashMap::new();
-    for table in doc.select(&sel("table")) {
-        let trs: Vec<_> = table.select(&sel("tr")).collect();
-        for pair in trs.windows(2) {
-            let title: Vec<String> = pair[0].select(&sel("td")).map(text_of).collect();
-            let detail: Vec<String> = pair[1].select(&sel("td")).map(text_of).collect();
-            if title.len() == 1 && detail.len() == 3 && time.is_match(&detail[0]) {
-                rows.insert(title[0].clone(), (detail[0].clone(), detail[1].clone(), detail[2].clone()));
-            }
-        }
+    for tr in doc.select(&sel("table tr")) {
+        let Some(instance) = tr.select(&module).next()
+            .and_then(|el| el.value().attr("data-modid"))
+            .and_then(|id| id.parse::<i64>().ok()) else { continue };
+        let Some(&cmid) = instance_cmids.get(&instance) else { continue };
+        let cells: Vec<_> = tr.select(&td).collect();
+        let Some(detail) = cells.len().checked_sub(3).map(|start| &cells[start..]) else { continue };
+        let required = text_of(detail[0]);
+        if !time.is_match(&required) { continue; }
+        rows.insert(cmid, VodProgress {
+            required,
+            watched: text_excluding(detail[1], "track_detail"),
+            mark: text_of(detail[2]),
+        });
     }
     rows
+}
+
+fn merge_vod_progress(course_id: i64, periods: Vec<VodPeriod>, rows: &HashMap<i64, VodProgress>, now: i64) -> Vec<Vod> {
+    periods.into_iter().map(|p| {
+        let row = p.cmid.and_then(|cmid| rows.get(&cmid));
+        let mark = row.map(|r| r.mark.clone());
+        let state = vod_state(mark.as_deref(), p.start, p.end, now);
+        Vod {
+            cmid: p.cmid,
+            course_id,
+            name: p.name,
+            start: p.start,
+            end: p.end,
+            late_until: p.late_until,
+            required: row.map(|r| r.required.clone()),
+            watched: row.map(|r| r.watched.clone()),
+            mark,
+            state,
+        }
+    }).collect()
 }
 
 fn vod_state(mark: Option<&str>, start: i64, end: i64, now: i64) -> VodState {
@@ -713,5 +751,111 @@ fn vod_state(mark: Option<&str>, start: i64, end: i64, now: i64) -> VodState {
         _ if now > end => VodState::Missed,
         _ if now < start => VodState::Upcoming,
         _ => VodState::Todo,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn module_ids() -> HashMap<i64, i64> {
+        vod_instance_cmids(&json!([{"modules": [
+            {"id": 101, "instance": 11, "modname": "vod"},
+            {"id": 102, "instance": 12, "modname": "vod"},
+            {"id": 103, "instance": 13, "modname": "vod"}
+        ]}]))
+    }
+
+    fn period(cmid: Option<i64>, name: &str) -> VodPeriod {
+        VodPeriod { cmid, name: name.into(), start: 100, end: 200, late_until: None }
+    }
+
+    #[test]
+    fn duplicate_titles_keep_separate_progress_when_report_order_changes() {
+        let body = r#"<table class="user_progress_table"><tbody>
+            <tr><td rowspan="2">1</td><td>같은 제목</td><td>30:00</td>
+                <td>12:00<br><button class="track_detail" data-modname="vod" data-modid="12">2회 열람</button></td>
+                <td>▲</td></tr>
+            <tr><td>같은 제목</td><td>20:00</td>
+                <td>20:05<br><button class="track_detail" data-modname="vod" data-modid="11">1회 열람</button></td>
+                <td>O</td></tr>
+        </tbody></table>"#;
+        let rows = parse_progress(body, &module_ids());
+        let vods = merge_vod_progress(7, vec![
+            period(Some(101), "같은 제목"), period(Some(102), "같은 제목"),
+        ], &rows, 150);
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(vods[0].cmid, Some(101));
+        assert_eq!(vods[0].required.as_deref(), Some("20:00"));
+        assert_eq!(vods[0].watched.as_deref(), Some("20:05"));
+        assert_eq!(vods[0].mark.as_deref(), Some("O"));
+        assert_eq!(vods[0].state, VodState::Done);
+        assert_eq!(vods[1].cmid, Some(102));
+        assert_eq!(vods[1].required.as_deref(), Some("30:00"));
+        assert_eq!(vods[1].watched.as_deref(), Some("12:00"));
+        assert_eq!(vods[1].mark.as_deref(), Some("▲"));
+        assert_eq!(vods[1].state, VodState::Partial);
+    }
+
+    #[test]
+    fn renamed_video_still_matches_its_id() {
+        let rows = parse_progress(r#"<table><tr><td>이전 제목</td><td>1:00:00</td>
+            <td>1:01:02<button class="track_detail" data-modname="vod" data-modid="11">3회 열람</button></td>
+            <td>100%</td></tr></table>"#, &module_ids());
+        let vods = merge_vod_progress(7, vec![period(Some(101), "바뀐 제목")], &rows, 250);
+
+        assert_eq!(vods[0].name, "바뀐 제목");
+        assert_eq!(vods[0].watched.as_deref(), Some("1:01:02"));
+        assert_eq!(vods[0].state, VodState::Done);
+    }
+
+    #[test]
+    fn missing_or_unmapped_ids_never_fall_back_to_title_or_position() {
+        let rows = parse_progress(r#"<table>
+            <tr><td>같은 제목</td><td>20:00</td><td>20:05
+                <button class="track_detail" data-modname="vod" data-modid="11">1회 열람</button></td><td>O</td></tr>
+            <tr><td>같은 제목</td><td>30:00</td><td>-</td><td>X</td></tr>
+            <tr><td>같은 제목</td><td>30:00</td><td>30:00
+                <button class="track_detail" data-modname="vod" data-modid="103">1회 열람</button></td><td>O</td></tr>
+            <tr><td>같은 제목</td><td>30:00</td><td>30:00
+                <button class="track_detail" data-modname="quiz" data-modid="12">1회 열람</button></td><td>O</td></tr>
+        </table>"#, &module_ids());
+        assert_eq!(rows.len(), 1);
+        let vods = merge_vod_progress(7, vec![
+            period(Some(102), "같은 제목"), period(Some(103), "같은 제목"), period(None, "같은 제목"),
+        ], &rows, 150);
+        for vod in vods {
+            assert!(vod.watched.is_none());
+            assert!(vod.mark.is_none());
+            assert_eq!(vod.state, VodState::Todo);
+        }
+    }
+
+    #[test]
+    fn module_mapping_only_accepts_valid_vod_ids() {
+        let ids = vod_instance_cmids(&json!([
+            {"modules": [
+                {"id": 101, "instance": 11, "modname": "vod"},
+                {"id": 201, "instance": 11, "modname": "quiz"},
+                {"id": 102, "modname": "vod"},
+                {"id": 0, "instance": 12, "modname": "vod"},
+                {"id": 103, "instance": -1, "modname": "vod"}
+            ]},
+            {"modules": [{"id": 104, "instance": 14, "modname": "vod"}]},
+            {}
+        ]));
+        assert_eq!(ids, HashMap::from([(11, 101), (14, 104)]));
+        assert!(vod_instance_cmids(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn mobile_report_without_ids_is_not_matched_by_title() {
+        let rows = parse_progress(r#"<table class="table-progress-mobile">
+            <tr class="tr-module"><td colspan="3">같은 제목</td></tr>
+            <tr class="tr-small tr-end"><td>20:00</td><td>20:05</td><td>O</td></tr>
+        </table>"#, &module_ids());
+        assert!(rows.is_empty());
     }
 }
