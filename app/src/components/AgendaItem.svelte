@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { clock } from '../lib/clock.svelte';
   import { itemStatus, isFinished } from '../lib/colors';
   import { dday, dueDate, dueTime } from '../lib/format';
   import type { CalendarItem } from '../lib/types';
@@ -22,7 +23,7 @@
 
   const finished = $derived(isFinished(item));
   const status = $derived(itemStatus(item));
-  const d = $derived(item.due ? dday(item.due) : null);
+  const d = $derived(item.due ? dday(item.due, clock.now) : null);
 </script>
 
 <div class="row" class:finished style:--c={color}>

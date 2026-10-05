@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { clock } from '../lib/clock.svelte';
   import { setItemAlert, setItemAlertLeads } from '../lib/actions.svelte';
   import { itemStatus, isFinished } from '../lib/colors';
   import { dateTime, dday, dueDateTime } from '../lib/format';
@@ -55,7 +56,7 @@
       <h3>{item.title}</h3>
       <div class="chips">
         <span class="chip {status.tone}">{status.label}</span>
-        {#if item.due && !isFinished(item)}<span class="chip primary">{dday(item.due).label}</span>{/if}
+        {#if item.due && !isFinished(item)}<span class="chip primary">{dday(item.due, clock.now).label}</span>{/if}
       </div>
     </div>
 

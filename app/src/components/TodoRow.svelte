@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { clock } from '../lib/clock.svelte';
   import { dday, dueDate, dueTime } from '../lib/format';
   import { pendingTodos, toggleTodo } from '../lib/todos.svelte';
   import type { Todo } from '../lib/types';
@@ -14,7 +15,7 @@
 
   const done = $derived(todo.doneAt !== null);
   const busy = $derived(pendingTodos.has(todo.id));
-  const d = $derived(todo.due !== null && !done ? dday(todo.due) : null);
+  const d = $derived(todo.due !== null && !done ? dday(todo.due, clock.now) : null);
 </script>
 
 <div class="row" class:done style:--c={color}>

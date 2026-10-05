@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { watchClock } from './lib/clock.svelte';
   import { watchCalendarState } from './lib/calendar-sync.svelte';
   import { watchAppUpdates } from './lib/app-update.svelte';
   import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
@@ -104,6 +105,7 @@
 
   onMount(() => {
     if (downloadPage) { app.booting = false; return; }
+    const stopClock = watchClock();
     const stopUpdates = watchAppUpdates();
     let disposed = false;
     let cleanup = () => {};
@@ -118,7 +120,7 @@
       await showFirstNotificationPermission();
       if (!disposed && app.profile && !app.loggingOut) await refreshBackground();
     });
-    return () => { disposed = true; cleanup(); stopUpdates(); };
+    return () => { disposed = true; cleanup(); stopUpdates(); stopClock(); };
   });
 
   $effect(() => {
