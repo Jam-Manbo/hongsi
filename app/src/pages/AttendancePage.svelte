@@ -53,7 +53,9 @@
 
 
   const colorByCode = $derived.by(() => {
-    const courses = calendar.data?.courses ?? [];
+    const term = calendar.data?.currentTerm;
+    const courses = (calendar.data?.courses ?? []).filter((course) => !term
+      || (course.term?.year === term.year && course.term?.semester === term.semester));
     const colors = courseColors(courses);
     return new Map(courses.map((c) => [c.code ?? '', colors.get(c.id) ?? 'var(--border-strong)']));
   });

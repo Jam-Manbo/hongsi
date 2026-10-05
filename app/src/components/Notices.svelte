@@ -22,34 +22,34 @@
   const list = $derived(notices.data ?? []);
   const unread = $derived(list.filter((n) => !seen.has(n.url)).length);
 
-  const KIND: Record<string, { icon: string; label: string; tone?: string }> = {
-    assign: { icon: 'file', label: '과제', tone: 'warn' },
-    vod: { icon: 'play', label: '강의', tone: 'primary' },
-    ubfile: { icon: 'download', label: '파일', tone: 'info' },
-    resource: { icon: 'download', label: '파일', tone: 'info' },
-    folder: { icon: 'folder', label: '폴더', tone: 'info' },
-    url: { icon: 'link', label: '링크', tone: 'info' },
-    ubboard_notice: { icon: 'megaphone', label: '공지', tone: 'danger' },
-    ubboard: { icon: 'chat', label: '게시판' },
-    ubboard_qna: { icon: 'chat', label: '질문' },
-    forum: { icon: 'chat', label: '토론' },
-    quiz: { icon: 'quiz', label: '퀴즈', tone: 'warn' },
-    zoom: { icon: 'video', label: '화상강의', tone: 'primary' },
-    feedback: { icon: 'list', label: '설문' },
-    survey: { icon: 'list', label: '설문' },
-    choice: { icon: 'list', label: '투표' },
-    page: { icon: 'book', label: '페이지' },
-    lesson: { icon: 'book', label: '학습' },
-    workshop: { icon: 'book', label: '상호평가' },
-    ubpeer: { icon: 'book', label: '동료평가' },
-    wiki: { icon: 'book', label: '위키' },
-    glossary: { icon: 'book', label: '용어집' },
-    chat: { icon: 'chat', label: '채팅' },
-    scorm: { icon: 'play', label: '콘텐츠' },
-    econtents: { icon: 'play', label: '콘텐츠' },
-    course: { icon: 'book', label: '강좌' },
+  const KIND: Record<string, { icon: string; tone?: string }> = {
+    assign: { icon: 'file', tone: 'warn' },
+    vod: { icon: 'play', tone: 'primary' },
+    ubfile: { icon: 'download', tone: 'info' },
+    resource: { icon: 'download', tone: 'info' },
+    folder: { icon: 'folder', tone: 'info' },
+    url: { icon: 'link', tone: 'info' },
+    ubboard_notice: { icon: 'megaphone', tone: 'danger' },
+    ubboard: { icon: 'chat' },
+    ubboard_qna: { icon: 'chat' },
+    forum: { icon: 'chat' },
+    quiz: { icon: 'quiz', tone: 'warn' },
+    zoom: { icon: 'video', tone: 'primary' },
+    feedback: { icon: 'list' },
+    survey: { icon: 'list' },
+    choice: { icon: 'list' },
+    page: { icon: 'book' },
+    lesson: { icon: 'book' },
+    workshop: { icon: 'book' },
+    ubpeer: { icon: 'book' },
+    wiki: { icon: 'book' },
+    glossary: { icon: 'book' },
+    chat: { icon: 'chat' },
+    scorm: { icon: 'play' },
+    econtents: { icon: 'play' },
+    course: { icon: 'book' },
   };
-  const kind = (n: ClassNotification) => KIND[n.kind] ?? { icon: 'bell', label: '알림' };
+  const kind = (n: ClassNotification) => KIND[n.kind] ?? { icon: 'bell' };
 
   $effect(() => {
     if (focus.notice) {
@@ -176,7 +176,7 @@
             <span class="ico {k.tone ?? ''}" class:spin={busy}><Icon name={busy ? 'refresh' : k.icon} size={18} /></span>
             <span class="txt">
               <strong>{n.message}</strong>
-              <span class="muted"><b>{k.label}</b> · {n.course}{n.section ? ` · ${n.section}` : ''}</span>
+              <span class="muted">{n.course}{n.section ? ` · ${n.section}` : ''}</span>
             </span>
             <span class="when">{busy ? '받는 중' : n.when.replace(/(\d+)(분|시간|일)전/, '$1$2 전')}</span>
           </a>
@@ -287,11 +287,6 @@
   .ico.danger {
     background: var(--danger-weak);
     color: var(--danger);
-  }
-
-  .txt b {
-    font-weight: 700;
-    color: var(--text-2);
   }
 
   .txt {

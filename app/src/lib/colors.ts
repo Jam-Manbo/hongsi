@@ -14,13 +14,23 @@ export const RAINBOW = [
 ];
 
 export function courseColors(courses: Course[]): Map<number, string> {
-  const n = courses.length;
-  const pick = (i: number) => {
-    if (n <= 1) return RAINBOW[7];
-    if (n > RAINBOW.length) return RAINBOW[i % RAINBOW.length];
-    return RAINBOW[Math.round((i * (RAINBOW.length - 1)) / (n - 1))];
-  };
-  return new Map(courses.map((c, i) => [c.id, pick(i)]));
+  const terms = new Map<string, Course[]>();
+  for (const course of courses) {
+    const key = course.term ? `${course.term.year}-${course.term.semester}` : 'other';
+    const group = terms.get(key) ?? [];
+    group.push(course);
+    terms.set(key, group);
+  }
+  const colors = new Map<number, string>();
+  const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+  for (const group of terms.values()) {
+    group.sort((a, b) => compare(a.code ?? '', b.code ?? '') || compare(a.name, b.name) || a.id - b.id);
+    group.forEach((course, i) => {
+      const index = group.length === 1 ? 7 : Math.round(i * (RAINBOW.length - 1) / (group.length - 1));
+      colors.set(course.id, RAINBOW[index]);
+    });
+  }
+  return colors;
 }
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'muted' | 'info';

@@ -20,7 +20,8 @@ export function widgetSnapshot(): string {
   return JSON.stringify({
     version: 1,
     owner: app.account,
-    preferences: { midnight: settings.midnight, showUndated: settings.showUndatedAssignments, timetableDisplay: settings.timetableDisplay },
+    preferences: { midnight: settings.midnight, showUndated: settings.showUndatedAssignments, timetableDisplay: settings.timetableDisplay, semesterDisplay: settings.semesterDisplay },
+    semesterDisplay: calendar.data?.semesterDisplay ?? settings.semesterDisplay,
     attendance: attendanceWidgetSnapshot(),
     errors: { timetable: timetable.error, calendar: calendar.error || todos.error, seats: seatSession.error },
     updatedAt: { preferences: accountPreferences.updatedAt, timetable: timetable.at, calendar: Math.max(calendar.at, todos.at, calendarSync.updatedAt), seats: seatSession.at, lectures: lectures.at },

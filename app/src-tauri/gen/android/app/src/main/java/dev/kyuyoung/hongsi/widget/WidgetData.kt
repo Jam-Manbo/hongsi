@@ -40,17 +40,21 @@ object WidgetData {
         else {
             val oldTimes = current.optJSONObject("updatedAt") ?: JSONObject()
             val times = next.optJSONObject("updatedAt") ?: JSONObject()
-            mapOf("slots" to "timetable", "deadlines" to "calendar", "seat" to "seats", "attendance" to "lectures").forEach { (field, resource) ->
-                if (oldTimes.optLong(resource) > times.optLong(resource)) {
-                    if (current.has(field)) next.put(field, current.get(field))
-                    times.put(resource, oldTimes.optLong(resource))
-                }
-            }
             if (oldTimes.optLong("preferences") > times.optLong("preferences")) {
                 val preferences = next.optJSONObject("preferences") ?: JSONObject()
                 preferences.put("timetableDisplay", current.optJSONObject("preferences")?.text("timetableDisplay", "fit") ?: "fit")
+                preferences.put("semesterDisplay", current.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current")
                 next.put("preferences", preferences)
                 times.put("preferences", oldTimes.optLong("preferences"))
+            }
+            val display = next.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current"
+            mapOf("slots" to "timetable", "deadlines" to "calendar", "seat" to "seats", "attendance" to "lectures").forEach { (field, resource) ->
+                val matchingSemester = field != "deadlines" || current.text("semesterDisplay") == display
+                if (matchingSemester && (oldTimes.optLong(resource) > times.optLong(resource) || (field == "deadlines" && next.text("semesterDisplay") != display))) {
+                    if (current.has(field)) next.put(field, current.get(field))
+                    if (field == "deadlines") next.put("semesterDisplay", current.text("semesterDisplay"))
+                    times.put(resource, oldTimes.optLong(resource))
+                }
             }
             next.put("updatedAt", times)
             next.put("pendingReceipts", current.optJSONArray("pendingReceipts") ?: JSONArray())
@@ -61,10 +65,16 @@ object WidgetData {
     @Synchronized fun merge(context: Context, owner: String, patch: JSONObject): Boolean {
         val next = read(context)
         if (owner.isBlank() || next.text("owner") != owner) return false
-        if (patch.has("preferences") && (patch.optJSONObject("updatedAt")?.optLong("preferences") ?: 0) < (next.optJSONObject("updatedAt")?.optLong("preferences") ?: 0)) {
+        val incomingPreferencesAt = patch.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
+        val preferencesAt = next.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
+        val display = next.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current"
+        if (patch.has("preferences") && (incomingPreferencesAt < preferencesAt ||
+            (incomingPreferencesAt == preferencesAt && patch.getJSONObject("preferences").text("semesterDisplay", display) != display))) {
             patch.remove("preferences")
             patch.optJSONObject("updatedAt")?.remove("preferences")
         }
+        val nextDisplay = patch.optJSONObject("preferences")?.text("semesterDisplay", display) ?: display
+        if (patch.has("deadlines") && patch.text("semesterDisplay") != nextDisplay) return false
         patch.keys().forEach { key ->
             if (key in listOf("updatedAt", "errors", "preferences")) {
                 val values = next.optJSONObject(key) ?: JSONObject()
@@ -108,6 +118,7 @@ object WidgetData {
     fun deadlineDay(context: Context, item: JSONObject): Long = deadlineDay(context, item.optLong("due"))
     fun deadlines(context: Context): List<JSONObject> {
         val data = read(context)
+        if (data.text("semesterDisplay") != (data.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current")) return emptyList()
         val showUndated = data.optJSONObject("preferences")?.optBoolean("showUndated") == true
         return data.array("deadlines").filter {
             !it.optBoolean("done") && (if (it.isNull("due")) showUndated else it.optLong("due") > nowSeconds()) && (it.text("kind") != "vod" || it.isNull("start") || it.optLong("start") <= nowSeconds())

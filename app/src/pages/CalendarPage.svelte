@@ -10,7 +10,6 @@
   import { refreshState, refreshTab } from '../lib/refresh.svelte';
   import { settings } from '../lib/settings.svelte';
   import { displayedTodos, isTodoPending, todoKey } from '../lib/todos.svelte';
-  import { courseLabel, termLabel } from '../lib/semester';
   import { focus, toast } from '../lib/ui.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
   import TodoRow from '../components/TodoRow.svelte';
@@ -89,10 +88,7 @@
   const items = $derived((data?.items ?? []).filter((i) => !hidden.has(i.courseId)
     && (settings.showUndatedAssignments || i.kind !== 'assignment' || i.due !== null)));
   const colors = $derived(courseColors(data?.courses ?? []));
-  const courseName = (id: number) => {
-    const course = data?.courses.find((c) => c.id === id);
-    return course ? courseLabel(course, settings.semesterDisplay) : '';
-  };
+  const courseName = (id: number) => data?.courses.find((c) => c.id === id)?.name ?? '';
 
   const visible = $derived(
     items.filter((i) => {
@@ -129,7 +125,7 @@
   );
   const todoColor = (t: Todo) => (t.courseId === null ? 'var(--todo-neutral)' : (colors.get(t.courseId) ?? 'var(--todo-neutral)'));
   const todoCourse = (t: Todo) => (t.courseId === null ? '공통' : courseName(t.courseId));
-  const names = $derived(new Map((data?.courses ?? []).map((c) => [c.id, courseLabel(c, settings.semesterDisplay)])));
+  const names = $derived(new Map((data?.courses ?? []).map((c) => [c.id, c.name])));
   const week = $derived.by(() => {
     const now = Date.now() / 1000;
     return items.filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86400);
@@ -327,7 +323,6 @@
       <Skeleton rows={3} height={64} />
     {/if}
   {:else}
-    <p class="semester-label muted">{settings.semesterDisplay === 'all' ? '전체 학기' : termLabel(data.currentTerm) || '현재 학기'}</p>
     {@render summaryControls()}
     {#if !narrow.current}
       {@render statResults()}
@@ -486,7 +481,7 @@
   {/if}
   {#if completed.length}
     <details class="completed-list">
-      <summary>완료한 일정 {completed.length}개</summary>
+      <summary><span class="completed-arrow"><Icon name="right" size={18} stroke={2.6} /></span><span>완료한 일정 {completed.length}개</span></summary>
       <div class="list">
         {#each completed as entry (entry.key)}{@render agendaRow(entry, showDate)}{/each}
       </div>
@@ -571,7 +566,7 @@
         onclick={() => toggleCourse(c.id)}
         aria-pressed={!hidden.has(c.id)}
       >
-        <span class="dot"></span>{courseLabel(c, settings.semesterDisplay)}
+        <span class="dot"></span>{c.name}
       </button>
     {/each}
   </div>
@@ -607,9 +602,12 @@
 />
 
 <style>
-  .semester-label { margin-bottom: 10px; font-size: 12px; }
   .completed-list { margin-top: 12px; }
-  .completed-list summary { padding: 10px 0; cursor: pointer; font-size: 13px; color: var(--text-2); }
+  .completed-list summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 0; cursor: pointer; list-style: none; font-size: 15px; font-weight: 700; color: var(--text); }
+  .completed-list summary::-webkit-details-marker { display: none; }
+  .completed-list summary::marker { content: ''; }
+  .completed-arrow { display: flex; flex: none; transition: transform 150ms; }
+  .completed-list[open] > summary .completed-arrow { transform: rotate(90deg); }
   .mobile-controls { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
   .summary-trigger { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 0 2px; color: var(--text-2); font-size: 13px; font-weight: 650; }
   .summary-trigger strong { font-size: 19px; font-variant-numeric: tabular-nums; color: var(--primary-text); }
@@ -626,7 +624,7 @@
   .course-picker .course.all-courses { justify-content: center; }
   .summary-picker .summary { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 16px; }
   .summary-picker .stat { padding-inline: 8px; }
-  .summary-picker .stat-list.card { padding: 0; border: 0; box-shadow: none; }
+  .summary-picker .stat-list.card { padding: 0; border: 0; background: transparent; box-shadow: none; }
 
   .toolbar {
     display: flex;

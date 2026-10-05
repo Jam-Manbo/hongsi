@@ -3,11 +3,10 @@
   import { isApp } from '../lib/api';
   import { settings } from '../lib/settings.svelte';
   import { calendar } from '../lib/store.svelte';
-  import { courseLabel } from '../lib/semester';
   import { pendingTodos, removeTodo, saveTodo, fromUnix, toUnix } from '../lib/todos.svelte';
   import TimeWheel from './TimeWheel.svelte';
   import DateField from './DateField.svelte';
-  import type { Course, Todo } from '../lib/types';
+  import type { AcademicTerm, Course, Todo } from '../lib/types';
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
   import DeadlineAlerts from './DeadlineAlerts.svelte';
@@ -29,6 +28,21 @@
   let title = $state('');
   let note = $state('');
   let courseId = $state<number | null>(null);
+  let selectedTerm = $state<string | null>(null);
+  let termRow: HTMLDivElement | undefined = $state();
+  const currentTerm = $derived(calendar.data?.currentTerm);
+  const terms = $derived.by(() => {
+    const available = new Map<string, AcademicTerm | null>();
+    if (currentTerm) available.set(termKey(currentTerm), currentTerm);
+    for (const course of courses) available.set(termKey(course.term), course.term);
+    return [...available].map(([key, term]) => ({ key, term })).sort((a, b) =>
+      (b.term?.year ?? 0) - (a.term?.year ?? 0) || (b.term?.semester ?? 0) - (a.term?.semester ?? 0));
+  });
+  const editingCourse = $derived(todo ? courses.find((course) => course.id === todo.courseId) : undefined);
+  const defaultTerm = $derived(editingCourse ? termKey(editingCourse.term)
+    : currentTerm ? termKey(currentTerm) : terms[0]?.key ?? null);
+  const activeTerm = $derived(terms.some((term) => term.key === selectedTerm) ? selectedTerm : defaultTerm);
+  const termCourses = $derived(courses.filter((course) => termKey(course.term) === activeTerm));
   let date = $state('');
   let time = $state('');
   let parentKey = $state<string | null>(null);
@@ -61,6 +75,7 @@
       title = todo?.title ?? '';
       note = todo?.note ?? '';
       courseId = todo ? todo.courseId : (draft.courseId ?? null);
+      selectedTerm = null;
       date = due?.date ?? draft.date ?? '';
       time = todo && !todo.allDay && due ? due.time : '';
       parentKey = todo ? todo.parentKey : (draft.parentKey ?? null);
@@ -74,6 +89,35 @@
   $effect(() => {
     if (!date) time = '';
   });
+
+  $effect(() => {
+    const row = termRow;
+    if (!open || !row || !activeTerm) return;
+    const frame = requestAnimationFrame(() => {
+      if (!row.isConnected) return;
+      const selected = row.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+      if (!selected) return;
+      const bounds = row.getBoundingClientRect(), button = selected.getBoundingClientRect();
+      if (button.left < bounds.left) row.scrollLeft -= bounds.left - button.left;
+      else if (button.right > bounds.right) row.scrollLeft += button.right - bounds.right;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  function termKey(term: AcademicTerm | null): string {
+    return term ? `${term.year}-${term.semester}` : 'other';
+  }
+
+  function termLabel(term: AcademicTerm | null): string {
+    if (!term) return '기타';
+    const labels: Record<number, string> = { 10: '1학기', 11: '여름학기', 20: '2학기', 21: '겨울학기' };
+    return `${term.year}년 ${labels[term.semester] ?? term.semester}`;
+  }
+
+  function selectTerm(key: string) {
+    selectedTerm = key;
+    if (!termCourses.some((course) => course.id === courseId)) courseId = null;
+  }
 
   function canClose() {
     if (saving || deleteOpen) return false;
@@ -141,22 +185,28 @@
       required
     />
 
-    <div class="field">
-      <span>분류</span>
+    <div class="field course-field">
       {#if parentKey}
         <div class="chips">
           <span class="c on" style:--c={colors.get(parent?.courseId ?? courseId ?? 0) ?? 'var(--todo-neutral)'}>
-            <i></i>{linkedCourse ? courseLabel(linkedCourse, settings.semesterDisplay) : '연결된 과목'}
+            <i></i>{linkedCourse?.name ?? '연결된 과목'}
           </span>
         </div>
       {:else}
+        {#if terms.length}
+          <div class="terms" bind:this={termRow} role="group" aria-label="학기">
+            {#each terms as term (term.key)}
+              <button type="button" class="term" class:on={activeTerm === term.key} aria-pressed={activeTerm === term.key} onclick={() => selectTerm(term.key)}>{termLabel(term.term)}</button>
+            {/each}
+          </div>
+        {/if}
         <div class="chips" role="radiogroup" aria-label="과목">
           <button type="button" class="c" class:on={courseId === null} style:--c="var(--todo-neutral)" onclick={() => (courseId = null)} role="radio" aria-checked={courseId === null}>
             <i></i>공통
           </button>
-          {#each courses as c (c.id)}
+          {#each termCourses as c (c.id)}
             <button type="button" class="c" class:on={courseId === c.id} style:--c={colors.get(c.id)} onclick={() => (courseId = c.id)} role="radio" aria-checked={courseId === c.id}>
-              <i></i>{courseLabel(c, settings.semesterDisplay)}
+              <i></i>{c.name}
             </button>
           {/each}
         </div>
@@ -312,21 +362,30 @@
     gap: 6px;
   }
 
+  .course-field { min-width: 0; gap: 12px; }
+  .terms { display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .terms::-webkit-scrollbar { display: none; }
+  .term { flex: 0 0 auto; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface-2); font-size: 12px; font-weight: 650; color: var(--text); white-space: nowrap; }
+  .term.on { border-color: var(--primary); }
+
   .c {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 32px;
-    padding: 0 12px;
+    min-height: 32px;
+    max-width: 100%;
+    padding: 5px 12px;
     border-radius: 999px;
     border: 1px solid var(--border);
     background: var(--surface);
     font-size: 13px;
     font-weight: 650;
     color: var(--text-2);
+    overflow-wrap: anywhere;
   }
 
   .c i {
+    flex-shrink: 0;
     width: 9px;
     height: 9px;
     border-radius: 3px;

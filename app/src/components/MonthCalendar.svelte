@@ -7,6 +7,8 @@
   import { todoKey } from '../lib/todos.svelte';
   import type { CalendarItem, Todo } from '../lib/types';
   import Icon from './Icon.svelte';
+  import Sheet from './Sheet.svelte';
+  import MonthWheel from './MonthWheel.svelte';
 
   let {
     year = $bindable(),
@@ -37,6 +39,24 @@
   const maxShow = 3;
   const narrow = new MediaQuery('max-width: 767px');
   const small = new MediaQuery('max-width: 374px');
+  let monthPickerOpen = $state(false);
+  let pickerYear = $state(0);
+  let pickerMonth = $state(1);
+
+  function openMonthPicker() {
+    pickerYear = year;
+    pickerMonth = month;
+    monthPickerOpen = true;
+  }
+
+  function chooseMonth() {
+    const lastDay = new Date(Date.UTC(pickerYear, pickerMonth, 0)).getUTCDate();
+    const day = Math.min(Number(selected.slice(8)), lastDay);
+    year = pickerYear;
+    month = pickerMonth;
+    selected = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    monthPickerOpen = false;
+  }
 
   const todosByDay = $derived.by(() => {
     const map = new Map<string, Todo[]>();
@@ -165,7 +185,13 @@
 <div class="cal card" class:week use:horizontalSwipe={{ enabled: () => narrow.current, shift }}>
   <div class="head">
     <button class="icon-btn" onclick={() => shift(-1)} aria-label={week ? '이전 주' : '이전 달'}><Icon name="left" /></button>
-    <h2 aria-live="polite" aria-label={week ? weekTitle : undefined}>{week ? (small.current ? compactWeekTitle : weekTitle) : `${year}년 ${month}월`}</h2>
+    <h2 aria-live="polite" aria-label={week ? weekTitle : undefined}>
+      {#if week}
+        {small.current ? compactWeekTitle : weekTitle}
+      {:else}
+        <button class="month-title" onclick={openMonthPicker} aria-label="{year}년 {month}월, 년·월 선택" aria-haspopup="dialog">{year}년 {month}월</button>
+      {/if}
+    </h2>
     <button class="icon-btn" onclick={() => shift(1)} aria-label={week ? '다음 주' : '다음 달'}><Icon name="right" /></button>
     {#if week}
       <button class="today-btn" onclick={() => onexpand?.()} aria-label="캘린더 펼치기">
@@ -224,7 +250,14 @@
   </div>
 </div>
 
+<Sheet bind:open={monthPickerOpen} title="년·월 선택">
+  <MonthWheel bind:year={pickerYear} bind:month={pickerMonth} />
+  {#snippet footer()}<button class="btn btn-primary w1" onclick={chooseMonth}>확인</button>{/snippet}
+</Sheet>
+
 <style>
+  .month-title { min-height: 40px; font-weight: inherit; letter-spacing: inherit; }
+
   .cal {
     padding: 14px 10px 12px;
     overflow-anchor: none;

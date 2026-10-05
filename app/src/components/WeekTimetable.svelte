@@ -74,7 +74,7 @@
     <div class="head" aria-hidden="true">
       <span class="corner"></span>
       {#each days as d (d)}
-        <span class="dh" class:today={d === today}>{DAYS[d]}</span>
+        <span class="dh">{DAYS[d]}</span>
       {/each}
     </div>
     <div class="body" style:--rows={hours.length}>
@@ -82,7 +82,7 @@
         {#each hours as h (h)}<span>{h}</span>{/each}
       </div>
       {#each days as d (d)}
-        <div class="col" class:today={d === today} role="group" aria-label="{DAYS[d]}요일{d === today ? ' (오늘)' : ''}">
+        <div class="col" role="group" aria-label="{DAYS[d]}요일{d === today ? ' (오늘)' : ''}">
           {#each byDay.get(d) ?? [] as s (s.name + s.start)}
             <button
               class="blk"
@@ -156,11 +156,6 @@
     color: var(--text-3);
   }
 
-  .dh.today {
-    background: var(--primary-weak);
-    color: var(--primary-text);
-  }
-
   .body {
     height: calc(var(--rows) * var(--row));
     margin-top: 10px;
@@ -190,10 +185,6 @@
 
   .col:last-child {
     border-right: 1px solid var(--border);
-  }
-
-  .col.today {
-    background-color: color-mix(in srgb, var(--primary) 4%, transparent);
   }
 
   .blk {

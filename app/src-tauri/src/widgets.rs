@@ -39,7 +39,7 @@ impl Vault {
 struct Request { method: String, path: String, body: Option<Value>, owner: String }
 fn allowed(r: &Request) -> bool {
     match r.method.as_str() {
-        "GET" => matches!(r.path.as_str(), "/api/preferences" | "/api/timetable" | "/api/timetable?refresh=1" | "/api/calendar" | "/api/calendar?refresh=1" | "/api/todos" | "/api/attendance/active" | "/api/attendance/receipts" | "/api/seats/session") || r.path.starts_with("/api/attendance/course?code="),
+        "GET" => matches!(r.path.as_str(), "/api/preferences" | "/api/timetable" | "/api/timetable?refresh=1" | "/api/calendar?refresh=1&semester=current" | "/api/calendar?refresh=1&semester=all" | "/api/todos" | "/api/attendance/active" | "/api/attendance/receipts" | "/api/seats/session") || r.path.starts_with("/api/attendance/course?code="),
         "POST" => matches!(r.path.as_str(), "/api/attendance/submit" | "/api/seats/session/extend" | "/api/seats/session/end") && !r.owner.is_empty(),
         "PUT" => r.path == "/api/attendance/receipts" && !r.owner.is_empty(),
         _ => false,

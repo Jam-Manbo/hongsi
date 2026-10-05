@@ -59,8 +59,23 @@ internal object WidgetSync {
         val owner = before.text("owner")
         if (owner.isBlank()) { lock.unlock(); return }
         val patch = JSONObject()
+        val updated = JSONObject()
         fun get(path: String) = WidgetNative.api(context, path, owner = owner).body()
         try {
+            var preferences = before.optJSONObject("preferences") ?: JSONObject()
+            var preferencesAt = before.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
+            if (resource in listOf("calendar", "timetable")) {
+                runCatching { get("/api/preferences") as JSONObject }.onSuccess { saved ->
+                    if (saved.optLong("updatedAt") > preferencesAt) {
+                        preferences = saved
+                        preferencesAt = saved.optLong("updatedAt")
+                    }
+                }.onFailure { if (it is WidgetFailure && it.status == 401) throw it }
+                patch.put("preferences", JSONObject()
+                    .put("timetableDisplay", if (preferences.text("timetableDisplay") == "full") "full" else "fit")
+                    .put("semesterDisplay", if (preferences.text("semesterDisplay") == "all") "all" else "current"))
+                updated.put("preferences", preferencesAt)
+            }
             when (resource) {
                 "lectures" -> {
                     val slots = (get("/api/timetable") as JSONObject).array("slots")
@@ -76,38 +91,40 @@ internal object WidgetSync {
                     patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance")))
                 }
                 "calendar" -> {
-                    val data = get("/api/calendar?refresh=1") as JSONObject
+                    val display = patch.getJSONObject("preferences").text("semesterDisplay")
+                    val data = get("/api/calendar?refresh=1&semester=$display") as JSONObject
                     val todos = (get("/api/todos") as JSONArray).objects()
                     val courses = data.array("courses")
+                    val courseIds = courses.map { it.optLong("id") }.toSet()
                     val palette = listOf("#ef4444", "#f97316", "#f5a50b", "#84cc16", "#22c55e", "#14b8a6", "#0ea5e9", "#3b82f6", "#6366f1", "#a855f7")
-                    val colors = courses.mapIndexed { i, c -> c.optLong("id") to palette[if (courses.size <= 1) 7 else if (courses.size > 10) i % 10 else kotlin.math.floor(i * 9.0 / (courses.size - 1) + .5).toInt()] }.toMap()
+                    val colors = courses.groupBy { course ->
+                        course.optJSONObject("term")?.let { "${it.optInt("year")}-${it.optInt("semester")}" }
+                    }.values.flatMap { group ->
+                        group.sortedWith(compareBy<JSONObject>({ it.text("code") }, { it.text("name") }, { it.optLong("id") }))
+                            .mapIndexed { i, course ->
+                                val index = if (group.size == 1) 7 else kotlin.math.floor(i * (palette.size - 1).toDouble() / (group.size - 1) + .5).toInt()
+                                course.optLong("id") to palette[index]
+                            }
+                    }.toMap()
                     fun course(id: Long) = courses.firstOrNull { it.optLong("id") == id }?.text("name").orEmpty()
                     val statuses = mapOf("submitted" to "제출 완료", "not_submitted" to "미제출", "overdue" to "마감 지남", "done" to "출석 인정", "partial" to "부분 인정", "missed" to "미인정", "todo" to "미시청", "upcoming" to "시청 전")
                     val items = data.array("items").map { item ->
                         JSONObject().apply { listOf("key", "title", "due", "start", "done", "kind").forEach { put(it, item.opt(it) ?: JSONObject.NULL) } }
                             .put("course", course(item.optLong("courseId"))).put("color", colors[item.optLong("courseId")] ?: "#3b82f6").put("status", statuses[item.text("status")] ?: "상태 확인 필요")
-                    } + todos.map { todo ->
+                    } + todos.filter { display == "all" || it.isNull("courseId") || it.optLong("courseId") in courseIds }.map { todo ->
                         JSONObject().put("key", "todo:${todo.optLong("id")}").put("title", todo.text("title"))
                             .put("course", course(todo.optLong("courseId")).ifBlank { "공통" }).put("color", colors[todo.optLong("courseId")] ?: JSONObject.NULL)
                             .put("due", todo.opt("due") ?: JSONObject.NULL).put("allDay", todo.optBoolean("allDay"))
                             .put("done", !todo.isNull("doneAt")).put("kind", "todo").put("status", "")
                     }
                     patch.put("deadlines", JSONArray(items))
+                    patch.put("semesterDisplay", display)
                     patch.put("slots", JSONArray(before.array("slots").map { slot -> slot.put("color", colors[courses.firstOrNull { sameCourse(it, slot) }?.optLong("id")] ?: slot.text("color", "#3b82f6")) }))
                 }
                 "seats" -> patch.put("seat", (get("/api/seats/session") as JSONObject).opt("session") ?: JSONObject.NULL)
                 else -> patch.put("slots", JSONArray(colorSlots((get("/api/timetable?refresh=1") as JSONObject).array("slots"), before.array("slots"))))
             }
-            val updated = JSONObject().put(resource, System.currentTimeMillis())
-            if (resource == "timetable") {
-                runCatching { get("/api/preferences") as JSONObject }.onSuccess { preferences ->
-                    val display = preferences.text("timetableDisplay")
-                    if (display in listOf("full", "fit")) {
-                        patch.put("preferences", JSONObject().put("timetableDisplay", display))
-                        updated.put("preferences", preferences.optLong("updatedAt"))
-                    }
-                }.onFailure { if (it is WidgetFailure && it.status == 401) throw it }
-            }
+            updated.put(resource, System.currentTimeMillis())
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, ""))
         } catch (e: Exception) {
@@ -116,6 +133,7 @@ internal object WidgetSync {
                 return
             }
             val message = (e as? WidgetFailure)?.message ?: "정보를 불러오지 못했어요."
+            patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, message))
             if (resource == "lectures") patch.put("attendance", (before.optJSONObject("attendance") ?: JSONObject()).put("error", message))
         } finally { lock.unlock() }
