@@ -163,6 +163,7 @@
   .backdrop:global([data-covered]) { visibility: hidden; }
 
   .sheet {
+    --sheet-surface: var(--modal-surface);
     position: fixed;
     z-index: 61;
     left: 0;
@@ -171,7 +172,7 @@
     max-height: 90dvh;
     display: flex;
     flex-direction: column;
-    background: var(--modal-surface);
+    background: var(--sheet-surface);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border: 1px solid var(--modal-border);
     box-shadow: var(--modal-shadow);

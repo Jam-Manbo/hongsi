@@ -142,7 +142,7 @@
     top: 0;
     z-index: 2;
     padding-bottom: 2px;
-    background: var(--surface);
+    background: var(--sheet-surface, var(--surface));
   }
 
   .dh {
