@@ -1,12 +1,12 @@
 import { ApiError, isApp, request } from './api';
 import { contextMessage } from './api-error';
-import { mobileNotifications, notificationsAllowed, requestNotificationPermission, setRemoteNotifications } from './notify';
+import { mobileNotifications, notificationsAllowed, requestNotificationPermission, setNotificationsEnabled, setRemoteNotifications } from './notify';
 import { isCurrentSession, onSessionChange, readUserData, sessionUser, sessionVersion, writeUserData } from './session';
 import { seatPrefs } from './seat.svelte';
 import { app, onBeforeLogout, pref, setPref } from './store.svelte';
 
 type Status = { registered: boolean; classroomAlerts: boolean; consented: boolean; available: { web: boolean; fcm: boolean; apns: boolean }; publicKey: string | null; expiresAt: number | null; lastPollAt: number | null; scheduled: number; nextAt: number | null; error: string | null; schoolError: string | null; pollMinutes: number };
-type Removal = 'all' | 'device' | null;
+type Removal = 'device' | null;
 export const background = $state({ status: null as Status | null, busy: false, classroomAlerts: false, error: '', choice: null as boolean | null });
 const userKey = (name: string) => `${name}:${encodeURIComponent(sessionUser() ?? '')}`;
 let initialized = false;
@@ -96,17 +96,11 @@ async function readStatus(): Promise<Status> {
 async function reconcile(renewToken: boolean, check: () => void, step: (value: SyncStep) => void) {
   if (removal) {
     step('disconnect');
-    const target = removal;
-    await request('DELETE', `/api/background/session?device=${target === 'all' ? 'all' : encodeURIComponent(deviceId())}`);
+    await request('DELETE', `/api/background/session?device=${encodeURIComponent(deviceId())}`);
     check();
     rememberRemoval(null);
     prefSignature = ''; renewedAt = 0;
     background.status = null;
-  }
-  if (!background.choice) {
-    await setRemoteNotifications(false);
-    check();
-    return;
   }
   step('status');
   let status = await readStatus();
@@ -125,6 +119,17 @@ async function reconcile(renewToken: boolean, check: () => void, step: (value: S
       if (e instanceof ApiError && e.status === 409) consented = false;
       else throw e;
     }
+  }
+  if (!background.choice) {
+    if (status.registered) {
+      step('disconnect');
+      await request('DELETE', `/api/push/device?device=${encodeURIComponent(deviceId())}`);
+      check();
+    }
+    background.status = { ...status, consented, registered: false, classroomAlerts: false, scheduled: 0, nextAt: null, error: null };
+    await setRemoteNotifications(false);
+    check();
+    return;
   }
   if (!consented) {
     await request('POST', '/api/background/session', { deviceId: deviceId(), consent: true });
@@ -226,9 +231,11 @@ export async function setBackgroundEnabled(enabled: boolean) {
   if (app.loggingOut) return false;
   revision++; retries = 0;
   rememberChoice(enabled);
+  void setNotificationsEnabled(enabled);
   background.error = '';
   if (!enabled) {
-    rememberRemoval('all');
+    rememberAlerts(false);
+    rememberRemoval('device');
     clearRetry();
     void setRemoteNotifications(false);
   }
@@ -241,6 +248,7 @@ export async function enableBackgroundByDefault(remembered: boolean) {
     if (remembered) rememberChoice(true);
     else background.choice = false;
   }
+  void setNotificationsEnabled(background.choice === true);
   return synchronize(true);
 }
 export const syncBackgroundPreferences = () => synchronize();
@@ -269,7 +277,13 @@ onSessionChange(() => {
   background.choice = sessionUser() ? pref<boolean | null>(userKey('sync-enabled-v2'), null) : null;
   background.classroomAlerts = sessionUser() ? pref<boolean>(userKey('classroom-alerts-v2'), false) : false;
   classroomEpoch = sessionUser() ? pref<string>(userKey('classroom-cycle-v2'), '') : '';
-  removal = sessionUser() ? pref<Removal>(userKey('sync-removal-v2'), null) : null;
+  const pendingRemoval = sessionUser() ? pref<string | null>(userKey('sync-removal-v2'), null) : null;
+  removal = pendingRemoval ? 'device' : null;
+  if (sessionUser()) {
+    if (pendingRemoval && pendingRemoval !== 'device') rememberRemoval('device');
+    if (background.choice === false) rememberAlerts(false);
+  }
+  void setNotificationsEnabled(background.choice !== false);
 });
 if (typeof window !== 'undefined') {
   const resume = () => { if (initialized && document.visibilityState === 'visible') void refreshBackground(); };

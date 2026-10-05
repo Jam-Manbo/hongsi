@@ -30,7 +30,7 @@ export function takeNotificationIntent() {
 }
 export function notificationToast(title: string, body: string, raw: unknown) {
   const intent = parseIntent(raw);
-  if (!intent || intent.account !== sessionUser()) return;
+  if (!state.enabled || !intent || intent.account !== sessionUser()) return;
   toast(intent.target.kind === 'seat' || !body.trim() ? title : `${title} · ${body}`, 'alarm', 8000, () => queueNotificationIntent(intent));
 }
 
@@ -52,10 +52,10 @@ const driver: NotificationDriver = {
   async pending() { return (await (await plugin()).pending()).map((p) => p.id); },
   async cancel(ids) { await (await plugin()).cancel(ids); },
   async send(id, reminder, intent, scheduled) {
-    if (intent.account !== sessionUser()) return;
+    if (!state.enabled || intent.account !== sessionUser()) return;
     if (isApp) {
       const n = await plugin();
-      if (intent.account !== sessionUser()) return;
+      if (!state.enabled || intent.account !== sessionUser()) return;
       await n.sendNotification({ id, title: reminder.title, body: reminder.body, extra: { intent: JSON.stringify(intent) }, autoCancel: true,
         ...(mobileNotifications && !ios ? { icon: 'ic_notification', iconColor: '#FF7A3D' } : {}),
         ...(scheduled ? { schedule: n.Schedule.at(new Date(reminder.at), false, true) } : {}) });
@@ -114,6 +114,10 @@ export async function acceptNotificationPermission() {
   resolve?.(true);
 }
 export const refreshNotifications = () => scheduler.refresh(true);
+export async function setNotificationsEnabled(enabled: boolean) {
+  state.enabled = scheduler.enabled = enabled;
+  await scheduler.refresh(true);
+}
 export async function setRemoteNotifications(remote: boolean) {
   state.remote = scheduler.remote = remote;
   writeUserData('remote-active-v2', remote);

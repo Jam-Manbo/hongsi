@@ -37,14 +37,13 @@
       <strong>백그라운드 동기화</strong>
       <Switch checked={background.choice === true} label="백그라운드 동기화" disabled={app.loggingOut} onchange={setBackgroundEnabled} />
     </div>
-    <p class="hint">앱을 닫아도 일정 및 클래스룸 알림을 동기화해요.</p>
+    <p class="hint">일정 및 클래스룸 알림을 동기화해요.</p>
     <div class="classroom-alerts">
       <div class="setting-head">
         <strong>클래스룸 알림</strong>
         <Switch checked={background.classroomAlerts} label="클래스룸 알림" disabled={app.loggingOut || background.choice !== true} onchange={setClassroomAlerts} />
       </div>
       <p class="hint">클래스룸에 새 알림이 생기면 알려줘요.</p>
-      {#if background.choice !== true}<p class="hint">백그라운드 동기화를 켜면 사용할 수 있어요.</p>{/if}
     </div>
   </div>
   {#if errors.length}

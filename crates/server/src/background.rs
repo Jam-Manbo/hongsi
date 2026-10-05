@@ -221,6 +221,7 @@ async fn apply_classroom(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, uid: i6
 }
 
 pub async fn disable(State(st): State<Shared>, user: CurrentUser, Query(q): Query<DeviceQuery>) -> Result<Json<Value>, ApiError> {
+    if !valid_id(&q.device) { return Err(ApiError::bad_request("기기 정보를 확인해 주세요.")); }
     let mut tx = st.db.begin().await?;
     sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
     sqlx::query("delete from notification_devices where user_id=$1 and id=$2")
@@ -230,16 +231,7 @@ pub async fn disable(State(st): State<Shared>, user: CurrentUser, Query(q): Quer
 }
 
 pub async fn disable_sync(State(st): State<Shared>, user: CurrentUser, Query(q): Query<DeviceQuery>) -> Result<Json<Value>, ApiError> {
-    let mut tx = st.db.begin().await?;
-    sqlx::query("select pg_advisory_xact_lock($1)").bind(-user.session.user_id).execute(&mut *tx).await?;
-    if q.device == "all" {
-        sqlx::query("delete from background_sessions where user_id=$1").bind(user.session.user_id).execute(&mut *tx).await?;
-    } else {
-        sqlx::query("delete from background_devices where user_id=$1 and id=$2").bind(user.session.user_id).bind(&q.device).execute(&mut *tx).await?;
-        sqlx::query("delete from background_sessions b where user_id=$1 and not exists(select 1 from background_devices d where d.user_id=b.user_id)").bind(user.session.user_id).execute(&mut *tx).await?;
-    }
-    tx.commit().await?;
-    Ok(Json(json!({"ok":true})))
+    disable(State(st), user, Query(q)).await
 }
 
 pub async fn revoke_login(db: &PgPool, token: &str) -> sqlx::Result<Vec<String>> {
