@@ -747,7 +747,10 @@ async fn todo_create(State(st): State<Shared>, user: CurrentUser, Json(mut t): J
     };
     if let Some(parent) = &parent { t.course_id = Some(parent.course_id); }
     let due = check_todo(&user, &t).await?;
-    Ok(Json(todos::create(&st.db, user.session.user_id, &t, due, parent.is_some_and(|p| p.finished)).await?))
+    todos::create(&st.db, user.session.user_id, &t, due, parent.is_some_and(|p| p.finished))
+        .await?
+        .map(Json)
+        .ok_or_else(|| ApiError::conflict("완료된 일정에는 할 일을 추가할 수 없어요."))
 }
 
 async fn todo_update(State(st): State<Shared>, user: CurrentUser, Path(id): Path<i64>, Json(t): Json<TodoInput>) -> ApiResult<Todo> {

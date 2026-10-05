@@ -102,7 +102,9 @@
         <div class="sub-head">
           <strong>이 {item.kind === 'vod' ? '강의' : '과제'}의 할 일</strong>
           {#if subtodos.length}<span class="muted">{subtodos.filter((t) => t.doneAt !== null).length}/{subtodos.length}</span>{/if}
-          <button class="sub-add" onclick={() => item && onaddtodo?.(item)}><Icon name="plus" size={15} stroke={2.4} />추가</button>
+          {#if !item.done}
+            <button class="sub-add" onclick={() => item && onaddtodo?.(item)}><Icon name="plus" size={15} stroke={2.4} />추가</button>
+          {/if}
         </div>
         {#each subtodos as t (t.id)}
           <TodoRow todo={t} {color} {course} onopen={(x) => oneditodo?.(x)} />

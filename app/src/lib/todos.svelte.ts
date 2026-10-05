@@ -65,6 +65,10 @@ function begin(id: number | null) {
 
 export async function saveTodo(id: number | null, input: TodoInput): Promise<boolean> {
   if (writeBlocked()) return false;
+  if (id === null && input.parentKey && calendar.data?.items.some((item) => item.key === input.parentKey && item.done)) {
+    toastOnce('완료된 일정에는 할 일을 추가할 수 없어요.', 'error');
+    return false;
+  }
   const change = begin(id);
   if (!change) return false;
   try {

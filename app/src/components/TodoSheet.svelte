@@ -33,6 +33,7 @@
   let time = $state('');
   let parentKey = $state<string | null>(null);
   const parent = $derived(calendar.data?.items.find((item) => item.key === parentKey));
+  const parentCompleted = $derived(todo === null && parent?.done === true);
   const linkedCourse = $derived(courses.find((course) => course.id === (parent?.courseId ?? courseId)));
   let notify = $state(true);
   let alertLeads = $state<number[] | null>(null);
@@ -92,7 +93,7 @@
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    if (saving || deleteOpen || !title.trim() || !date) return;
+    if (saving || deleteOpen || parentCompleted || !title.trim() || !date) return;
     busy = true;
     const ok = await saveTodo(todo?.id ?? null, {
       title: title.trim(),
@@ -207,7 +208,7 @@
     {:else}
       <button class="btn btn-ghost w1" onclick={requestClose}>취소</button>
     {/if}
-    <button class="btn btn-primary w2" form="todo-form" disabled={saving || !title.trim() || !date}>{saving ? '처리 중…' : '저장'}</button>
+    <button class="btn btn-primary w2" form="todo-form" disabled={saving || parentCompleted || !title.trim() || !date}>{saving ? '처리 중…' : '저장'}</button>
   {/snippet}
 </Sheet>
 

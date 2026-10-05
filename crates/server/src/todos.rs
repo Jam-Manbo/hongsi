@@ -51,13 +51,18 @@ pub async fn get(db: &PgPool, user_id: i64, id: i64) -> sqlx::Result<Option<Todo
         .bind(user_id).bind(id).fetch_optional(db).await
 }
 
-pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: DateTime<Utc>, school_done: bool) -> sqlx::Result<Todo> {
+pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: DateTime<Utc>, school_done: bool) -> sqlx::Result<Option<Todo>> {
     let mut tx = db.begin().await?;
     lock(&mut tx, user_id).await?;
     let todo = sqlx::query_as(&format!(
-        "insert into todos (user_id, course_id, parent_key, title, note, due, all_day, notify, alert_leads, done_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-            case when $3::text is not null and coalesce((select done from item_checks where user_id=$1 and item_key=$3), $10) then now() end)
+        "insert into todos (user_id, course_id, parent_key, title, note, due, all_day, notify, alert_leads)
+         select $1, $2, $3, $4, $5, $6, $7, $8, $9
+         where $3::text is null or not coalesce(
+            (select done from item_checks where user_id=$1 and item_key=$3),
+            $10 or exists (
+                select 1 from background_sessions b, lateral jsonb_array_elements(b.snapshot->'items') item
+                where b.user_id=$1 and item->>'key'=$3 and item->>'status' in ('submitted', 'done')
+            ))
          returning {COLUMNS}"
     ))
     .bind(user_id)
@@ -70,7 +75,7 @@ pub async fn create(db: &PgPool, user_id: i64, t: &TodoInput, due: DateTime<Utc>
     .bind(t.notify)
     .bind(&t.alert_leads)
     .bind(school_done)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
     Ok(todo)
