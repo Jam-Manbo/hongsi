@@ -785,22 +785,7 @@ impl Direct {
     }
 
     async fn find_assignment(&self, s: &School, cmid: i64) -> R<Assignment> {
-        let cached = s
-            .calendar
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|(_, (_, list))| list.iter().find(|a| a.cmid == cmid).cloned());
-        if let Some(a) = cached {
-            return Ok(a);
-        }
-        let courses = s.session.all_courses().await?;
-        s.session
-            .assignments(&courses)
-            .await?
-            .into_iter()
-            .find(|a| a.cmid == cmid)
-            .ok_or_else(|| Reply::error(404, "not_found", "과제를 찾지 못했어요."))
+        Ok(s.session.assignment(cmid).await?)
     }
 
     fn view(a: &Assignment, info: &SubmissionInfo) -> Value {

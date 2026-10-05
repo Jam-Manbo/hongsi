@@ -305,12 +305,9 @@ async fn download_file(
     let file = match cached {
         Some(f) => f,
         None => {
-            let courses = user.session.school()?.all_courses().await?;
-            let assignments = user.session.school()?.assignments(&courses).await?;
-            assignments
+            find_assignment(&user, cmid).await?.attachments
                 .into_iter()
-                .find(|a| a.cmid == cmid)
-                .and_then(|a| a.attachments.into_iter().nth(index))
+                .nth(index)
                 .ok_or_else(|| ApiError::not_found("파일을 찾지 못했어요."))?
         }
     };
@@ -667,14 +664,7 @@ async fn notices_seen_add(State(st): State<Shared>, user: CurrentUser, Json(b): 
 
 
 pub(crate) async fn find_assignment(user: &CurrentUser, cmid: i64) -> Result<hongsi_core::models::Assignment, ApiError> {
-    let school = user.session.school()?;
-    let courses = school.all_courses().await?;
-    school
-        .assignments(&courses)
-        .await?
-        .into_iter()
-        .find(|a| a.cmid == cmid)
-        .ok_or_else(|| ApiError::not_found("과제를 찾지 못했어요."))
+    Ok(user.session.school()?.assignment(cmid).await?)
 }
 
 pub(crate) fn submission_view(a: &hongsi_core::models::Assignment, info: &hongsi_core::models::SubmissionInfo) -> Value {

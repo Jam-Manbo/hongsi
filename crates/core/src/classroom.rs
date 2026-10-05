@@ -470,6 +470,21 @@ impl SchoolSession {
         Ok(parse_notifications(&body))
     }
 
+    pub async fn assignment(&self, cmid: i64) -> Result<Assignment> {
+        let not_found = || CoreError::NotFound("과제를 찾지 못했어요.".into());
+        if cmid <= 0 { return Err(not_found()); }
+        let module = self.ws("core_course_get_course_module", &[("cmid".into(), cmid.to_string())]).await?;
+        let cm = &module["cm"];
+        if cm["id"].as_i64() != Some(cmid) || cm["modname"].as_str() != Some("assign") {
+            return Err(not_found());
+        }
+        let course_id = cm["course"].as_i64().filter(|id| *id > 0).ok_or_else(not_found)?;
+        let api = self.ws("mod_assign_get_assignments", &[("courseids[0]".into(), course_id.to_string())]).await?;
+        parse_assignments(&api, &HashMap::new()).into_iter()
+            .find(|a| a.cmid == cmid && a.course_id == course_id && a.id > 0)
+            .ok_or_else(not_found)
+    }
+
     pub async fn assignments(&self, courses: &[Course]) -> Result<Vec<Assignment>> {
         if courses.is_empty() {
             return Ok(vec![]);
@@ -478,39 +493,7 @@ impl SchoolSession {
             courses.iter().enumerate().map(|(i, c)| (format!("courseids[{i}]"), c.id.to_string())).collect();
         let (api, states) = futures::join!(self.ws("mod_assign_get_assignments", &params), self.submission_states(courses));
         let (api, states) = (api?, states?);
-        let mut out = Vec::new();
-        for course in api["courses"].as_array().into_iter().flatten() {
-            let course_id = course["id"].as_i64().unwrap_or_default();
-            for a in course["assignments"].as_array().into_iter().flatten() {
-                let Some(cmid) = a["cmid"].as_i64() else { continue };
-                let ts = |key: &str| a[key].as_i64().filter(|t| *t > 0);
-                out.push(Assignment {
-                    id: a["id"].as_i64().unwrap_or_default(),
-                    config: submit_config(a),
-                    cmid,
-                    course_id,
-                    name: a["name"].as_str().unwrap_or("").to_string(),
-                    due: ts("duedate"),
-                    cutoff: ts("cutoffdate"),
-                    opens: ts("allowsubmissionsfromdate"),
-                    modified: a["timemodified"].as_i64().unwrap_or_default(),
-                    intro_html: a["intro"].as_str().unwrap_or("").to_string(),
-                    attachments: a["introattachments"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .map(|f| Attachment {
-                            name: f["filename"].as_str().unwrap_or("").to_string(),
-                            size: f["filesize"].as_i64(),
-                            mime: f["mimetype"].as_str().map(str::to_string),
-                            url: f["fileurl"].as_str().unwrap_or("").to_string(),
-                        })
-                        .collect(),
-                    submission: states.get(&cmid).copied().unwrap_or(SubmissionState::Unknown),
-                });
-            }
-        }
-        Ok(out)
+        Ok(parse_assignments(&api, &states))
     }
 
     async fn submission_states(&self, courses: &[Course]) -> Result<HashMap<i64, SubmissionState>> {
@@ -558,6 +541,42 @@ impl SchoolSession {
         let now = chrono::Utc::now().timestamp();
         Ok(merge_vod_progress(course_id, periods, &rows, now))
     }
+}
+
+fn parse_assignments(api: &Value, states: &HashMap<i64, SubmissionState>) -> Vec<Assignment> {
+    let mut out = Vec::new();
+    for course in api["courses"].as_array().into_iter().flatten() {
+        let course_id = course["id"].as_i64().unwrap_or_default();
+        for a in course["assignments"].as_array().into_iter().flatten() {
+            let Some(cmid) = a["cmid"].as_i64() else { continue };
+            let ts = |key: &str| a[key].as_i64().filter(|t| *t > 0);
+            out.push(Assignment {
+                id: a["id"].as_i64().unwrap_or_default(),
+                config: submit_config(a),
+                cmid,
+                course_id,
+                name: a["name"].as_str().unwrap_or("").to_string(),
+                due: ts("duedate"),
+                cutoff: ts("cutoffdate"),
+                opens: ts("allowsubmissionsfromdate"),
+                modified: a["timemodified"].as_i64().unwrap_or_default(),
+                intro_html: a["intro"].as_str().unwrap_or("").to_string(),
+                attachments: a["introattachments"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|f| Attachment {
+                        name: f["filename"].as_str().unwrap_or("").to_string(),
+                        size: f["filesize"].as_i64(),
+                        mime: f["mimetype"].as_str().map(str::to_string),
+                        url: f["fileurl"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect(),
+                submission: states.get(&cmid).copied().unwrap_or(SubmissionState::Unknown),
+            });
+        }
+    }
+    out
 }
 
 fn parse_current_term(body: &str) -> Option<AcademicTerm> {
