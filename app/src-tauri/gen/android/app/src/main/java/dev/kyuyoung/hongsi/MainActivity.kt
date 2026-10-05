@@ -8,6 +8,7 @@ import dev.kyuyoung.hongsi.widget.WidgetNavigation
 import androidx.activity.enableEdgeToEdge
 
 class MainActivity : TauriActivity() {
+  override val handleBackNavigation: Boolean = true
   private var widgetWebView = WeakReference<WebView>(null)
   override fun onWebViewCreate(webView: WebView) { super.onWebViewCreate(webView); widgetWebView = WeakReference(webView) }
   private fun notifyWidgets() { widgetWebView.get()?.evaluateJavascript("window.dispatchEvent(new Event('hongsi-widget'))", null) }

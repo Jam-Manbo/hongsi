@@ -132,7 +132,7 @@
   {/snippet}
 </Sheet>
 
-<Sheet bind:open={confirmLogoutAll} title="모든 기기에서 로그아웃할까요?" layer={1}>
+<Sheet bind:open={confirmLogoutAll} title="모든 기기에서 로그아웃할까요?" confirm>
   <div class="logout-confirm">
     <p>모든 기기에서 로그아웃하고 저장된 로그인 정보를 모두 삭제해요.</p>
     <p>서버에 저장된 모든 로그인 정보와 백그라운드 동기화·푸시 알림 등록 정보를 삭제합니다. 오프라인인 기기에 저장된 로그인 정보는 해당 기기가 다시 서버에 연결될 때 삭제합니다.</p>

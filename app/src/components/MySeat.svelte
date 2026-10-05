@@ -164,7 +164,7 @@
   {/if}
 </section>
 
-<Sheet bind:open={confirmEnd} title="퇴실할까요?">
+<Sheet confirm bind:open={confirmEnd} title="퇴실할까요?">
   <p class="sentence-message sheet-text">{sentenceLines("퇴실 알림이 꺼져요. 좌석배정기에서 좌석 반납도 해 주세요.")}</p>
   {#snippet footer()}
     <button class="btn btn-ghost w1" onclick={() => (confirmEnd = false)}>취소</button>

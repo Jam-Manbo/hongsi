@@ -1,15 +1,10 @@
 <script module lang="ts">
-  const openPanels = new Set<HTMLElement>();
-  const panelClosers = new Set<() => boolean>();
-
-  export function closeSheets() {
-    for (const close of [...panelClosers].reverse()) if (!close()) return false;
-    return true;
-  }
+  export { closeSheets } from '../lib/modal-stack';
 </script>
 
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
+  import { isTopSheet, registerSheet } from '../lib/modal-stack';
   import { MediaQuery } from 'svelte/reactivity';
   import { fade, fly } from 'svelte/transition';
   import Icon from './Icon.svelte';
@@ -21,7 +16,7 @@
     titleMeta = '',
     titleIcon = '',
     wide = false,
-    layer = 0,
+    confirm = false,
     showClose = true,
     onbeforeclose,
     onclose,
@@ -33,7 +28,7 @@
     titleMeta?: string;
     titleIcon?: string;
     wide?: boolean;
-    layer?: number;
+    confirm?: boolean;
     showClose?: boolean;
     onbeforeclose?: () => boolean;
     onclose?: () => void;
@@ -43,15 +38,16 @@
 
   const phone = new MediaQuery('max-width: 639px');
   const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
-  const motion = $derived(reducedMotion.current ? { y: 0, duration: 0 } : phone.current ? { y: '100%', opacity: 1, duration: 260 } : { y: 24, opacity: 0, duration: 200 });
+  const motion = $derived(reducedMotion.current ? { y: 0, duration: 0 } : phone.current && !confirm ? { y: '100%', opacity: 1, duration: 260 } : { y: 24, opacity: 0, duration: 200 });
 
   let panel: HTMLDivElement | undefined = $state();
+  let backdrop: HTMLDivElement | undefined = $state();
   let dragY = $state(0);
   let dragging = $state(false);
 
   function resetDrag() { dragging = false; dragY = 0; }
   function canDrag(target: HTMLElement) {
-    if (!phone.current || panel !== [...openPanels].at(-1)) return false;
+    if (!phone.current || confirm || !isTopSheet(panel)) return false;
     if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="listbox"]')) return false;
     for (let node: HTMLElement | null = target; node && node !== panel; node = node.parentElement) {
       if (node.scrollTop > 0) return false;
@@ -80,43 +76,25 @@
     return true;
   }
 
-  function onkeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape' && !e.defaultPrevented && panel === [...openPanels].at(-1)) {
-      e.preventDefault();
-      close();
-    }
-  }
-
   $effect(() => {
-    if (open && panel) {
-      const currentPanel = panel;
-      openPanels.add(currentPanel);
-      panelClosers.add(close);
+    if (!open || !panel || !backdrop) return;
+    const currentPanel = panel, currentBackdrop = backdrop;
+    return untrack(() => {
       resetDrag();
-      const prev = document.activeElement as HTMLElement | null;
-      queueMicrotask(() => currentPanel.focus());
-      document.body.style.overflow = 'hidden';
-      return () => {
-        openPanels.delete(currentPanel);
-        panelClosers.delete(close);
-        document.body.style.overflow = openPanels.size ? 'hidden' : '';
-        if (prev?.isConnected) prev.focus();
-      };
-    }
+      return registerSheet(currentPanel, currentBackdrop, close);
+    });
   });
 </script>
 
-<svelte:window {onkeydown} />
-
 {#if open}
-  <div class="backdrop" style:z-index={60 + layer * 2} use:portal transition:fade={{ duration: 160 }} onclick={close} aria-hidden="true"></div>
+  <div class="backdrop" bind:this={backdrop} use:portal transition:fade={{ duration: reducedMotion.current ? 0 : 160 }} onclick={() => { if (isTopSheet(panel)) close(); }} aria-hidden="true"></div>
   <div
     class="sheet"
-    style:z-index={61 + layer * 2}
     class:wide
+    class:confirm
     class:message={!children}
     class:dragging
-    style:translate={phone.current ? `0 ${dragY}px` : undefined}
+    style:translate={phone.current && !confirm ? `0 ${dragY}px` : undefined}
     use:portal
     use:verticalDrag={{ canStart: canDrag, move: (distance) => { dragging = true; dragY = distance; }, end: releaseDrag, cancel: resetDrag }}
     role="dialog"
@@ -143,9 +121,12 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    background: rgb(12 18 27 / 42%);
+    background: var(--modal-backdrop);
+    touch-action: none;
     z-index: 60;
   }
+
+  .backdrop:global([data-covered]) { visibility: hidden; }
 
   .sheet {
     position: fixed;
@@ -156,14 +137,17 @@
     max-height: 90dvh;
     display: flex;
     flex-direction: column;
-    background: var(--surface);
+    background: var(--modal-surface);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--modal-border);
+    box-shadow: var(--modal-shadow);
     overflow: hidden;
     padding-bottom: var(--safe-b);
     outline: none;
     transition: translate 180ms var(--ease);
   }
+
+  .sheet:global([data-covered]) { pointer-events: none; }
 
   .sheet.dragging { transition: none; user-select: none; }
 
@@ -231,7 +215,7 @@
     display: flex;
     gap: 8px;
     padding: 14px 20px 16px;
-    background: var(--surface);
+    background: inherit;
     flex: none;
     border-top: 1px solid var(--border);
   }
@@ -274,4 +258,19 @@
       padding: 4px 16px 18px;
     }
   }
+  .sheet.confirm {
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: min(400px, calc(100vw - 48px));
+    max-height: min(84dvh, calc(100dvh - env(safe-area-inset-top, 0px) - var(--safe-b) - 48px));
+    border-radius: 22px;
+    padding-bottom: 0;
+  }
+
+  .confirm .grip { display: none; }
+  .confirm header { padding: 22px 20px 14px; align-items: flex-start; }
+  .confirm h2 { font-size: 18px; line-height: 1.45; }
+  .confirm .body { padding: 0 20px 22px; }
+  .confirm footer { padding: 16px 20px 20px; }
+
 </style>

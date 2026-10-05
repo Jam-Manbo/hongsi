@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { tick, type Snippet } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
+
+  import { registerSheetPopup } from '../lib/modal-stack';
 
   type Side = 'top' | 'bottom' | 'left' | 'right';
 
@@ -95,8 +97,9 @@
       close();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
       close();
       anchor?.focus();
     };
@@ -111,6 +114,12 @@
       window.removeEventListener('resize', update);
       document.removeEventListener('scroll', update, true);
     };
+  });
+
+  $effect(() => {
+    if (!open || !el || !anchor) return;
+    const popup = el, source = anchor;
+    return untrack(() => registerSheetPopup(popup, source, close));
   });
 
   let timer: ReturnType<typeof setTimeout> | undefined;

@@ -19,6 +19,10 @@
   --surface: #ffffff;
   --surface-2: #f7f8fa;
   --surface-3: #eef0f3;
+  --modal-surface: #ffffff;
+  --modal-border: #d5dce5;
+  --modal-backdrop: rgb(12 18 27 / 42%);
+  --modal-shadow: 0 8px 24px rgb(14 26 43 / 12%), 0 24px 64px rgb(14 26 43 / 24%);
   --text: #202735;
   --text-2: #535e6e;
   --text-3: #626d7d;
@@ -75,6 +79,10 @@
   --surface: #1a2028;
   --surface-2: #202730;
   --surface-3: #29323d;
+  --modal-surface: #242d38;
+  --modal-border: #4b596b;
+  --modal-backdrop: rgb(0 0 0 / 48%);
+  --modal-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 24px 64px rgb(0 0 0 / 55%);
   --text: #eef1f6;
   --text-2: #b6c0cf;
   --text-3: #97a3b5;
@@ -120,6 +128,10 @@
     --surface: #1a2028;
     --surface-2: #202730;
     --surface-3: #29323d;
+    --modal-surface: #242d38;
+    --modal-border: #4b596b;
+    --modal-backdrop: rgb(0 0 0 / 48%);
+    --modal-shadow: 0 8px 24px rgb(0 0 0 / 30%), 0 24px 64px rgb(0 0 0 / 55%);
     --text: #eef1f6;
     --text-2: #b6c0cf;
     --text-3: #97a3b5;

@@ -193,7 +193,7 @@
   {/snippet}
 </Sheet>
 
-<Sheet bind:open={discardOpen} title="작성중인 내용을 버릴까요?" layer={1} showClose={false}>
+<Sheet bind:open={discardOpen} title="작성중인 내용을 버릴까요?" confirm showClose={false}>
   <p class="discard-description">저장하지 않은 변경사항이 있어요.</p>
   {#snippet footer()}
     <button class="btn btn-danger w1" onclick={discard}>삭제</button>
@@ -201,7 +201,7 @@
   {/snippet}
 </Sheet>
 
-<Sheet bind:open={deleteOpen} title="할 일을 삭제할까요?" layer={1} showClose={false} onbeforeclose={() => !saving}>
+<Sheet bind:open={deleteOpen} title="할 일을 삭제할까요?" confirm showClose={false} onbeforeclose={() => !saving}>
   <div class="delete-description">
     <strong>{todo?.title}</strong>
     <p>삭제하면 되돌릴 수 없어요.</p>

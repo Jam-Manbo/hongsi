@@ -15,7 +15,7 @@
   });
 </script>
 
-<Sheet bind:open title={pending?.done ? '완료로 표시할까요?' : '완료 체크를 해제할까요?'} layer={1} onclose={cancelDoneConfirmation}>
+<Sheet bind:open title={pending?.done ? '완료로 표시할까요?' : '완료 체크를 해제할까요?'} confirm onclose={cancelDoneConfirmation}>
   {#if item && status}
     <div class="content">
       <strong class="item-title">{item.title}</strong>
