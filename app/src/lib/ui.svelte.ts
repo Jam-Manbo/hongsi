@@ -25,8 +25,8 @@ export function dismiss(id: number) {
 export type Tab = 'home' | 'calendar' | 'seats' | 'attendance' | 'meals';
 export const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: '홈', icon: 'home' },
-  { id: 'calendar', label: '캘린더', icon: 'calendar' },
   { id: 'attendance', label: '출결', icon: 'check' },
+  { id: 'calendar', label: '캘린더', icon: 'calendar' },
   { id: 'seats', label: '열람실', icon: 'seat' },
   { id: 'meals', label: '학식', icon: 'bowl' },
 ];
