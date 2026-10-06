@@ -69,7 +69,10 @@
   $effect(() => {
     if (!isApp || app.booting) return;
     const snapshot = widgetSnapshot();
-    if (!snapshot) { void publishWidgets(''); return; }
+    if (!snapshot) {
+      if (!bootError) void publishWidgets('');
+      return;
+    }
     const timer = setTimeout(() => { void publishWidgets(snapshot); }, 200);
     return () => clearTimeout(timer);
   });
@@ -237,7 +240,7 @@
   <main class="boot boot-error">
     <img src="/favicon.svg" alt="" width="56" height="56" />
     <strong>{bootError}</strong>
-    
+
     <button class="btn btn-primary" onclick={() => boot()}>다시 시도</button>
   </main>
 {:else if !app.profile}

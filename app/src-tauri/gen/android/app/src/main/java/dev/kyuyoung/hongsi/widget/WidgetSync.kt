@@ -11,13 +11,14 @@ import android.content.Intent
 import android.os.PersistableBundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 
-internal class WidgetFailure(val status: Int, override val message: String) : Exception(message)
+internal class WidgetFailure(val status: Int, override val message: String, val code: String = "") : Exception(message)
 internal fun JSONObject.body(): Any {
     if (optInt("status") !in 200..299) {
         val error = optJSONObject("body")?.optJSONObject("error")
@@ -28,7 +29,7 @@ internal fun JSONObject.body(): Any {
             "school_error", "school_unreachable" -> "학교 서버가 응답하지 않아요."
             else -> error?.text("message").orEmpty().ifBlank { "정보를 불러오지 못했어요." }
         }
-        throw WidgetFailure(optInt("status"), message)
+        throw WidgetFailure(optInt("status"), message, error?.text("code").orEmpty())
     }
     return get("body")
 }
@@ -60,7 +61,11 @@ internal object WidgetSync {
         if (owner.isBlank()) { lock.unlock(); return }
         val patch = JSONObject()
         val updated = JSONObject()
-        fun get(path: String) = WidgetNative.api(context, path, owner = owner).body()
+        var requestPath = ""
+        fun get(path: String): Any {
+            requestPath = path.substringBefore('?')
+            return WidgetNative.api(context, path, owner = owner).body()
+        }
         try {
             var preferences = before.optJSONObject("preferences") ?: JSONObject()
             var preferencesAt = before.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
@@ -128,10 +133,9 @@ internal object WidgetSync {
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, ""))
         } catch (e: Exception) {
-            if (e is WidgetFailure && e.status == 401) {
-                if (WidgetData.read(context).text("owner") == owner) WidgetData.replace(context, "")
-                return
-            }
+            val failure = e as? WidgetFailure
+            val code = failure?.code?.takeIf { it.matches(Regex("[a-z_]{1,64}")) }.orEmpty()
+            Log.w("HongsiWidget", "refresh failed: resource=$resource path=$requestPath status=${failure?.status ?: 0} code=$code type=${e.javaClass.simpleName}")
             val message = (e as? WidgetFailure)?.message ?: "정보를 불러오지 못했어요."
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, message))
