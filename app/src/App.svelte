@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { watchClock } from './lib/clock.svelte';
+  import { clock, watchClock } from './lib/clock.svelte';
   import { watchCalendarState } from './lib/calendar-sync.svelte';
   import { watchAppUpdates } from './lib/app-update.svelte';
   import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
@@ -9,8 +9,8 @@
   import DoneConfirm from './components/DoneConfirm.svelte';
   import DownloadPage from './pages/DownloadPage.svelte';
   import { ApiError, api, isApp, native } from './lib/api';
-  import { isPending } from './lib/colors';
-  import { displayedTodos, isTodoPending } from './lib/todos.svelte';
+  import { dayKey, dueKey } from './lib/format';
+  import { displayedTodos } from './lib/todos.svelte';
   import { errorText } from './lib/net.svelte';
   import { syncSeatReminders } from './lib/seat.svelte';
   import { syncDueReminders } from './lib/reminders';
@@ -49,10 +49,10 @@
   const TITLES = { home: '홈', calendar: '캘린더', seats: '열람실', attendance: '출결', meals: '학식' } as const;
   const downloadPage = !isApp && ['/download', '/download/versions', '/download/ios'].includes(location.pathname.replace(/\/$/, ''));
 
-  const weekDue = $derived.by(() => {
-    const now = Date.now() / 1000;
-    const school = (calendar.data?.items ?? []).filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86_400).length;
-    const personal = displayedTodos().filter((t) => isTodoPending(t, now) && t.due !== null && t.due - now < 7 * 86_400).length;
+  const today = $derived(dayKey(clock.now));
+  const todayDue = $derived.by(() => {
+    const school = (calendar.data?.items ?? []).filter((i) => !i.done && i.due !== null && dueKey(i.due) === today).length;
+    const personal = displayedTodos().filter((t) => t.doneAt === null && t.due !== null && dueKey(t.due) === today).length;
     return school + personal;
   });
   const attendOpen = $derived(lectures.at > Date.now() - 10 * 60_000 && (lectures.data?.items.length ?? 0) > 0);
@@ -259,7 +259,7 @@
               {#if t.id === 'attendance' && attendOpen}<i class="live-dot" aria-label="빠른 출결 가능"></i>{/if}
             </span>
             <span class="nav-label">{t.label}</span>
-            {#if t.id === 'calendar' && weekDue}<span class="count" aria-label="7일 안에 마감 {weekDue}개">{weekDue}</span>{/if}
+            {#if t.id === 'calendar' && todayDue}<span class="count" aria-label="오늘 미완료 마감 {todayDue}개">{todayDue}</span>{/if}
           </a>
         {/each}
         {#if !isApp}
@@ -317,6 +317,7 @@
         <button class="tab" aria-current={route.tab === t.id ? 'page' : undefined} onclick={() => t.id === 'seats' ? openSeats('T') : go(t.id)}>
           <span class="nav-ico">
             <Icon name={t.icon} size={23} stroke={route.tab === t.id ? 2.1 : 1.7} />
+            {#if t.id === 'calendar' && todayDue}<span class="count" aria-label="오늘 미완료 마감 {todayDue}개">{todayDue}</span>{/if}
             {#if t.id === 'attendance' && attendOpen}<i class="live-dot" aria-label="빠른 출결 가능"></i>{/if}
           </span>
           <span>{t.label}</span>
@@ -481,6 +482,27 @@
     display: grid;
   }
 
+  .count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-size: 10.5px;
+    font-weight: 800;
+    line-height: 18px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tab .count {
+    position: absolute;
+    top: -4px;
+    right: -2px;
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+
   .live-dot {
     position: absolute;
     top: -2px;
@@ -601,21 +623,10 @@
       color: var(--primary-text);
     }
 
-    .count {
+    .side .count {
       position: absolute;
       top: 4px;
       right: 10px;
-      min-width: 18px;
-      height: 18px;
-      padding: 0 5px;
-      border-radius: 999px;
-      background: var(--primary);
-      color: var(--on-primary);
-      font-size: 10.5px;
-      font-weight: 800;
-      line-height: 18px;
-      text-align: center;
-      font-variant-numeric: tabular-nums;
     }
 
     .account {
@@ -692,7 +703,7 @@
       font-weight: 750;
     }
 
-    .count {
+    .side .count {
       position: static;
       margin-left: auto;
       background: var(--primary);
