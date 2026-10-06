@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError, api } from '../lib/api';
-  import { POLL_MS, afterSubmit, checkNow, classWatch, isAttended, lectureMark, markFor, markTitle, nextClass, sessionState, useClassWatch } from '../lib/classwatch.svelte';
-  import { ago, sentenceLines } from '../lib/format';
+  import { POLL_MS, afterSubmit, checkNow, classWatch, isAttended, lectureMark, lectureSession, classScheduleLabel, markFor, markTitle, nextClass, sessionState, todaySessions, useClassWatch } from '../lib/classwatch.svelte';
+  import { sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
   import { attendance, attendanceReceipts, handleAuthError, lectures, timetable } from '../lib/store.svelte';
   import { toast } from '../lib/ui.svelte';
@@ -12,7 +12,6 @@
   import LoadError from './LoadError.svelte';
   import Ring from './Ring.svelte';
   import Sheet from './Sheet.svelte';
-  import Skeleton from './Skeleton.svelte';
 
   let { showLabel = true }: { showLabel?: boolean } = $props();
 
@@ -34,21 +33,32 @@
   const submitted = $derived(isAttended(submittedMark));
 
   const openList = $derived(lectures.at > classWatch.now - 10 * 60_000 ? (lectures.data?.items ?? []) : []);
-  const openCount = $derived(openList.filter((l) => !isAttended(lectureMark(l))).length);
+  const lecture = $derived(openList.find((l) => !isAttended(lectureMark(l))) ?? openList[0] ?? null);
   const current = $derived(classWatch.current);
-  const currentMark = $derived(current ? markFor(current) : null);
-  const watching = $derived(current && !currentMark ? current : null);
-  const left = $derived(Math.max(0, Math.min(1, (classWatch.nextAt - classWatch.now) / POLL_MS)));
-  const headline = $derived.by(() => {
-    if (!lectures.data && !lectures.error) return '출석 가능한 수업을 확인하고 있어요.';
-    if (lectures.error && !openCount && !currentMark) return '출석 정보를 확인해 주세요.';
-    if (openCount) return '출석할 수 있어요.';
-    if (watching) return sessionState(watching).label === '확인 불가'
-      ? `${watching.name} · 출석 확인 불가` : `${watching.name} · 출석 가능 여부 확인 중`;
-    if (current && currentMark) return `${current.name} · ${markTitle(currentMark)}`;
-    return openList.length ? '출석 완료' : '출석할 수업이 없어요.';
-  });
   const next = $derived(nextClass(classWatch.now));
+  const currentMark = $derived(current ? markFor(current) : null);
+  const mark = $derived(lecture ? lectureMark(lecture) : currentMark);
+  const watching = $derived(current && !currentMark ? current : null);
+  const loading = $derived(!lectures.data && !lectures.error);
+  const available = $derived(!!lecture && !isAttended(mark));
+  const failed = $derived(!!lectures.error && !available && !mark);
+  const nextOnly = $derived(!loading && !failed && !lecture && !current && !!next);
+  const unknown = $derived(!available && !mark && !!watching && sessionState(watching).label === '확인 불가');
+  const waiting = $derived(!loading && !failed && !available && !mark && !!watching && !unknown);
+  const accent = $derived(available || waiting);
+  const slot = $derived(lecture ? lectureSession(lecture) : current ?? (nextOnly ? next : null));
+  const schedule = $derived(classScheduleLabel(slot, lecture?.time));
+  const title = $derived(loading ? '' : failed ? '출석 정보를 불러오지 못했어요.' : lecture?.name ?? current?.name ?? (nextOnly ? next?.name : '') ?? '');
+  const badgeTone = $derived(mark?.kind === 'absent' ? 'danger' : mark?.kind === 'late' ? 'warn' : mark && isAttended(mark) ? 'ok' : '');
+  const refreshing = $derived(loading || lectures.loading || classWatch.polling || refreshState.attendance.busy);
+  const sessions = $derived(todaySessions(timetable.data?.slots ?? [], classWatch.now));
+  const emptyMessage = $derived(loading || (!timetable.data && !timetable.error)
+    ? '출석 정보를 확인하고 있어요.'
+    : !timetable.data ? '출석 정보를 불러오지 못했어요.'
+    : !sessions.length ? '오늘은 수업이 없어요.'
+    : sessions.every((s) => classWatch.now >= s.at + 3_600_000) ? '오늘 수업이 모두 끝났어요.'
+    : '출석할 수업이 없어요.');
+  const left = $derived(Math.max(0, Math.min(1, (classWatch.nextAt - classWatch.now) / POLL_MS)));
 
   function startAttend(l: ActiveLecture) {
     if (busy) return;
@@ -103,62 +113,62 @@
   }
 </script>
 
-  <section class="now card" class:watching={!!watching} aria-label="지금 출석 상태">
-    <div class="now-head">
-      <div>
-        {#if showLabel}<span class="eyebrow">{watching ? `지금 출석 · ${watching.start} 수업` : '지금 출석'}</span>{/if}
-        <h2>{headline}</h2>
-      </div>
-      {#if watching}
-        <button class="icon-btn ring-btn" onclick={checkNow} aria-label="지금 다시 확인" disabled={classWatch.polling}>
-          <Ring value={left} size={40} stroke={3.5}>
-            <span class="ring-icon" class:spin={classWatch.polling}><Icon name="refresh" size={18} stroke={2.2} /></span>
-          </Ring>
-        </button>
-      {:else}
-        <button class="icon-btn" onclick={() => refreshTab('attendance')} aria-label="다시 확인" disabled={refreshState.attendance.busy}>
-          <span class:spin={refreshState.attendance.busy}><Icon name="refresh" /></span>
-        </button>
-      {/if}
+<section class="now card" class:watching={accent} class:failed aria-label="빠른 출결 상태">
+  <div class="now-head">
+    <div>
+      {#if showLabel}<span class="eyebrow">빠른 출결</span>{/if}
+      {#if title}<h2>{title}</h2>{/if}
     </div>
-    {#if lectures.error}<p class="muted small sentence-message" role="status">{sentenceLines(lectures.error)}</p>{/if}
-    <LoadError resource={attendanceReceipts} what="공유된 출석 기록을" />
-    {#if classWatch.shareError}<p class="muted small sentence-message" role="status">{sentenceLines(classWatch.shareError)}</p>{/if}
-    {#if openList.length}
-      <div class="lectures">
-        {#each openList as l (l.key)}
-          {@const m = lectureMark(l)}
-          <div class="lecture">
-            <div>
-              <strong>{l.name}</strong>
-              <span class="muted">{l.time}</span>
-            </div>
-            {#if isAttended(m)}
-              <span class="chip ok done-chip"><Icon name="tick" size={14} stroke={2.6} />{m.kind === 'present' ? '출석 완료' : m.label}</span>
-            {:else}
-              <button class="btn btn-primary" onclick={() => startAttend(l)} disabled={busy}><Icon name="check" size={18} />출석하기</button>
-            {/if}
-          </div>
-        {/each}
+    <button class="icon-btn refresh-button" class:ring-btn={accent && !!watching} onclick={() => watching ? checkNow() : refreshTab('attendance')} aria-label="출결 다시 확인" aria-busy={refreshing} disabled={refreshing}>
+      {#if accent && watching}
+        <Ring value={left} size={40} stroke={3}>
+          <span class="refresh-icon" class:spin={refreshing}><Icon name="refresh" size={18} stroke={2.2} /></span>
+        </Ring>
+      {:else}
+        <span class="refresh-icon" class:spin={refreshing}><Icon name="refresh" size={18} /></span>
+      {/if}
+    </button>
+  </div>
+  {#if available && lecture}
+    <div class="card-bottom">
+      <div class="class-info">
+        <span class="available-message"><i></i>출석할 수 있어요.</span>
+        {#if schedule}<span class="schedule">{schedule}</span>{/if}
       </div>
-    {:else if lectures.data && !lectures.error}
-      <div class="watch-row">
-        <p class="muted small" aria-live="polite">
-          {#if watching}
-            {sessionState(watching).label === '확인 불가' ? '확인된 출석 결과가 없어요.' : classWatch.polling ? '확인하는 중…' : `수업 시작 3분 전부터 10분 뒤까지 ${POLL_MS / 1000}초마다 자동으로 확인해요.`}
-          {:else if current && currentMark}
-            {current.start} 수업
-          {:else if next}
-            다음 수업 {next.start} · {next.name}
-          {:else if lectures.at}
-            {ago(lectures.at / 1000)} 확인
-          {/if}
-        </p>
-      </div>
-    {:else if !lectures.error}
-      <Skeleton rows={1} height={44} />
-    {/if}
-  </section>
+      <button class="btn btn-primary attend-button" onclick={() => lecture && startAttend(lecture)} disabled={busy}><Icon name="tick" size={17} />출석하기</button>
+    </div>
+  {:else if !failed && mark}
+    <div class="card-bottom">
+      {#if schedule}<span class="schedule">{schedule}</span>{/if}
+      <span class="state-badge {badgeTone}">{#if isAttended(mark)}<Icon name={mark.kind === 'late' ? 'clock' : 'tick'} size={14} />{:else if mark.kind === 'absent'}<Icon name="x" size={14} />{/if}{markTitle(mark)}</span>
+    </div>
+  {:else if waiting}
+    <div class="class-info">
+      <span class="available-message"><i></i>출석 가능 여부 확인 중</span>
+      {#if schedule}<span class="schedule">{schedule}</span>{/if}
+      <span class="small muted">{POLL_MS / 1000}초마다 자동 확인</span>
+    </div>
+  {:else if unknown && !failed}
+    <div class="card-bottom">
+      {#if schedule}<span class="schedule">{schedule}</span>{/if}
+      <span class="state-badge warn">확인 불가</span>
+    </div>
+  {:else if nextOnly}
+    <div class="card-bottom">
+      <span class="schedule">{schedule}</span>
+      <span class="state-badge">다음 수업</span>
+    </div>
+  {:else if failed}
+    {#if schedule}<span class="schedule">{schedule}</span>{/if}
+  {:else}
+    <div class="empty-state" role="status">
+      <span>{emptyMessage}</span>
+    </div>
+  {/if}
+  {#if lectures.error && !failed}<p class="error-message small sentence-message" role="status">{sentenceLines(lectures.error)}</p>{/if}
+  <LoadError resource={attendanceReceipts} what="공유된 출석 기록을" />
+  {#if classWatch.shareError}<p class="muted small sentence-message" role="status">{sentenceLines(classWatch.shareError)}</p>{/if}
+</section>
 
 <Sheet bind:open title={target?.name ?? '출결하기'} titleMeta={target?.time}>
   <form id="attend" onsubmit={submit} class="attend">
@@ -195,100 +205,30 @@
 </Sheet>
 
 <style>
-  .now {
-    padding: 18px;
-    display: grid;
-    gap: 12px;
-    background: var(--surface);
-  }
-
-  .now-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .now.watching {
-    border-color: var(--primary);
-    box-shadow: none;
-    background: var(--primary-weak);
-  }
-
-  .now.watching .eyebrow {
-    color: var(--primary-text);
-  }
-
-  .ring-btn {
-    width: 44px;
-    height: 44px;
-  }
-
-  .ring-btn:disabled {
-    cursor: default;
-  }
-
-  .ring-icon {
-    display: grid;
-    color: var(--primary-text);
-  }
-
-  .done-chip {
-    height: 32px;
-    padding: 0 12px;
-    font-size: 13px;
-  }
-
-  .eyebrow {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--ok);
-  }
-
-  .now h2 {
-    font-size: 19px;
-    font-weight: 720;
-    letter-spacing: -0.02em;
-  }
-
-  .watch-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px 12px;
-    flex-wrap: wrap;
-  }
-
-  .small {
-    font-size: 12.5px;
-    font-weight: 500;
-  }
-
-  .lectures {
-    display: grid;
-    gap: 8px;
-  }
-
-  .lecture {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-  }
-
-  .lecture div {
-    display: grid;
-    min-width: 0;
-  }
-
-  .lecture .btn,
-  .lecture .chip {
-    flex: none;
-  }
+  .now { padding: 17px; display: grid; gap: 14px; background: var(--surface); }
+  .now-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .now-head > div { min-width: 0; }
+  .now.watching { border-color: var(--primary); box-shadow: none; background: var(--primary-weak); }
+  .now.failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+  .eyebrow { display: block; font-size: 12px; font-weight: 700; color: var(--text-2); }
+  .now.watching .eyebrow, .available-message { color: var(--primary-text); }
+  .now h2 { margin-top: 5px; font-size: 19px; font-weight: 720; line-height: 1.4; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  .refresh-button { width: 40px; height: 40px; flex: none; }
+  .ring-btn { color: var(--primary-text); }
+  .refresh-icon { display: grid; place-items: center; }
+  .card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+  .class-info { display: grid; gap: 5px; min-width: 0; }
+  .available-message { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+  .available-message i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: none; }
+  .schedule { font-size: 12px; color: var(--text-2); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .attend-button { min-height: 44px; padding: 0 14px; font-size: 15px; border-radius: 12px; gap: 6px; flex: none; margin-left: auto; }
+  .state-badge { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; border-radius: 9px; background: color-mix(in srgb, #94a3b8 10%, transparent); color: var(--text-2); font-size: 12px; font-weight: 650; white-space: nowrap; margin-left: auto; }
+  .state-badge.ok { background: var(--ok-weak); color: var(--ok); }
+  .state-badge.warn { background: var(--primary-weak); color: var(--primary-text); }
+  .state-badge.danger { background: var(--danger-weak); color: var(--danger); }
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; min-height: 83px; padding: 20px 10px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; font-size: 13px; color: var(--text-2); }
+  .small { font-size: 12.5px; font-weight: 500; }
+  .error-message { color: var(--danger); }
 
   .attend {
     display: grid;
@@ -384,13 +324,8 @@
     white-space: pre-line;
   }
 
-  .now-head > div { min-width: 0; }
-  .now-head > .icon-btn { flex: none; }
-  .lecture strong { overflow-wrap: anywhere; }
-
   @media (max-width: 359px) {
     .now { padding: 14px; }
-    .lecture { padding: 10px; gap: 8px; }
-    .lecture .btn { padding: 10px; gap: 4px; }
+    .attend-button { padding: 0 10px; }
   }
 </style>

@@ -19,7 +19,7 @@ internal object WidgetAttendanceSnapshot {
             val periods = slot.optJSONArray("periods") ?: JSONArray().put(1)
             (0 until periods.length()).map { i ->
                 val start = minutes(slot.text("start")) + (periods.optInt(i) - periods.optInt(0)) * 60
-                JSONObject(slot.toString()).put("start", hm(start)).put("at", midnight + start * 60_000L).put("round", i + 1)
+                JSONObject(slot.toString()).put("start", hm(start)).put("at", midnight + start * 60_000L).put("round", i + 1).put("periods", JSONArray().put(periods.optInt(i)))
             }
         }.sortedBy { it.optLong("at") }
         fun ref(lecture: JSONObject, at: Long = now): JSONObject {
@@ -45,7 +45,7 @@ internal object WidgetAttendanceSnapshot {
         }
         val opened = active.map { lecture ->
             val item = ref(lecture)
-            JSONObject(lecture.toString()).put("identity", identity(item)).put("mark", mark(item) ?: JSONObject.NULL)
+            JSONObject(lecture.toString()).put("scheduleLabel", AttendanceState.schedule(lecture, sessions)).put("identity", identity(item)).put("mark", mark(item) ?: JSONObject.NULL)
         }
         val seen = (previous?.array("sessions").orEmpty().filter { it.optBoolean("seenOpen") }.map { it.text("identity") } + opened.map { it.text("identity") }).toSet()
         return JSONObject().put("date", dateText()).put("loaded", true).put("error", "").put("timetableLoaded", true).put("timetableError", "").put("checkedAt", now)

@@ -256,7 +256,7 @@
           <a href="#/{t.id}" onclick={() => { if (t.id === 'seats') openSeats('T'); }} class="nav" aria-current={on ? 'page' : undefined}>
             <span class="nav-ico">
               <Icon name={t.icon} size={21} stroke={on ? 2.1 : 1.8} />
-              {#if t.id === 'attendance' && attendOpen}<i class="live-dot" aria-label="지금 출석 가능"></i>{/if}
+              {#if t.id === 'attendance' && attendOpen}<i class="live-dot" aria-label="빠른 출결 가능"></i>{/if}
             </span>
             <span class="nav-label">{t.label}</span>
             {#if t.id === 'calendar' && weekDue}<span class="count" aria-label="7일 안에 마감 {weekDue}개">{weekDue}</span>{/if}
@@ -317,7 +317,7 @@
         <button class="tab" aria-current={route.tab === t.id ? 'page' : undefined} onclick={() => t.id === 'seats' ? openSeats('T') : go(t.id)}>
           <span class="nav-ico">
             <Icon name={t.icon} size={23} stroke={route.tab === t.id ? 2.1 : 1.7} />
-            {#if t.id === 'attendance' && attendOpen}<i class="live-dot" aria-label="지금 출석 가능"></i>{/if}
+            {#if t.id === 'attendance' && attendOpen}<i class="live-dot" aria-label="빠른 출결 가능"></i>{/if}
           </span>
           <span>{t.label}</span>
         </button>

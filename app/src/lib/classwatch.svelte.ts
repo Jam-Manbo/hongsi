@@ -99,6 +99,23 @@ function lectureRef(l: ActiveLecture, now = Date.now()): CourseRef {
   return matches.length === 1 ? { ...matches[0], lectureKey: l.key } : { code: l.code ?? null, name: l.name, lectureKey: l.key };
 }
 
+export function lectureSession(l: ActiveLecture, now = classWatch.now): TodayClass | null {
+  const sessions = todaySessions(timetable.data?.slots ?? [], now).filter((c) => sameCourse(l, c));
+  const clock = /(?:^|\D)(\d{1,2}):(\d{2})/.exec(l.time);
+  const period = /^\s*([월화수목금토일])\s*(\d{1,2})(?:교시)?\s*$/.exec(l.time);
+  const matches = clock
+    ? sessions.filter((c) => c.start === `${clock[1].padStart(2, '0')}:${clock[2]}`)
+    : period ? sessions.filter((c) => c.weekday === '월화수목금토일'.indexOf(period[1]) && c.periods[0] === Number(period[2]))
+    : sessions.filter((c) => inWindow(c, now));
+  return matches.length === 1 ? matches[0] : !clock && !period && sessions.length === 1 ? sessions[0] : null;
+}
+
+export function classScheduleLabel(c: ClassSlot | null, fallback = ''): string {
+  if (!c) return fallback.trim();
+  const period = `${'월화수목금토일'[c.weekday] ?? ''}${c.periods[0] ?? ''}`;
+  return [period, c.start ? `${c.start} 수업` : '', c.room ?? ''].filter(Boolean).join(' ');
+}
+
 export function markFor(c: CourseRef): Mark | null {
   if (c.at !== undefined && dayKey(c.at) !== todayKey()) return null;
   const matches = (attendance.data ?? []).filter((course) => sameCourse(course, c));
@@ -142,6 +159,7 @@ export function attendanceWidgetSnapshot() {
     })),
     active: (lectures.data?.items ?? []).map((lecture) => ({
       key: lecture.key, name: lecture.name, time: lecture.time, code: lecture.code,
+      scheduleLabel: classScheduleLabel(lectureSession(lecture), lecture.time),
       identity: keyOf(lectureRef(lecture)), mark: lectureMark(lecture),
     })),
   };

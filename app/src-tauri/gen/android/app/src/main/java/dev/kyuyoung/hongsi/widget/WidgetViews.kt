@@ -187,14 +187,14 @@ internal object WidgetViews {
         return view
     }
     private fun attendanceView(context: Context, id: Int, kind: WidgetKind, state: JSONObject, height: Int): RemoteViews {
-        val value = if (WidgetAttendanceService.pending(context)) WidgetAttendance(
-            state.optJSONObject("lecture")?.text("name").orEmpty(), "출석을 확인하고 있어요.", "", tone = "primary"
-        ) else AttendanceState.read(context, state)
+        val value = if (WidgetAttendanceService.pending(context)) AttendanceState.pending(context, state) else AttendanceState.read(context, state)
         return layout(context, R.layout.widget_card).apply {
             page(context, id, kind, R.id.widget_root)
             text(R.id.widget_title, "빠른 출결")
             page(context, id, kind, R.id.widget_title)
-            refresh(context, id, kind, this)
+            refresh(context, id, kind, this, value.kind == "loading")
+            val active = value.available || value.kind == "waiting"
+            setInt(R.id.widget_root, "setBackgroundResource", WidgetTheme.resource(context, if (active) R.drawable.widget_attendance_active else R.drawable.widget_attendance_background))
             removeAllViews(R.id.widget_body)
             val wrongCode = state.text("mode") == "error" && value.available
             val tone = if (wrongCode) R.color.widget_error else when (value.tone) {
@@ -204,36 +204,63 @@ internal object WidgetViews {
                 "primary" -> R.color.widget_primary
                 else -> R.color.widget_muted
             }
-            val content = layout(context, R.layout.widget_attendance_body).apply {
-                text(R.id.attendance_course, value.title)
+            val empty = value.title.isBlank()
+            val completed = value.kind in listOf("present", "late", "excused", "absent", "other")
+            val badge = completed || value.kind == "next"
+            val compact = height < 160
+            val content = layout(context, if (empty) R.layout.widget_attendance_empty else R.layout.widget_attendance_body).apply {
                 text(R.id.attendance_message, if (wrongCode) "출석번호를 확인해 주세요." else value.message)
                 text(R.id.attendance_detail, value.detail)
-                themeText(context, R.id.attendance_message, tone)
-                val compact = height < 184
-                setViewVisibility(R.id.attendance_course, if (value.title.isBlank()) View.GONE else View.VISIBLE)
-                setViewVisibility(R.id.attendance_detail, if (compact || value.detail.isBlank()) View.GONE else View.VISIBLE)
-                if (height < 220) {
-                    setInt(R.id.attendance_course, "setMaxLines", 1)
-                    setInt(R.id.attendance_message, "setMaxLines", 1)
+                themeText(context, R.id.attendance_message, if (empty && value.tone == "muted") R.color.widget_text else if (active && !wrongCode) R.color.widget_attendance_status else tone)
+                setViewVisibility(R.id.attendance_detail, if (value.detail.isBlank() || height < 144) View.GONE else View.VISIBLE)
+                if (!empty) {
+                    text(R.id.attendance_course, value.title)
+                    setViewVisibility(R.id.attendance_status_row, if (badge || compact) View.GONE else View.VISIBLE)
+                    setViewVisibility(R.id.attendance_status_dot, if (active && !wrongCode) View.VISIBLE else View.GONE)
+                    if (active) setInt(R.id.attendance_message, "setMaxLines", 1)
+                    setViewVisibility(R.id.widget_primary, if (value.available) View.VISIBLE else View.GONE)
+                    primary(context, if (wrongCode) "다시 입력" else "출석하기")
+                    action(context, id, kind, R.id.widget_primary, "open")
+                    setViewVisibility(R.id.attendance_badge_area, if (badge) View.VISIBLE else View.GONE)
+                    text(R.id.attendance_badge, value.message)
+                    themeText(context, R.id.attendance_badge, tone)
+                    val background = when (value.tone) {
+                        "success" -> R.drawable.widget_attendance_badge_ok
+                        "warn" -> R.drawable.widget_attendance_badge_warn
+                        "error" -> R.drawable.widget_attendance_badge_danger
+                        else -> R.drawable.widget_attendance_badge_muted
+                    }
+                    setInt(R.id.attendance_badge_area, "setBackgroundResource", WidgetTheme.resource(context, background))
+                    val icon = when (value.kind) {
+                        "present", "excused" -> R.drawable.ic_widget_tick
+                        "late" -> R.drawable.ic_widget_clock
+                        "absent" -> R.drawable.ic_widget_cross
+                        else -> null
+                    }
+                    setViewVisibility(R.id.attendance_badge_icon, if (icon != null) View.VISIBLE else View.GONE)
+                    if (icon != null) {
+                        setImageViewResource(R.id.attendance_badge_icon, WidgetTheme.resource(context, icon))
+                        setInt(R.id.attendance_badge_icon, "setColorFilter", color(context, tone))
+                    }
+                    setViewVisibility(R.id.attendance_symbol, if (!badge && !active && !compact) View.VISIBLE else View.GONE)
+                    setImageViewResource(R.id.attendance_symbol, WidgetTheme.resource(context, if (value.kind in listOf("error", "unknown", "stale")) R.drawable.ic_widget_info else R.drawable.ic_widget_clock))
+                    if (compact) {
+                        setTextViewTextSize(R.id.attendance_course, android.util.TypedValue.COMPLEX_UNIT_SP, 16f)
+                        setInt(R.id.widget_primary, "setHeight", (40 * context.resources.displayMetrics.density).roundToInt())
+                    }
+                    if (height >= 220) setInt(R.id.attendance_course, "setMaxLines", 2)
+                    page(context, id, kind, R.id.attendance_course)
+                    page(context, id, kind, R.id.attendance_badge_area)
                 }
-                if (compact) setTextViewTextSize(R.id.attendance_message, android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
-                if (value.title.isBlank()) {
-                    setInt(R.id.attendance_message, "setGravity", android.view.Gravity.CENTER)
-                    setInt(R.id.attendance_detail, "setGravity", android.view.Gravity.CENTER)
-                }
-                page(context, id, kind, R.id.attendance_course)
                 page(context, id, kind, R.id.attendance_message)
                 page(context, id, kind, R.id.attendance_detail)
             }
             addView(R.id.widget_body, content)
-            setViewVisibility(R.id.widget_primary_area, if (value.available) View.VISIBLE else View.GONE)
-            primary(context, if (wrongCode) "다시 입력" else "출석하기")
-            action(context, id, kind, R.id.widget_primary, "open")
         }
     }
-    private fun refresh(context: Context, id: Int, kind: WidgetKind, view: RemoteViews) {
+    private fun refresh(context: Context, id: Int, kind: WidgetKind, view: RemoteViews, loading: Boolean = false) {
         view.action(context, id, kind, R.id.widget_refresh, "refresh")
-        val active = Widgets.refreshing(kind)
+        val active = loading || Widgets.refreshing(kind)
         view.setViewVisibility(R.id.refresh_icon, if (active) View.INVISIBLE else View.VISIBLE)
         view.setViewVisibility(R.id.refresh_spinner, if (active) View.VISIBLE else View.GONE)
     }

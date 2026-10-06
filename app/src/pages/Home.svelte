@@ -86,7 +86,7 @@
 
 <div class="page home">
   <section class="a-attend" aria-label="출석">
-  <h2 class="section-title">지금 출석 <button class="link" onclick={() => go('attendance')}>출결</button></h2>
+  <h2 class="section-title">빠른 출결 <button class="link" onclick={() => go('attendance')}>출결</button></h2>
   <CurrentAttendance showLabel={false} />
   </section>
 
