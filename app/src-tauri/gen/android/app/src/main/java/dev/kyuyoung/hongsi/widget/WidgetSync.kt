@@ -36,6 +36,7 @@ internal fun JSONObject.body(): Any {
 
 internal object WidgetSync {
     val worker = Executors.newFixedThreadPool(2)
+    val refreshWorker = Executors.newFixedThreadPool(3)
     val main = Handler(Looper.getMainLooper())
     val locks = ConcurrentHashMap<String, ReentrantLock>()
     private const val PERIODIC = 7400
@@ -148,23 +149,48 @@ internal object WidgetSync {
 }
 
 class WidgetJobService : JobService() {
-    private val stopped = ConcurrentHashMap.newKeySet<Int>()
+    private class Run(val pending: MutableSet<WidgetKind>) {
+        @Volatile var stopped = false
+    }
+    private val runs = mutableMapOf<Int, Run>()
+
+    private fun updateLoading(kind: WidgetKind) {
+        val related = WidgetKind.entries.filter { it == kind || (it.deadlines && kind.deadlines) }
+        val active = runs.values.any { run -> run.pending.any { it in related } }
+        related.forEach { Widgets.loading(this, it, active) }
+    }
+
     override fun onStartJob(params: JobParameters): Boolean {
-        stopped.remove(params.jobId)
         val requested = WidgetKind.entries.find { it.name == params.extras.getString("kind") }
         val kinds = (if (requested == null) WidgetSync.installed(this) else listOf(requested))
             .filterNot { it.savedTimetable }.distinctBy { if (it.deadlines) "calendar" else it.name }
         if (kinds.isEmpty()) { Widgets.updateAll(this, preserveInput = true); WidgetSync.schedule(this); return false }
-        kinds.forEach { Widgets.loading(this, it, true) }
-        WidgetSync.worker.execute {
-            try { for (kind in kinds) { if (stopped.contains(params.jobId)) break; WidgetSync.refresh(applicationContext, kind) } }
-            finally { WidgetSync.main.post { kinds.forEach { Widgets.loading(this, it, false) }; Widgets.updateAll(this, preserveInput = true); if (!stopped.remove(params.jobId)) jobFinished(params, false) } }
+        val run = Run(kinds.toMutableSet())
+        runs.put(params.jobId, run)?.stopped = true
+        kinds.forEach(::updateLoading)
+        // Each resource publishes its result without waiting for the other widgets.
+        kinds.forEach { kind ->
+            WidgetSync.refreshWorker.execute {
+                try { if (!run.stopped) WidgetSync.refresh(applicationContext, kind) }
+                finally { WidgetSync.main.post {
+                    if (runs[params.jobId] === run) {
+                        run.pending.remove(kind)
+                        updateLoading(kind)
+                        Widgets.updateAll(this, preserveInput = true)
+                        if (run.pending.isEmpty()) {
+                            runs.remove(params.jobId)
+                            jobFinished(params, false)
+                        }
+                    }
+                } }
+            }
         }
         return true
     }
     override fun onStopJob(params: JobParameters): Boolean {
-        stopped.add(params.jobId)
-        WidgetKind.entries.forEach { Widgets.loading(this, it, false) }
+        val run = runs.remove(params.jobId) ?: return true
+        run.stopped = true
+        run.pending.forEach(::updateLoading)
         return true
     }
 }

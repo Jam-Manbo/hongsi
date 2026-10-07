@@ -1,6 +1,8 @@
 package dev.kyuyoung.hongsi.widget
 
 import android.content.Context
+import android.icu.text.Collator
+import android.icu.text.RuleBasedCollator
 import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -123,11 +125,26 @@ object WidgetData {
     fun deadlines(context: Context): List<JSONObject> {
         val data = read(context)
         if (data.text("semesterDisplay") != (data.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current")) return emptyList()
-        val showUndated = data.optJSONObject("preferences")?.optBoolean("showUndated") == true
-        return data.array("deadlines").filter {
-            !it.optBoolean("done") && (if (it.isNull("due")) showUndated else it.optLong("due") > nowSeconds()) && (it.text("kind") != "vod" || it.isNull("start") || it.optLong("start") <= nowSeconds())
-        }.sortedBy { if (it.isNull("due")) Long.MAX_VALUE else it.optLong("due") }
+        val now = nowSeconds()
+        val titles = (Collator.getInstance(Locale.KOREAN) as RuleBasedCollator).apply { numericCollation = true }
+        val items = data.array("deadlines").filter {
+            !it.optBoolean("done") && !it.isNull("due") && it.optLong("due") > now
+        }
+        val midnight = data.optJSONObject("preferences")?.text("midnight", "prev") ?: "prev"
+        val days = items.associateWith {
+            val due = it.optLong("due")
+            val previous = midnight != "same" && dateText(due, "HH:mm") == "00:00"
+            Math.floorDiv(due + 32400 - if (previous) 60 else 0, 86400)
+        }
+        return items.sortedWith { a, b ->
+            // Match the app: displayed day, timed before all-day, deadline, title, stable key.
+            compareValues(days.getValue(a), days.getValue(b)).takeIf { it != 0 }
+                ?: compareValues(a.optBoolean("allDay"), b.optBoolean("allDay")).takeIf { it != 0 }
+                ?: compareValues(a.optLong("due"), b.optLong("due")).takeIf { it != 0 }
+                ?: titles.compare(a.text("title"), b.text("title")).takeIf { it != 0 }
+                ?: a.text("key").compareTo(b.text("key"))
+        }
     }
-    fun seat(context: Context): JSONObject? = read(context).optJSONObject("seat")?.takeIf { it.isNull("endedAt") && it.optLong("expiresAt") > nowSeconds() }
+    fun seat(context: Context): JSONObject? = read(context).optJSONObject("seat")?.takeIf { it.isNull("endedAt") }
     fun error(context: Context, resource: String) = read(context).optJSONObject("errors")?.text(resource).orEmpty()
 }

@@ -96,7 +96,7 @@ internal object Widgets {
         val alarm = context.getSystemService(android.app.AlarmManager::class.java)
         val pending = PendingIntent.getBroadcast(context, 0, Intent(context, kind.receiver).setAction(TICK), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val active = when {
-            kind == WidgetKind.SEAT -> ids.isNotEmpty() && WidgetData.seat(context) != null
+            kind == WidgetKind.SEAT -> ids.isNotEmpty() && (WidgetData.seat(context)?.optLong("expiresAt") ?: 0) > nowSeconds()
             kind.attendance || kind.today || kind.deadlines || kind == WidgetKind.WEEK -> ids.isNotEmpty()
             else -> false
         }

@@ -3,6 +3,7 @@
   import { MediaQuery } from 'svelte/reactivity';
   import { isApp } from '../lib/api';
   import { agendaEntries, type AgendaEntry } from '../lib/agenda';
+  import { clock } from '../lib/clock.svelte';
   import { toggleDone } from '../lib/actions.svelte';
   import { courseColors, isOverdue, isPending } from '../lib/colors';
   import { ago, dueKey, dueTime, longDay, todayKey } from '../lib/format';
@@ -116,13 +117,8 @@
     const now = Date.now() / 1000;
     return remainingTodos.filter((t) => isTodoPending(t, now) && t.due !== null && t.due - now < 7 * 86400);
   });
-  const upcomingTodos = $derived(
-    myTodos
-      .filter((t) => {
-        const key = todoKey(t);
-        return isTodoPending(t) && (key === null || (key > todayKey() && key !== selected));
-      }),
-  );
+  const upcomingTodos = $derived(myTodos.filter((t) =>
+    t.doneAt === null && t.due !== null && t.due * 1000 > clock.now));
   const todoColor = (t: Todo) => (t.courseId === null ? 'var(--todo-neutral)' : (colors.get(t.courseId) ?? 'var(--todo-neutral)'));
   const todoCourse = (t: Todo) => (t.courseId === null ? '공통' : courseName(t.courseId));
   const names = $derived(new Map((data?.courses ?? []).map((c) => [c.id, c.name])));
@@ -130,15 +126,9 @@
     const now = Date.now() / 1000;
     return items.filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86400);
   });
-  const upcoming = $derived(
-    visible
-      .filter((i) => {
-        if (i.due === null || !isPending(i)) return false;
-        const key = dueKey(i.due);
-        return key > todayKey() && key !== selected;
-      }),
-  );
-  const upcomingEntries = $derived(agendaEntries(upcoming, upcomingTodos).slice(0, 8));
+  const upcoming = $derived(visible.filter((i) =>
+    !i.done && i.due !== null && i.due * 1000 > clock.now));
+  const upcomingEntries = $derived(agendaEntries(upcoming, upcomingTodos));
   const undatedEntries = $derived(agendaEntries(visible.filter((i) => i.due === null), []));
 
   const statItems = $derived.by(() => {
@@ -383,7 +373,9 @@
             <button class="add" onclick={() => addTodo()}><Icon name="plus" size={16} stroke={2.4} />할 일</button>
           </h2>
           {#if dayEntries.length}
-            {@render entryList(dayEntries)}
+            <div class="list">
+              {#each dayEntries as entry (entry.key)}{@render agendaRow(entry)}{/each}
+            </div>
           {:else}
             <EmptyState message="이날 마감인 일정이 없어요." />
           {/if}

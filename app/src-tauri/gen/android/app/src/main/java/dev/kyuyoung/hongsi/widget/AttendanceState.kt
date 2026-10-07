@@ -50,8 +50,7 @@ internal object AttendanceState {
         val active = if (fresh) snapshot.array("active") else emptyList()
         val open = active.firstOrNull { it.optJSONObject("mark")?.text("kind") !in listOf("present", "late", "excused") }
         if (open != null) {
-            val mark = open.optJSONObject("mark")
-            if (mark != null) return marked(open, mark, sessions)
+            // An open attendance request takes priority over an absent/unknown school record.
             return withSuccess(state, WidgetAttendance(open.text("name"), "출석할 수 있어요.", schedule(open, sessions), true, "primary", open.text("identity"), "available"))
         }
         if (current != null) {
