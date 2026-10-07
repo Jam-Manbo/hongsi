@@ -20,24 +20,12 @@ mod vault;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{FixedOffset, Utc};
 use sqlx::postgres::PgPoolOptions;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
 use tracing_subscriber::EnvFilter;
 
 use crate::state::{load_secret, AppState, Config};
-
-struct LocalTime;
-
-impl FormatTime for LocalTime {
-    fn format_time(&self, writer: &mut Writer<'_>) -> std::fmt::Result {
-        let offset = FixedOffset::east_opt(9 * 3600).expect("valid UTC+9 offset");
-        let now = Utc::now().with_timezone(&offset);
-        write!(writer, "{}", now.format("%Y-%m-%dT%H:%M:%S%.6f%:z"))
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     environment::load()?;
@@ -47,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[tokio::main]
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_timer(LocalTime)
+        .without_time()
         .with_env_filter(
             EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "hongsi_server=info,hongsi_core=info".into()),
