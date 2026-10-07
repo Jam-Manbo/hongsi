@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
+  import { APP_COMMIT, APP_VERSION, versionLabel } from '../lib/about';
   import { appUpdater, canUpdateApp } from '../lib/app-update.svelte';
   import {
     accountPreferences,
@@ -44,6 +45,7 @@
   ];
 
   const studentId = $derived(app.profile?.studentId || pref('last-id', ''));
+  const version = $derived(versionLabel(isApp && appUpdater.currentVersion ? appUpdater.currentVersion : APP_VERSION));
 
 </script>
 
@@ -118,12 +120,17 @@
   <h4 class="section-title">알림</h4>
   <div class="settings card"><NotificationSettings /></div>
 
-  {#if canUpdateApp}
-    <h4 class="section-title">앱 업데이트</h4>
+  {#if canUpdateApp || !isApp}
+    <h4 class="section-title">{isApp ? '앱 업데이트' : '웹 버전'}</h4>
     <div class="settings card">
       <div class="set-label">
-        <span>홍시 {appUpdater.currentVersion}</span>
-        <button class="filter" disabled={appUpdater.checking || appUpdater.installing} onclick={() => appUpdater.check(true)}>{appUpdater.checking ? '확인 중…' : '업데이트 확인'}</button>
+        <div class="version-info">
+          <span>홍시 {version}</span>
+          <span class="commit-hash muted" title={APP_COMMIT || undefined}>{APP_COMMIT ? APP_COMMIT.slice(0, 7) : '커밋 정보 없음'}</span>
+        </div>
+        {#if canUpdateApp}
+          <button class="filter" disabled={appUpdater.checking || appUpdater.installing} onclick={() => appUpdater.check(true)}>{appUpdater.checking ? '확인 중…' : '업데이트 확인'}</button>
+        {/if}
       </div>
     </div>
   {/if}
@@ -212,6 +219,9 @@
   .set-hint {
     font-size: 12px;
   }
+
+  .version-info { display: grid; gap: 4px; min-width: 0; }
+  .commit-hash { font-size: 12px; font-weight: 400; line-height: 1.5; user-select: text; }
 
   .seg {
     display: grid;

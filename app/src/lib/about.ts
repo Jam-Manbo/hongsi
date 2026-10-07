@@ -1,4 +1,6 @@
 export const APP_VERSION: string = __APP_VERSION__;
-export const APP_VERSION_LABEL = /^\d+\.\d+\.\d+/.test(APP_VERSION) ? `v${APP_VERSION}` : APP_VERSION;
+export const versionLabel = (version: string) => /^\d+\.\d+\.\d+/.test(version) ? `v${version}` : version;
+export const APP_VERSION_LABEL = versionLabel(APP_VERSION);
+export const APP_COMMIT: string = __APP_COMMIT__;
 
 export const REPO_URL = 'https://github.com/Jam-Manbo/hongsi';
