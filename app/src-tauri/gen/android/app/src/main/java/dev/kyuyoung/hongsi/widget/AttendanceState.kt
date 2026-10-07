@@ -68,7 +68,8 @@ internal object AttendanceState {
             item.optJSONObject("mark")?.let { return marked(item, it, sessions) }
         }
         if (snapshot.text("error").isNotBlank() || snapshot.text("timetableError").isNotBlank()) return WidgetAttendance(message = "출석 정보를 불러오지 못했어요.", tone = "error", kind = "error")
-        if (!snapshot.optBoolean("timetableLoaded") || !snapshot.optBoolean("loaded")) return WidgetAttendance(message = "출석 정보를 확인하고 있어요.", kind = "loading")
+        if (!snapshot.optBoolean("timetableLoaded")) return WidgetAttendance(message = "시간표를 확인해 주세요.", detail = "앱에서 시간표를 한 번 불러와 주세요.")
+        if (!snapshot.optBoolean("loaded")) return WidgetAttendance(message = "출석 정보를 확인하고 있어요.", kind = "loading")
         if (snapshot.text("date") != dateText()) return WidgetAttendance(message = "출석 정보를 확인해 주세요.", detail = "새로고침을 눌러 주세요.")
         if (sessions.isEmpty()) return WidgetAttendance(message = "오늘은 수업이 없어요.")
         if (next != null) return WidgetAttendance(next.text("name"), "다음 수업", schedule(next), kind = "next")

@@ -149,7 +149,7 @@ export function attendanceWidgetSnapshot() {
     loaded: lectures.data !== null,
     error: lectures.error,
     timetableLoaded: timetable.data !== null,
-    timetableError: timetable.error,
+    timetableError: timetable.data ? null : timetable.error,
     checkedAt: lectures.at,
     sessions: todaySessions(timetable.data?.slots ?? []).map((session) => ({
       ...session,

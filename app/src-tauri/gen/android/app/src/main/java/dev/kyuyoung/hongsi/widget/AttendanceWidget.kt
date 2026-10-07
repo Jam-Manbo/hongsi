@@ -22,6 +22,7 @@ internal enum class WidgetKind(val title: String, val height: Int, val receiver:
     TODAY_LARGE("오늘 수업 크게", 396, TodayLargeWidgetReceiver::class.java),
     WEEK("주간 시간표", 396, WeekWidgetReceiver::class.java);
     val today get() = this == TODAY || this == TODAY_LARGE
+    val savedTimetable get() = today || this == WEEK
     val attendance get() = this == ATTENDANCE
     val deadlines get() = this == DEADLINES || this == DEADLINES_LARGE
 

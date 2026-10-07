@@ -20,7 +20,7 @@ export function refreshTab(tab: Tab): Promise<void> {
   const jobs = {
     home: [seatSession, seats, calendar, meals, todos],
     calendar: [calendar, todos], seats: [seats, seatSession],
-    attendance: [attendance, timetable], meals: [meals],
+    attendance: [attendance], meals: [meals],
   }[tab];
   if (tab === 'home') { void timetable.load(); void notices.load(); }
   const requests = jobs.map((resource) => resource.load(true));

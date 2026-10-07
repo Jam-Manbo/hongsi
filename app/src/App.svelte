@@ -29,6 +29,8 @@
     lectures,
     seatSession,
     todos,
+    timetable,
+    refreshTimetableForTerm,
   } from './lib/store.svelte';
   import { TABS, go, openSeats, route, toast } from './lib/ui.svelte';
   import Avatar from './components/Avatar.svelte';
@@ -60,6 +62,12 @@
   let profileOpen = $state(false);
   let bootError = $state('');
   let booting = false;
+
+  $effect(() => {
+    if (app.booting || app.loggingOut || !app.profile || !timetable.data || timetable.loading) return;
+    const term = calendar.data?.currentTerm;
+    untrack(() => refreshTimetableForTerm(term));
+  });
 
   $effect(() => {
     if (!isApp || app.booting) return;

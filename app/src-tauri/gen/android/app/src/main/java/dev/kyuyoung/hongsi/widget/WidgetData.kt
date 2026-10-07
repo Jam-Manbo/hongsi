@@ -52,6 +52,7 @@ object WidgetData {
                 val matchingSemester = field != "deadlines" || current.text("semesterDisplay") == display
                 if (matchingSemester && (oldTimes.optLong(resource) > times.optLong(resource) || (field == "deadlines" && next.text("semesterDisplay") != display))) {
                     if (current.has(field)) next.put(field, current.get(field))
+                    if (field == "slots") next.put("timetableLoaded", hasTimetable(current))
                     if (field == "deadlines") next.put("semesterDisplay", current.text("semesterDisplay"))
                     times.put(resource, oldTimes.optLong(resource))
                 }
@@ -98,6 +99,9 @@ object WidgetData {
     }.getOrElse { JSONObject() }
     fun save(context: Context, id: Int, state: JSONObject) { context.getSharedPreferences("widgets-state", Context.MODE_PRIVATE).edit().putString("$id", state.toString()).apply() }
     fun delete(context: Context, id: Int) { context.getSharedPreferences("widgets-state", Context.MODE_PRIVATE).edit().remove("$id").apply() }
+    fun hasTimetable(data: JSONObject) = data.optBoolean("timetableLoaded")
+        || (data.optJSONObject("updatedAt")?.optLong("timetable") ?: 0) > 0
+        || data.array("slots").isNotEmpty()
     fun slots(context: Context) = read(context).array("slots")
     fun today(context: Context): List<JSONObject> = slots(context).filter { it.optInt("weekday") == weekday() }.sortedBy { it.text("start") }
     private fun previousMidnight(context: Context, due: Long) = read(context).optJSONObject("preferences")?.text("midnight", "prev") != "same" && dateText(due, "HH:mm") == "00:00"

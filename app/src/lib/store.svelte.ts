@@ -3,6 +3,7 @@ import { normalizeCalendar } from './calendar-data';
 import { errorText, onReconnect, troubleOf, type Trouble } from './net.svelte';
 import { clearUserData, isStaleSession, onSessionChange, readUserData, setSessionUser, writeUserData } from './session';
 import type {
+  AcademicTerm,
   ActiveLectures,
   AttendanceCourse,
   AttendanceReceipt,
@@ -261,17 +262,36 @@ export const meals = new Resource<MealDay[]>('meals', () => api.meals(), 30 * MI
 export const lectures = new Resource<ActiveLectures>('lectures', () => api.activeLectures(), MIN / 2);
 export const attendanceReceipts = new Resource<AttendanceReceipt[]>('attendance-receipts', () => api.attendanceReceipts(), 5_000);
 export const attendance = new Resource<AttendanceCourse[]>('attendance', () => api.attendanceStatus(), 10 * MIN);
-export const timetable = new Resource<Timetable>('timetable', (force) => api.timetable(force), 360 * MIN);
+type SavedTimetable = Timetable & { term?: AcademicTerm | null };
+let timetableTermAttempt: string | null = null;
+export const timetable = new Resource<SavedTimetable>('timetable', async () => {
+  const term = calendar.data?.currentTerm ?? null;
+  return { ...await api.timetable(true), term };
+}, Infinity);
+
+export function refreshTimetableForTerm(term: AcademicTerm | null | undefined) {
+  if (!term || !timetable.data || timetable.loading) return;
+  const saved = timetable.data.term;
+  if (saved && (saved.year > term.year || (saved.year === term.year && saved.semester >= term.semester))) return;
+  const key = `${term.year}-${term.semester}`;
+  if (timetableTermAttempt === key) return;
+  timetableTermAttempt = key;
+  // Refresh once per observed term; failed requests keep the saved timetable.
+  void timetable.refresh();
+}
 
 export const todos = new Resource<Todo[]>('todos', () => api.todos(), 5 * MIN);
 export const notices = new Resource<ClassNotification[]>('notices', () => api.notifications(), 5 * MIN);
 
 export const allResources = [calendar, seats, seatSession, meals, lectures, attendance, attendanceReceipts, timetable, todos, notices];
-onSessionChange(() => allResources.forEach((r) => r.restore()));
+onSessionChange(() => {
+  timetableTermAttempt = null;
+  allResources.forEach((r) => r.restore());
+});
 
 onReconnect((what) => {
   if (!app.profile || app.loggingOut) return;
-  const jobs = allResources.filter((r) => r.error !== null && (what === 'server' || r.trouble === 'school'));
+  const jobs = allResources.filter((r) => r.error !== null && (r !== timetable || r.data === null) && (what === 'server' || r.trouble === 'school'));
   if (what === 'server' && isApp && calendar.data && !jobs.includes(calendar)) jobs.push(calendar);
   return Promise.all(jobs.map((r) => r.load(true)));
 });

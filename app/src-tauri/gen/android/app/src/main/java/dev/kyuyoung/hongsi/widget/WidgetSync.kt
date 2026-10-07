@@ -40,19 +40,23 @@ internal object WidgetSync {
     val locks = ConcurrentHashMap<String, ReentrantLock>()
     private const val PERIODIC = 7400
     fun installed(context: Context) = WidgetKind.entries.filter { Widgets.ids(context, it).isNotEmpty() }
+    private fun networkKinds(context: Context) = installed(context).filterNot { it.savedTimetable }
     fun schedule(context: Context) {
         val scheduler = context.getSystemService(JobScheduler::class.java)
-        if (installed(context).isEmpty()) { (PERIODIC..PERIODIC + 7).forEach(scheduler::cancel); return }
+        WidgetKind.entries.filter { it.savedTimetable }.forEach { scheduler.cancel(PERIODIC + 1 + it.ordinal) }
+        if (networkKinds(context).isEmpty()) { (PERIODIC..PERIODIC + 7).forEach(scheduler::cancel); return }
         if (scheduler.getPendingJob(PERIODIC) == null) scheduler.schedule(JobInfo.Builder(PERIODIC, ComponentName(context, WidgetJobService::class.java))
             .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPeriodic(15 * 60_000L).setPersisted(true).build())
     }
     fun enqueue(context: Context, kind: WidgetKind) {
         schedule(context)
+        if (kind.savedTimetable) { Widgets.loading(context, kind, false); return }
         val extras = PersistableBundle().apply { putString("kind", kind.name) }
         context.getSystemService(JobScheduler::class.java).schedule(JobInfo.Builder(PERIODIC + 1 + kind.ordinal, ComponentName(context, WidgetJobService::class.java))
             .setExtras(extras).setOverrideDeadline(0).build())
     }
     fun refresh(context: Context, kind: WidgetKind) {
+        if (kind.savedTimetable) return
         val resource = when { kind.attendance -> "lectures"; kind.deadlines -> "calendar"; kind == WidgetKind.SEAT -> "seats"; else -> "timetable" }
         val lock = locks.getOrPut(resource) { ReentrantLock() }
         if (!lock.tryLock()) return
@@ -69,7 +73,7 @@ internal object WidgetSync {
         try {
             var preferences = before.optJSONObject("preferences") ?: JSONObject()
             var preferencesAt = before.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
-            if (resource in listOf("calendar", "timetable")) {
+            if (resource == "calendar") {
                 runCatching { get("/api/preferences") as JSONObject }.onSuccess { saved ->
                     if (saved.optLong("updatedAt") > preferencesAt) {
                         preferences = saved
@@ -83,8 +87,7 @@ internal object WidgetSync {
             }
             when (resource) {
                 "lectures" -> {
-                    val slots = (get("/api/timetable") as JSONObject).array("slots")
-                    patch.put("slots", JSONArray(colorSlots(slots, before.array("slots"))))
+                    val slots = before.array("slots")
                     val active = (get("/api/attendance/active") as JSONObject).array("items")
                     val pending = before.array("pendingReceipts").filter { it.text("date") == dateText() }
                     val unshared = pending.filter { receipt -> runCatching { WidgetNative.api(context, "/api/attendance/receipts", "PUT", JSONObject().put("receipt", receipt), owner).body(); false }.getOrDefault(true) }
@@ -93,7 +96,8 @@ internal object WidgetSync {
                     val courses = slots.filter { it.optInt("weekday") == weekday() }.map { it.text("code") }.filter(String::isNotBlank).distinct().mapNotNull { code ->
                         runCatching { get("/api/attendance/course?code=" + android.net.Uri.encode(code)) as JSONObject }.getOrNull()
                     }
-                    patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance")))
+                    patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance"))
+                        .put("timetableLoaded", WidgetData.hasTimetable(before)))
                 }
                 "calendar" -> {
                     val display = patch.getJSONObject("preferences").text("semesterDisplay")
@@ -124,10 +128,8 @@ internal object WidgetSync {
                     }
                     patch.put("deadlines", JSONArray(items))
                     patch.put("semesterDisplay", display)
-                    patch.put("slots", JSONArray(before.array("slots").map { slot -> slot.put("color", colors[courses.firstOrNull { sameCourse(it, slot) }?.optLong("id")] ?: slot.text("color", "#3b82f6")) }))
                 }
                 "seats" -> patch.put("seat", (get("/api/seats/session") as JSONObject).opt("session") ?: JSONObject.NULL)
-                else -> patch.put("slots", JSONArray(colorSlots((get("/api/timetable?refresh=1") as JSONObject).array("slots"), before.array("slots"))))
             }
             updated.put(resource, System.currentTimeMillis())
             patch.put("updatedAt", updated)
@@ -143,7 +145,6 @@ internal object WidgetSync {
         } finally { lock.unlock() }
         WidgetData.merge(context, owner, patch)
     }
-    private fun colorSlots(slots: List<JSONObject>, previous: List<JSONObject>) = slots.map { slot -> slot.put("color", previous.firstOrNull { sameCourse(it, slot) }?.text("color") ?: "#3b82f6") }
 }
 
 class WidgetJobService : JobService() {
@@ -151,7 +152,9 @@ class WidgetJobService : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         stopped.remove(params.jobId)
         val requested = WidgetKind.entries.find { it.name == params.extras.getString("kind") }
-        val kinds = if (requested == null) WidgetSync.installed(this).distinctBy { when { it.today || it == WidgetKind.WEEK -> "timetable"; it.deadlines -> "calendar"; else -> it.name } } else listOf(requested)
+        val kinds = (if (requested == null) WidgetSync.installed(this) else listOf(requested))
+            .filterNot { it.savedTimetable }.distinctBy { if (it.deadlines) "calendar" else it.name }
+        if (kinds.isEmpty()) { Widgets.updateAll(this, preserveInput = true); WidgetSync.schedule(this); return false }
         kinds.forEach { Widgets.loading(this, it, true) }
         WidgetSync.worker.execute {
             try { for (kind in kinds) { if (stopped.contains(params.jobId)) break; WidgetSync.refresh(applicationContext, kind) } }

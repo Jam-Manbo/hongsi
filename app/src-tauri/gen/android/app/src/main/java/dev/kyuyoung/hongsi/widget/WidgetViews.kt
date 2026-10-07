@@ -62,7 +62,7 @@ internal object WidgetViews {
         val state = WidgetData.state(context, id)
         val data = WidgetData.read(context)
         val resource = if (kind.deadlines) "calendar" else if (kind == WidgetKind.SEAT) "seats" else "timetable"
-        val failed = WidgetData.error(context, resource).isNotBlank()
+        val failed = !kind.savedTimetable && WidgetData.error(context, resource).isNotBlank()
         val mode = state.text("mode", "ready")
         val options = if (id > 0) AppWidgetManager.getInstance(context).getAppWidgetOptions(id) else android.os.Bundle()
         val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, kind.height)
@@ -95,6 +95,12 @@ internal object WidgetViews {
             }
             if (weekOnly) return weekStatus(context, id, kind, title)
             view.addView(R.id.widget_body, empty(context, title))
+            return view
+        }
+        if (kind.savedTimetable && !WidgetData.hasTimetable(data)) {
+            val message = "앱에서 시간표를 한 번 불러와 주세요."
+            if (weekOnly) return weekStatus(context, id, kind, message)
+            view.addView(R.id.widget_body, empty(context, message))
             return view
         }
         when (kind) {

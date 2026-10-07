@@ -22,6 +22,7 @@
     onbeforeclose,
     onclose,
     children,
+    headerActions,
     footer,
   }: {
     open: boolean;
@@ -35,6 +36,7 @@
     onbeforeclose?: () => boolean;
     onclose?: () => void;
     children?: Snippet;
+    headerActions?: Snippet;
     footer?: Snippet;
   } = $props();
 
@@ -139,11 +141,12 @@
     transition:fly={motion}
   >
     <div class="grip" aria-hidden="true"></div>
-    <header>
+    <header class:has-actions={!!headerActions}>
       <h2 class:with-meta={!!titleMeta} class:with-icon={!!titleIcon}>
         {#if titleIcon}<span class="title-icon"><Icon name={titleIcon} size={21} /></span>{/if}
         {#if titleMeta}<span>{title}</span><span class="title-meta">{titleMeta}</span>{:else}{title}{/if}
       </h2>
+      {#if headerActions}{@render headerActions()}{/if}
       {#if showClose}<button class="icon-btn" disabled={closeDisabled} onclick={close} aria-label="닫기"><Icon name="close" /></button>{/if}
     </header>
     {#if children}<div class="body" bind:this={body}><div class="body-content" bind:this={bodyContent}>{@render children()}</div></div>{/if}
@@ -203,6 +206,8 @@
     padding: 8px 12px 10px 20px;
     flex: none;
   }
+
+  header.has-actions h2 { margin-right: auto; }
 
   .sheet.message header { padding: 24px 20px; }
 
