@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
-  import { isAndroid } from '../lib/env';
+  import { hasStudentCard } from '../lib/env';
   import { APP_COMMIT, APP_VERSION, versionLabel } from '../lib/about';
   import { appUpdater, canUpdateApp } from '../lib/app-update.svelte';
   import {
@@ -65,7 +65,7 @@
         {#if isApp}{app.remembered ? '자동 로그인 켜짐' : '자동 로그인 꺼짐'}{:else}{app.remembered ? '로그인 상태 유지 중' : '로그인 상태 유지 꺼짐'}{/if}
       </span>
     </div>
-    {#if isAndroid}
+    {#if hasStudentCard}
       <button class="qr-button" aria-label="학생증 QR 열기" onclick={() => studentCardOpen = true}><Icon name="qr" size={26} /></button>
     {/if}
   </div>
@@ -157,7 +157,7 @@
   {/snippet}
 </Sheet>
 
-{#if isAndroid}<StudentCardSheet bind:open={studentCardOpen} />{/if}
+{#if hasStudentCard}<StudentCardSheet bind:open={studentCardOpen} />{/if}
 
 <Sheet bind:open={confirmLogoutAll} title="모든 기기에서 로그아웃할까요?" confirm>
   <div class="logout-confirm">

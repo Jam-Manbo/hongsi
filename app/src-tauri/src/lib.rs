@@ -16,33 +16,15 @@ use tauri::{AppHandle, Manager, State};
 mod android_external;
 #[cfg(target_os = "android")]
 mod android_update;
-#[cfg(target_os = "android")]
-mod android_student_card;
+mod student_card;
 mod credentials;
 
 async fn student_card_request(app: AppHandle, shell: &Shell, view_id: String, fresh: bool) -> Result<Value, String> {
-    #[cfg(target_os = "android")]
-    {
-        let started = std::time::Instant::now();
-        if view_id.len() != 36 || !view_id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
-            return Err("학생증 QR 창을 다시 열어 주세요.".into());
-        }
-        let _operations = shell.operations.read().await;
-        if ensure_login(shell).await.is_err() {
-            return Ok(serde_json::json!({ "state": "authentication_required", "message": "홍시에 다시 로그인한 후 학생증 QR을 열어 주세요." }));
-        }
-        let Some(saved) = saved_login(shell).await? else {
-            return Ok(serde_json::json!({ "state": "credentials_required", "message": "학생증 QR은 자동 로그인이 필요해요. 홍시에 다시 로그인해 주세요." }));
-        };
-        let owner = shell.direct.snapshot().await.and_then(|s| serde_json::to_value(s).ok())
-            .and_then(|v| v["student_id"].as_str().map(str::to_string));
-        if owner.as_deref() != Some(saved.id.as_str()) || saved.password.is_empty() {
-            return Ok(serde_json::json!({ "state": "credentials_required", "message": "현재 계정의 로그인 정보를 확인할 수 없어요. 다시 로그인해 주세요." }));
-        }
-        android_student_card::request(&app, &view_id, &saved.id, &saved.password, fresh, started.elapsed().as_millis() as u64).await
-    }
-    #[cfg(not(target_os = "android"))]
-    { let _ = (app, shell, view_id, fresh); Err("Android 앱에서 사용할 수 있어요.".into()) }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    return serde_json::to_value(student_card::request(&app, shell, &view_id, fresh).await)
+        .map_err(|_| "학생증 QR을 불러오지 못했어요.".to_string());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    { let _ = (app, shell, view_id, fresh); Err("모바일 앱에서 사용할 수 있어요.".into()) }
 }
 
 #[tauri::command]
@@ -56,19 +38,15 @@ async fn student_card_refresh(app: AppHandle, shell: State<'_, Arc<Shell>>, view
 }
 
 #[tauri::command]
-async fn student_card_close(app: AppHandle, view_id: String) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    return android_student_card::close(&app, &view_id).await;
-    #[cfg(not(target_os = "android"))]
-    { let _ = (app, view_id); Ok(()) }
+async fn student_card_close(shell: State<'_, Arc<Shell>>, view_id: String) -> Result<(), String> {
+    shell.student_cards.close(&view_id);
+    Ok(())
 }
 
 #[tauri::command]
-async fn student_card_displayed(app: AppHandle, view_id: String, timing_id: u64, elapsed_ms: u64, remaining_ms: u64) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    return android_student_card::displayed(&app, &view_id, timing_id, elapsed_ms, remaining_ms).await;
-    #[cfg(not(target_os = "android"))]
-    { let _ = (app, view_id, timing_id, elapsed_ms, remaining_ms); Ok(()) }
+async fn student_card_displayed(shell: State<'_, Arc<Shell>>, view_id: String, timing_id: u64, elapsed_ms: u64, remaining_ms: u64) -> Result<(), String> {
+    shell.student_cards.displayed(&view_id, timing_id, elapsed_ms, remaining_ms);
+    Ok(())
 }
 
 #[tauri::command]
@@ -128,6 +106,7 @@ async fn app_update(
 
 struct Shell {
     direct: Direct,
+    student_cards: hongsi_student_card::StudentCards,
     credentials: credentials::Store,
     login_lock: Mutex<()>,
     saved: Mutex<CredentialState>,
@@ -139,6 +118,7 @@ static SHARED_SHELL: OnceLock<Arc<Shell>> = OnceLock::new();
 fn shared_shell(credentials: credentials::Store) -> Arc<Shell> {
     SHARED_SHELL.get_or_init(|| Arc::new(Shell {
         direct: Direct::new(server_base()), credentials,
+        student_cards: hongsi_student_card::StudentCards::default(),
         login_lock: Mutex::new(()), saved: Mutex::new(CredentialState::default()),
         operations: Arc::new(tokio::sync::RwLock::new(())), revoked: AtomicBool::new(false),
     })).clone()
@@ -192,6 +172,9 @@ async fn saved_login(shell: &Shell) -> Result<Option<Saved>, String> {
 
 async fn save_credentials(shell: &Shell, saved: Option<Saved>) -> Result<(), String> {
     let mut cached = shell.saved.lock().await;
+    if saved.is_none() || cached.value.as_ref().map(|value| (&value.id, &value.password)) != saved.as_ref().map(|value| (&value.id, &value.password)) {
+        shell.student_cards.reset();
+    }
     if let Some(saved) = &saved {
         let encoded = serde_json::to_string(saved).map_err(|_| credentials::SAVE_ERROR.to_string())?;
         shell.credentials.save(&encoded).await?;
@@ -404,6 +387,7 @@ async fn api(
     }
 
     if path == "/api/auth/logout" || path == "/api/auth/logout-all" {
+        shell.student_cards.reset();
         let _operations = shell.operations.write().await;
         let _guard = shell.login_lock.lock().await;
         if !shell.direct.logged_in().await {
@@ -428,6 +412,7 @@ async fn api(
     }
 
     if path == "/api/auth/login" {
+        shell.student_cards.reset();
         let _operations = shell.operations.write().await;
         let body = body.unwrap_or(Value::Null);
         let id = body["id"].as_str().unwrap_or("").to_string();
@@ -774,9 +759,9 @@ pub fn run_app() {
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(android_external::init())
-        .plugin(android_student_card::init())
         .plugin(android_update::init());
     builder
+        .plugin(student_card::init())
         .plugin(tauri_plugin_notifications::init())
         .plugin(credentials::init())
         .setup(move |app| {

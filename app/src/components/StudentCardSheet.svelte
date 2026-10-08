@@ -31,6 +31,7 @@
       let expires: ReturnType<typeof setTimeout> | undefined;
       let ticks: ReturnType<typeof setInterval> | undefined;
       let busy = false;
+      let foreground = !document.hidden;
 
       function clearDisplay() {
         clearTimeout(expires);
@@ -49,7 +50,7 @@
         if (previous) void invoke('student_card_close', { viewId: previous }).catch(() => {});
       }
       async function load(fresh: boolean) {
-        if (disposed || document.hidden || busy || app.account !== owner || app.loggingOut) return;
+        if (disposed || !foreground || document.hidden || busy || app.account !== owner || app.loggingOut) return;
         if (fresh) { suspend(); viewId = crypto.randomUUID(); }
         if (!viewId) return;
         busy = true;
@@ -61,7 +62,7 @@
         const started = performance.now();
         try {
           const result = await invoke<CardResult>(fresh ? 'student_card_open' : 'student_card_refresh', { viewId });
-          if (disposed || current !== request || document.hidden || app.account !== owner || app.loggingOut) return;
+          if (disposed || current !== request || !foreground || document.hidden || app.account !== owner || app.loggingOut) return;
           if (result.state === 'ready') {
             const elapsed = performance.now() - started;
             const validFor = studentCardRemaining(result.validForMs, result.processingMs, elapsed);
@@ -91,9 +92,9 @@
           if (current === request) { busy = false; loading = false; }
         }
       }
-      const visibility = () => { if (document.hidden) suspend(); else void load(true); };
-      const pause = () => suspend();
-      const resume = () => { if (!viewId) void load(true); };
+      const visibility = () => { if (document.hidden) suspend(); else if (foreground && !viewId) void load(true); };
+      const pause = () => { foreground = false; suspend(); };
+      const resume = () => { foreground = true; if (!viewId) void load(true); };
       refresh = () => { void load(!image); };
       document.addEventListener('visibilitychange', visibility);
       window.addEventListener('hongsi-pause', pause);

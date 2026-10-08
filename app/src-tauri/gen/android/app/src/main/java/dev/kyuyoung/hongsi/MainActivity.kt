@@ -20,14 +20,7 @@ class MainActivity : TauriActivity() {
   }
   override fun onResume() {
     super.onResume()
-    StudentCardSessions.foreground = true
-    widgetWebView.get()?.evaluateJavascript("window.dispatchEvent(new Event('hongsi-resume'))", null)
     notifyWidgets()
-  }
-  override fun onPause() {
-    StudentCardSessions.background()
-    widgetWebView.get()?.evaluateJavascript("window.dispatchEvent(new Event('hongsi-pause'))", null)
-    super.onPause()
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {

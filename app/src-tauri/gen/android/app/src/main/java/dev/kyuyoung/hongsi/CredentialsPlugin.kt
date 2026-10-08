@@ -63,7 +63,6 @@ internal class CredentialVault(context: Context, name: String = "auto-login") {
     }
 
     @Synchronized fun clear() {
-        StudentCardSessions.reset()
         file.delete()
         keystore().deleteEntry(alias)
         check(!file.baseFile.exists())
@@ -85,9 +84,6 @@ class CredentialsPlugin(activity: Activity) : Plugin(activity) {
     @Command fun save(invoke: Invoke) { worker.execute {
         try {
             val secret = invoke.parseArgs(SaveCredentialsArgs::class.java).secret
-            val previous = runCatching { vault.load()?.let { JSONObject(it) } }.getOrNull()
-            val next = JSONObject(secret)
-            if (previous?.optString("id") != next.optString("id") || previous?.optString("password") != next.optString("password")) StudentCardSessions.reset()
             vault.save(secret)
             invoke.resolve()
         }

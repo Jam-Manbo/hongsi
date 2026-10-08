@@ -12,6 +12,45 @@ final class HongsiIOSPlugin: Plugin, QLPreviewControllerDataSource, QLPreviewCon
     private var previewURL: URL?
     private var scopedPreviewURL: URL?
     private var location: HongsiLocation?
+    private weak var studentCardWebView: WKWebView?
+
+    @objc override func load(webview: WKWebView) {
+        studentCardWebView = webview
+        NotificationCenter.default.addObserver(self, selector: #selector(studentCardPause), name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(studentCardResume), name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func studentCardPause() {
+        studentCardWebView?.evaluateJavaScript("window.dispatchEvent(new Event('hongsi-pause'))", completionHandler: nil)
+    }
+    @objc private func studentCardResume() {
+        studentCardWebView?.evaluateJavaScript("window.dispatchEvent(new Event('hongsi-resume'))", completionHandler: nil)
+    }
+    @objc func studentCardContext(_ invoke: Invoke) {
+        DispatchQueue.main.async { [self] in
+            guard let webview = studentCardWebView else { invoke.reject("학생증 QR을 준비하지 못했어요."); return }
+            webview.evaluateJavaScript("navigator.userAgent") { agent, error in
+                guard error == nil, let agent = agent as? String else { invoke.reject("학생증 QR을 준비하지 못했어요."); return }
+                let preferences = UserDefaults.standard
+                let key = "hongsi.student-card.device-id"
+                let deviceId = preferences.string(forKey: key) ?? UUID().uuidString
+                preferences.set(deviceId, forKey: key)
+                invoke.resolve([
+                    "platform": "ios", "deviceId": deviceId,
+                    "userAgent": agent + " Heyoung/1.6.2",
+                    "localeVersion": preferences.string(forKey: "hongsi.student-card.locale-version") ?? "",
+                    "active": UIApplication.shared.applicationState == .active
+                ])
+            }
+        }
+    }
+    @objc func saveStudentCardLocale(_ invoke: Invoke) {
+        operation(invoke) {
+            let value = try invoke.parseArgs(ValueArgs.self).value
+            if !value.isEmpty && value.count <= 128 { UserDefaults.standard.set(value, forKey: "hongsi.student-card.locale-version") }
+        }
+    }
 
     private func operation(_ invoke: Invoke, _ block: () throws -> Void) {
         do { try block(); invoke.resolve() }

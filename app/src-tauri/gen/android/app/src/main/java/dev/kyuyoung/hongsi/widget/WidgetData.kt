@@ -20,7 +20,7 @@ internal fun JSONObject.array(key: String) = optJSONArray(key).objects()
 internal fun nowSeconds() = System.currentTimeMillis() / 1000
 internal val korea: TimeZone get() = TimeZone.getTimeZone("Asia/Seoul")
 internal fun dateText(seconds: Long = nowSeconds(), pattern: String = "yyyy-MM-dd"): String = SimpleDateFormat(pattern, Locale.KOREAN).apply { timeZone = korea }.format(Date(seconds * 1000))
-internal fun weekday(): Int = (Calendar.getInstance(korea).get(Calendar.DAY_OF_WEEK) + 5) % 7
+internal fun weekday(seconds: Long = nowSeconds()): Int = (Calendar.getInstance(korea).apply { timeInMillis = seconds * 1000 }.get(Calendar.DAY_OF_WEEK) + 5) % 7
 internal fun minuteOfDay(): Int = Calendar.getInstance(korea).let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 internal fun minutes(value: String): Int = value.split(':').let { (it.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (it.getOrNull(1)?.toIntOrNull() ?: 0) }
 internal fun hm(value: Int) = "%02d:%02d".format(value / 60, value % 60)
@@ -68,6 +68,7 @@ object WidgetData {
     @Synchronized fun merge(context: Context, owner: String, patch: JSONObject): Boolean {
         val next = read(context)
         if (owner.isBlank() || next.text("owner") != owner) return false
+        discardOlderAttendance(next, patch)
         val incomingPreferencesAt = patch.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
         val preferencesAt = next.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
         val display = next.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current"
@@ -88,6 +89,15 @@ object WidgetData {
         }
         write(context, next)
         return true
+    }
+    internal fun discardOlderAttendance(current: JSONObject, patch: JSONObject) {
+        val incoming = patch.optJSONObject("attendance") ?: return
+        val saved = current.optJSONObject("attendance") ?: return
+        if (incoming.optLong("checkedAt") >= saved.optLong("checkedAt")) return
+        // Course-history requests may finish after a newer foreground active-list response.
+        patch.remove("attendance")
+        patch.optJSONObject("updatedAt")?.remove("lectures")
+        patch.optJSONObject("errors")?.remove("lectures")
     }
     @Synchronized private fun write(context: Context, next: JSONObject) {
         val store = file(context)

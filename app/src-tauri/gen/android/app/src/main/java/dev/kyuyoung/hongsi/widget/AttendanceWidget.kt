@@ -47,6 +47,7 @@ open class HongsiWidgetProvider : AppWidgetProvider() {
             Widgets.act(context, id, kind, operation)
         } else if (intent.action == Widgets.TICK) {
             Widgets.ids(context, kind).forEach { Widgets.update(context, it, kind) }
+            if (kind.attendance && Widgets.ids(context, kind).isNotEmpty()) WidgetSync.refreshAttendanceIfNeeded(context)
         } else super.onReceive(context, intent)
     }
 }

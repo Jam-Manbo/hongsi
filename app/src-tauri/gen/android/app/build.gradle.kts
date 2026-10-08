@@ -106,7 +106,8 @@ rust {
 }
 
 dependencies {
-    implementation("com.google.zxing:core:3.5.3")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.vaadin.external.google:android-json:0.0.20131108.vaadin1")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.20.1")
     if (distribution == "play") implementation("com.google.android.play:app-update:2.1.0")
     implementation("androidx.webkit:webkit:1.14.0")

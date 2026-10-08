@@ -56,6 +56,11 @@ internal object WidgetSync {
         context.getSystemService(JobScheduler::class.java).schedule(JobInfo.Builder(PERIODIC + 1 + kind.ordinal, ComponentName(context, WidgetJobService::class.java))
             .setExtras(extras).setOverrideDeadline(0).build())
     }
+    fun refreshAttendanceIfNeeded(context: Context) {
+        if (!Widgets.refreshing(WidgetKind.ATTENDANCE) && AttendanceState.needsRefresh(WidgetData.read(context))) {
+            enqueue(context, WidgetKind.ATTENDANCE)
+        }
+    }
     fun refresh(context: Context, kind: WidgetKind) {
         if (kind.savedTimetable) return
         val resource = when { kind.attendance -> "lectures"; kind.deadlines -> "calendar"; kind == WidgetKind.SEAT -> "seats"; else -> "timetable" }
@@ -90,6 +95,8 @@ internal object WidgetSync {
                 "lectures" -> {
                     val slots = before.array("slots")
                     val active = (get("/api/attendance/active") as JSONObject).array("items")
+                    val checkedAt = System.currentTimeMillis()
+                    updated.put(resource, checkedAt)
                     val pending = before.array("pendingReceipts").filter { it.text("date") == dateText() }
                     val unshared = pending.filter { receipt -> runCatching { WidgetNative.api(context, "/api/attendance/receipts", "PUT", JSONObject().put("receipt", receipt), owner).body(); false }.getOrDefault(true) }
                     patch.put("pendingReceipts", JSONArray(unshared))
@@ -97,7 +104,7 @@ internal object WidgetSync {
                     val courses = slots.filter { it.optInt("weekday") == weekday() }.map { it.text("code") }.filter(String::isNotBlank).distinct().mapNotNull { code ->
                         runCatching { get("/api/attendance/course?code=" + android.net.Uri.encode(code)) as JSONObject }.getOrNull()
                     }
-                    patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance"))
+                    patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance"), checkedAt)
                         .put("timetableLoaded", WidgetData.hasTimetable(before)))
                 }
                 "calendar" -> {
@@ -132,7 +139,7 @@ internal object WidgetSync {
                 }
                 "seats" -> patch.put("seat", (get("/api/seats/session") as JSONObject).opt("session") ?: JSONObject.NULL)
             }
-            updated.put(resource, System.currentTimeMillis())
+            if (!updated.has(resource)) updated.put(resource, System.currentTimeMillis())
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, ""))
         } catch (e: Exception) {
@@ -143,8 +150,10 @@ internal object WidgetSync {
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, message))
             if (resource == "lectures") patch.put("attendance", (before.optJSONObject("attendance") ?: JSONObject()).put("error", message))
-        } finally { lock.unlock() }
-        WidgetData.merge(context, owner, patch)
+        } finally {
+            try { WidgetData.merge(context, owner, patch) }
+            finally { lock.unlock() }
+        }
     }
 }
 
