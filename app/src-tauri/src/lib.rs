@@ -248,7 +248,7 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
         .await
         .map_err(|e| Reply::error(503, "credentials_unavailable", e))?
     else {
-        return Err(need_login());
+        return Err(Reply::error(401, "session_expired", "로그인이 만료됐어요."));
     };
     let reply = shell.direct.login(&saved.id, &saved.password, true).await;
     match reply.status {

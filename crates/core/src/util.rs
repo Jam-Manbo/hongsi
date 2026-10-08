@@ -42,6 +42,8 @@ pub(crate) fn looks_like_login(body: &str) -> bool {
         || body.contains("name=\"USER_ID\"")
         || body.contains("name='USER_ID'")
         || body.contains("name=\"PASSWD\"")
+        || body.contains("SSO 시스템 연동 중 오류")
+        || body.contains("SSO getUserData 오류")
 }
 
 pub(crate) fn kst() -> FixedOffset {

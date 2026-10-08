@@ -104,7 +104,8 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   try {
     return await inSession((check) => withSchoolRecovery<T>(method, path, body, check));
   } catch (e) {
-    if (!isApp && e instanceof ApiError && e.code === 'school_reauth_required') schoolAuthRequired();
+    if (!path.startsWith('/api/auth/') && e instanceof ApiError
+      && (e.code === 'school_reauth_required' || (isApp && schoolAuthError(e)))) schoolAuthRequired();
     if (e instanceof ApiError && e.status === 401 && e.code === 'session_revoked') {
       sessionRevokedListeners.forEach((listener) => listener());
     }
