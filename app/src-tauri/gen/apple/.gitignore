@@ -1,0 +1,5 @@
+Externals/
+*.xcodeproj/
+*.xcworkspace/
+Hongsi/
+HongsiWidgets/

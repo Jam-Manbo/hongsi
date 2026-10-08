@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+args = sys.argv[1:]
+
+def option(name, fallback=None):
+    return args[args.index(name) + 1] if name in args else fallback
+
+is_swift = Path(sys.argv[0]).name == 'swift'
+source = Path.cwd()
+scheme = ({'ios-api': 'Tauri', 'tauri-api': 'Tauri', 'ios': 'tauri-plugin-hongsi-ios'}
+          .get(source.name, source.parent.name) if is_swift else option('-scheme'))
+if is_swift and source.parent.name.startswith('tauri-plugin-notifications'):
+    scheme = 'tauri-plugin-notifications'
+supported = {'Tauri', 'tauri-plugin-notifications', 'tauri-plugin-hongsi-ios'}
+if scheme not in supported or 'build' not in args:
+    if is_swift and 'build' in args:
+        sys.exit('Unsupported Swift package; refusing automatic dependency resolution: ' + str(source))
+    developer = subprocess.check_output(['/usr/bin/xcode-select', '-p'], text=True).strip()
+    executable = '/usr/bin/swift' if is_swift else developer + '/usr/bin/xcodebuild'
+    os.execv(executable, [Path(executable).name, *args])
+
+if is_swift:
+    sdk_path = option('--sdk')
+    sdk = 'iphonesimulator' if 'Simulator' in sdk_path else 'iphoneos'
+    configuration = option('-c', 'debug')
+    derived = Path(option('--build-path')).resolve()
+    if '--triple' in args:
+        target = option('--triple')
+        output = derived / configuration
+    else:
+        target = args[args.index('-target') + 2]
+        output = derived / f"{option('--arch')}-apple-macosx" / configuration
+else:
+    sdk = option('-sdk')
+    configuration = option('-configuration', 'Debug')
+    derived = Path(option('-derivedDataPath')).resolve()
+    output = derived / 'Build' / 'Products' / f'{configuration}-{sdk}'
+    sdk_path = subprocess.check_output(['/usr/bin/xcrun', '--sdk', sdk, '--show-sdk-path'], text=True).strip()
+    target = f"{option('-arch')}-apple-ios17.0" + ('-simulator' if sdk == 'iphonesimulator' else '')
+output.mkdir(parents=True, exist_ok=True)
+vendor = Path(__file__).resolve().parents[1] / 'vendor' / 'swift-rs'
+
+def compile_module(name, sources, archive, defines=()):
+    command = ['/usr/bin/xcrun', 'swiftc', '-swift-version', '5', '-parse-as-library',
+               '-target', target, '-sdk', sdk_path, '-module-name', name,
+               '-module-cache-path', str(derived / 'ModuleCache'), '-I', str(output),
+               '-emit-library', '-static', '-emit-module', '-emit-module-path', str(output / f'{name}.swiftmodule'),
+               '-O' if configuration.lower() == 'release' else '-Onone', '-o', str(output / archive)]
+    for define in defines:
+        command += ['-D', define]
+    subprocess.run(command + [str(p) for p in sorted(sources)], check=True)
+
+compile_module('SwiftRs', (vendor / 'src-swift').glob('*.swift'), 'libSwiftRs.a')
+tauri = source if scheme == 'Tauri' else source.parent / '.tauri' / 'tauri-api'
+compile_module('Tauri', (tauri / 'Sources').rglob('*.swift'), 'libTauriBare.a')
+subprocess.run(['/usr/bin/xcrun', 'libtool', '-static', '-o', str(output / 'libTauri.a'),
+                str(output / 'libTauriBare.a'), str(output / 'libSwiftRs.a')], check=True)
+if scheme != 'Tauri':
+    module = 'HongsiIOS' if scheme == 'tauri-plugin-hongsi-ios' else 'tauri_plugin_notifications'
+    defines = ['ENABLE_PUSH_NOTIFICATIONS'] if (source / '.push-notifications-enabled').exists() else []
+    compile_module(module, (source / 'Sources').rglob('*.swift'), 'lib' + scheme + '.a', defines)
+print('Built local Swift library:', scheme)

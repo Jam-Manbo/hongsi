@@ -88,9 +88,14 @@
   $effect(() => { if (!app.booting && app.profile) void untrack(openWidgetIntent); });
   onMount(() => {
     const open = () => { if (document.visibilityState === 'visible') void openWidgetIntent(); };
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    if (isApp) void import('@tauri-apps/api/event').then(({ listen }) => listen('hongsi-widget', open)).then((stop) => {
+      if (disposed) stop(); else unlisten = stop;
+    }).catch(() => {});
     window.addEventListener('hongsi-widget', open);
     document.addEventListener('visibilitychange', open);
-    return () => { window.removeEventListener('hongsi-widget', open); document.removeEventListener('visibilitychange', open); };
+    return () => { disposed = true; unlisten?.(); window.removeEventListener('hongsi-widget', open); document.removeEventListener('visibilitychange', open); };
   });
 
   async function boot() {
@@ -121,7 +126,6 @@
     let disposed = false;
     let cleanup = () => {};
     const bootReady = boot();
-    // Native plugins must be ready; browser push messages need a listener during boot.
     const notificationReady = (isApp ? bootReady : Promise.resolve())
       .then(() => initNotifications())
       .then((fn) => { if (disposed) fn(); else cleanup = fn; });
@@ -384,6 +388,7 @@
     height: 100dvh;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    padding-inline: var(--safe-l) var(--safe-r);
   }
 
   .main-col {
@@ -418,7 +423,7 @@
     justify-content: space-between;
     gap: 0 12px;
     margin: 0 -16px 8px;
-    padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 10px 20px;
+    padding: calc(var(--safe-t) + 10px) 12px 10px 20px;
     background: color-mix(in srgb, var(--bg) 86%, transparent);
     backdrop-filter: saturate(1.4) blur(14px);
   }
@@ -468,6 +473,7 @@
     grid-template-columns: repeat(5, 1fr);
     height: calc(var(--tabbar-h) + var(--safe-b));
     padding-bottom: var(--safe-b);
+    padding-inline: var(--safe-l) var(--safe-r);
     background: color-mix(in srgb, var(--surface) 92%, transparent);
     backdrop-filter: saturate(1.4) blur(16px);
     border-top: 1px solid var(--border);
@@ -552,12 +558,12 @@
     }
 
     .content {
-      padding: 0 28px 48px;
+      padding: 0 28px calc(var(--safe-b) + 48px);
     }
 
     .topbar {
       margin: 0 -28px 12px;
-      padding: 18px 20px 12px 28px;
+      padding: calc(var(--safe-t) + 18px) 20px 12px 28px;
     }
 
     .page-title {
@@ -578,11 +584,16 @@
       align-items: center;
       gap: 6px;
       height: 100%;
-      padding: 18px 8px 16px;
+      min-height: 0;
+      padding: calc(var(--safe-t) + 18px) 8px calc(var(--safe-b) + 16px);
       background: var(--surface);
       border-right: 1px solid var(--border);
       overflow-y: auto;
       overscroll-behavior: none;
+    }
+
+    .side > * {
+      flex-shrink: 0;
     }
 
     .brand {
@@ -660,12 +671,12 @@
     }
 
     .content {
-      padding: 0 40px 20px;
+      padding: 0 40px calc(var(--safe-b) + 20px);
     }
 
     .topbar {
       margin: 0 -40px 16px;
-      padding: 18px 32px 14px 40px;
+      padding: calc(var(--safe-t) + 18px) 32px 14px 40px;
     }
 
     .page-title {
@@ -675,7 +686,7 @@
     .side {
       align-items: stretch;
       gap: 0;
-      padding: 22px 14px 14px;
+      padding: calc(var(--safe-t) + 22px) 14px calc(var(--safe-b) + 14px);
     }
 
     .brand {

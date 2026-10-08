@@ -26,8 +26,6 @@ export async function openNotification(intent: NotificationIntent) {
     if (destination?.kind === 'item') {
       await openNotification({ ...intent, target: destination });
     } else if (target.url && destination) {
-      // The article may have fallen out of the latest notification list.
-      // Its school URL still identifies the authenticated detail request.
       focus.notice = notices.data?.find((n) => n.url === target.url) ?? {
         url: target.url, course: '클래스룸', section: '', when: '', message: '', kind: destination.kind,
       };
@@ -57,7 +55,6 @@ export async function openNotification(intent: NotificationIntent) {
     return false;
   };
 
-  // Opening a known target must not depend on the connection recovering after resume.
   if (openDetail()) { void resource.load(true); return; }
   await resource.load(true);
   if (!current()) return;

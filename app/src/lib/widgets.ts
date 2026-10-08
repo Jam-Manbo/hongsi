@@ -3,7 +3,7 @@ import { calendarSync } from './calendar-sync.svelte';
 import { closeSheets } from '../components/Sheet.svelte';
 import { attendanceWidgetSnapshot, afterSubmit } from './classwatch.svelte';
 import { invoke } from '@tauri-apps/api/core';
-import { isApp } from './env';
+import { hasWidgets } from './env';
 import { courseColors, itemStatus } from './colors';
 import { displayedTodos } from './todos.svelte';
 import { focus, go, toast } from './ui.svelte';
@@ -36,19 +36,19 @@ export function widgetSnapshot(): string {
 }
 
 export async function publishWidgetTheme(theme: Theme) {
-  if (!isApp || !/Android/i.test(navigator.userAgent)) return;
+  if (!hasWidgets) return;
   await invoke('set_widget_theme', { value: theme });
 }
 
 export async function publishWidgets(snapshot: string) {
-  if (!isApp || !/Android/i.test(navigator.userAgent)) return;
+  if (!hasWidgets) return;
   await invoke('sync_widgets', { value: snapshot }).catch(() => {});
 }
 
 
 let opening = false;
 export async function openWidgetIntent() {
-  if (!isApp || app.booting || !app.profile || opening || !/Android/i.test(navigator.userAgent)) return;
+  if (!hasWidgets || app.booting || !app.profile || opening) return;
   opening = true;
   const version = sessionVersion();
   try {

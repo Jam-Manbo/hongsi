@@ -137,7 +137,6 @@ object WidgetData {
             Math.floorDiv(due + 32400 - if (previous) 60 else 0, 86400)
         }
         return items.sortedWith { a, b ->
-            // Match the app: displayed day, timed before all-day, deadline, title, stable key.
             compareValues(days.getValue(a), days.getValue(b)).takeIf { it != 0 }
                 ?: compareValues(a.optBoolean("allDay"), b.optBoolean("allDay")).takeIf { it != 0 }
                 ?: compareValues(a.optLong("due"), b.optLong("due")).takeIf { it != 0 }

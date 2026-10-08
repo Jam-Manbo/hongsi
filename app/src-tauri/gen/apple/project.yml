@@ -1,0 +1,147 @@
+name: Hongsi
+options:
+  minimumXcodeGenVersion: 2.46.0
+  defaultConfig: Personal
+  deploymentTarget:
+    iOS: '17.0'
+configs:
+  Debug: debug
+  Personal: debug
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    ENABLE_BITCODE: NO
+    LIBRARY_SEARCH_PATHS:
+      - $(inherited)
+      - $(PROJECT_DIR)/Externals/$(PLATFORM_NAME)/$(CONFIGURATION)
+      - $(SDKROOT)/usr/lib/swift
+      - $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME)
+    OTHER_LDFLAGS: $(inherited) -lc++ -lz -liconv -lresolv
+targets:
+  Hongsi:
+    type: application
+    platform: iOS
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
+        com.apple.Keychain:
+          enabled: 1
+    sources:
+      - path: ../../ios/App
+    settings:
+      base:
+        PRODUCT_NAME: Hongsi
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kyuyoung.hongsi
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: YES
+        CODE_SIGN_ENTITLEMENTS: ../../ios/Config/App.entitlements
+        OTHER_LDFLAGS: $(inherited) -ObjC -lhongsi_lib
+      configs:
+        Debug:
+          HONGSI_APNS_ENVIRONMENT: development
+        Personal:
+          CODE_SIGN_ENTITLEMENTS: ../../ios/Config/Widget.entitlements
+        Release:
+          HONGSI_APNS_ENVIRONMENT: production
+    info:
+      path: Hongsi/Info.plist
+      properties:
+        CFBundleDisplayName: 홍시
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arm64]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        NSLocationWhenInUseUsageDescription: 출석 확인 시 학교에 현재 위치를 전달하기 위해 사용합니다.
+        NSPhotoLibraryUsageDescription: 과제에 제출할 사진을 선택하기 위해 사용합니다.
+        NSCameraUsageDescription: 과제에 제출할 사진을 촬영하기 위해 사용합니다.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        HongsiKeychainAccessGroup: $(AppIdentifierPrefix)dev.kyuyoung.hongsi.shared
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.kyuyoung.hongsi.widgets
+            CFBundleURLSchemes: [hongsi-widget]
+    dependencies:
+      - target: HongsiWidgets
+        embed: true
+      - sdk: Foundation.framework
+      - sdk: UIKit.framework
+      - sdk: WebKit.framework
+      - sdk: Security.framework
+      - sdk: CoreGraphics.framework
+      - sdk: CoreLocation.framework
+      - sdk: QuartzCore.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: UserNotifications.framework
+      - sdk: WidgetKit.framework
+      - sdk: QuickLook.framework
+      - sdk: UniformTypeIdentifiers.framework
+    preBuildScripts:
+      - name: Build shared app and school integration
+        script: /bin/bash "$PROJECT_DIR/../../ios/build-rust.sh" app
+        basedOnDependencyAnalysis: false
+  HongsiWidgets:
+    type: app-extension
+    platform: iOS
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
+        com.apple.Keychain:
+          enabled: 1
+    sources:
+      - path: ../../ios/Widgets
+        excludes: [Bridge.h]
+      - path: ../../plugins/ios/ios/Sources/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.kyuyoung.hongsi.widgets
+        PRODUCT_NAME: HongsiWidgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        ENABLE_DEBUG_DYLIB: NO
+        CODE_SIGN_ENTITLEMENTS: ../../ios/Config/Widget.entitlements
+        SKIP_INSTALL: YES
+        SWIFT_OBJC_BRIDGING_HEADER: $(PROJECT_DIR)/../../ios/Widgets/Bridge.h
+        OTHER_LDFLAGS: $(inherited) -lhongsi_widget
+    info:
+      path: HongsiWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: 홍시 위젯
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSWidgetWantsLocation: true
+        NSLocationWhenInUseUsageDescription: 위젯에서 출석 확인 시 학교에 현재 위치를 전달하기 위해 사용합니다.
+        HongsiKeychainAccessGroup: $(AppIdentifierPrefix)dev.kyuyoung.hongsi.shared
+    dependencies:
+      - sdk: SwiftUI.framework
+      - sdk: WidgetKit.framework
+      - sdk: AppIntents.framework
+      - sdk: Security.framework
+      - sdk: CoreLocation.framework
+      - sdk: UserNotifications.framework
+    preBuildScripts:
+      - name: Build widget school integration
+        script: /bin/bash "$PROJECT_DIR/../../ios/build-rust.sh" widget
+        basedOnDependencyAnalysis: false
+schemes:
+  Hongsi:
+    build:
+      targets:
+        Hongsi: all
+    run:
+      config: Personal
+    archive:
+      config: Release

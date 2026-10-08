@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError, api } from '../lib/api';
+  import { currentLocation } from '../lib/location';
   import { POLL_MS, afterSubmit, checkNow, classWatch, isAttended, lectureMark, lectureSession, classScheduleLabel, markFor, markTitle, nextClass, sessionState, todaySessions, useClassWatch } from '../lib/classwatch.svelte';
   import { sentenceLines } from '../lib/format';
   import { errorText, writeBlocked } from '../lib/net.svelte';
@@ -69,18 +70,15 @@
     locate();
   }
 
-  function locate() {
+  async function locate() {
     const request = ++geoRequest;
-    if (!('geolocation' in navigator)) {
-      geo = { state: 'error', msg: '이 기기에서는 위치를 확인할 수 없어요.' };
-      return;
-    }
     geo = { state: 'finding' };
-    navigator.geolocation.getCurrentPosition(
-      (p) => { if (request === geoRequest) geo = { state: 'ok', lat: p.coords.latitude, lon: p.coords.longitude, acc: Math.round(p.coords.accuracy) }; },
-      (e) => { if (request === geoRequest) geo = { state: 'error', msg: e.code === 1 ? '위치 권한을 허용해 주세요.' : '위치를 찾지 못했어요.' }; },
-      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 30_000 },
-    );
+    try {
+      const p = await currentLocation();
+      if (request === geoRequest) geo = { state: 'ok', lat: p.latitude, lon: p.longitude, acc: Math.round(p.accuracy) };
+    } catch (e) {
+      if (request === geoRequest) geo = { state: 'error', msg: e instanceof Error ? e.message : typeof e === 'string' ? e : '위치를 찾지 못했어요.' };
+    }
   }
 
   async function submit(e: SubmitEvent) {

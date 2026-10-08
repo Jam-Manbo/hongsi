@@ -71,7 +71,6 @@ function onBack() {
     return;
   }
   const more = panels.length > 1;
-  // A rejected close may open a discard confirmation. Keep Back available for it.
   if (!top()!.close() || more) pushHistory();
 }
 
@@ -124,7 +123,6 @@ export function registerSheet(node: HTMLElement, backdrop: HTMLElement, close: (
     if (!removingHistory) pushHistory();
   }
   panels.push(entry);
-  // Move focus before hiding the previous dialog from assistive technology.
   node.inert = false;
   node.focus({ preventScroll: true });
   sync();
@@ -143,7 +141,6 @@ export function registerSheet(node: HTMLElement, backdrop: HTMLElement, close: (
       }
     }
     sync();
-    // An outgoing transition may leave the old DOM visible for a moment.
     node.inert = true;
     node.setAttribute('aria-hidden', 'true');
     node.setAttribute('aria-modal', 'false');

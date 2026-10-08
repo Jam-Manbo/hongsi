@@ -1,4 +1,5 @@
 import { api, isApp, native } from './api';
+import { isIOS } from './env';
 import { connectionError, responseError, responseFormat } from './api-error';
 import { beginCalendarChange } from './calendar-sync.svelte';
 import { errorText, reportServer, writeBlocked } from './net.svelte';
@@ -181,7 +182,7 @@ export async function downloadFile(src: FileSource, name: string, course: string
       path,
     };
     remember(record);
-    toast(isApp ? '다운로드 폴더 안의 ‘홍시’ 폴더에 저장했어요.' : '다운로드했어요.', 'success');
+    toast(isIOS ? '파일 앱의 ‘홍시’에 저장했어요.' : isApp ? '다운로드 폴더 안의 ‘홍시’ 폴더에 저장했어요.' : '다운로드했어요.', 'success');
     return record;
   } catch (e) {
     if (!handleAuthError(e)) toastOnce(fileErrorText(e, '다운로드에 실패했어요.'), 'error');

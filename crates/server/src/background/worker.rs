@@ -71,7 +71,6 @@ fn token() -> String {
 }
 
 pub(super) async fn run(st: Shared) {
-    // Each lane has its own capacity; a slow school cannot occupy a sender.
     tokio::join!(
         futures::future::join_all((0..POLL_WORKERS).map(|_| poll_loop(&st))),
         schedule_loop(&st),
@@ -173,7 +172,6 @@ async fn finish_poll(
         .bind(-job.user_id)
         .execute(&mut *tx)
         .await?;
-    // A renewal, logout, expired lease or replacement worker invalidates this result.
     let valid: Option<i64> = sqlx::query_scalar("select b.user_id from background_sessions b
         where b.user_id=$1 and b.poll_token=$2 and b.poll_until>now()
         and exists(select 1 from background_devices d join auth_sessions a on a.token_hash=d.session_hash
@@ -200,10 +198,7 @@ async fn finish_poll(
                 "notices": data.notices,
                 "fetchedAt": Utc::now().timestamp(),
             });
-            // Only a fresh, still-owned poll may advance notice baselines. Replaying an older
-            // cached snapshot after enabling notifications could otherwise notify old notices.
             queue_notices(&mut tx, job.user_id, &data.account, &snapshot).await?;
-            // User overrides are applied from current DB state when scheduling/sending.
             sqlx::query("update background_sessions set snapshot=$3,last_poll_at=now(),next_poll_at=now()+make_interval(secs=>$4),last_error=null,poll_token=null,poll_until=null where user_id=$1 and poll_token=$2")
                 .bind(job.user_id).bind(&job.poll_token).bind(snapshot).bind(POLL_SECS as f64).execute(&mut *tx).await?;
         }
@@ -478,7 +473,6 @@ async fn prepare_delivery(db: &PgPool, job: &SendJob) -> sqlx::Result<Option<Del
         tx.commit().await?;
         return Ok(None);
     };
-    // Revalidate ownership after reading current settings, before starting any external request.
     let renewed = sqlx::query("update notification_outbox set claim_until=now()+make_interval(secs=>$4)
         where device_id=$1 and event_key=$2 and claim_token=$3 and claim_until>now() and expires_at>now()")
         .bind(&job.device_id).bind(&job.event_key).bind(&job.claim_token).bind(SEND_LEASE_SECS)
@@ -517,7 +511,6 @@ async fn deliver(st: &Shared, job: SendJob) -> sqlx::Result<()> {
         .bind(-job.user_id)
         .execute(&mut *tx)
         .await?;
-    // Match device-deletion lock order (device, then its outbox) to avoid a cascade deadlock.
     let device: Option<String> =
         sqlx::query_scalar("select id from notification_devices where id=$1 for update")
             .bind(&job.device_id)

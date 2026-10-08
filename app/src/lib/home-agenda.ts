@@ -12,7 +12,6 @@ export function homeAgenda(items: CalendarItem[], todos: Todo[], nowMs: number, 
   };
   for (const entry of [...items.map(agendaItem), ...todos.map(agendaTodo)]) {
     if (entry.day === today) {
-      // Keep today's completed and elapsed deadlines visible until the displayed day ends.
       groups.today.push(entry);
     }
     if (!entry.done && entry.due !== null && entry.due > now) {

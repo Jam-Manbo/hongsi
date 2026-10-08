@@ -18,6 +18,6 @@ export function classroomDestination(value: string): ClassroomDestination | null
       if (/^\d+$/.test(article) && Number.isSafeInteger(bwid) && bwid > 0) return { kind: 'board', cmid, bwid };
     }
     if (/^\/mod\/(ubfile|resource|folder|url)\/view\.php$/.test(url.pathname)) return { kind: 'module', cmid };
-  } catch { /* Unsupported links remain available in the notification list. */ }
+  } catch {}
   return null;
 }

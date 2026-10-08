@@ -276,7 +276,6 @@ export function refreshTimetableForTerm(term: AcademicTerm | null | undefined) {
   const key = `${term.year}-${term.semester}`;
   if (timetableTermAttempt === key) return;
   timetableTermAttempt = key;
-  // Refresh once per observed term; failed requests keep the saved timetable.
   void timetable.refresh();
 }
 

@@ -26,7 +26,6 @@ export function agendaTodo(value: Todo): AgendaEntry {
 }
 
 export function compareAgendaEntries(a: AgendaEntry, b: AgendaEntry): number {
-  // Compare displayed dates first: 24:00 and all-day entries belong to their displayed day.
   if (a.day !== b.day) {
     if (a.day === null) return 1;
     if (b.day === null) return -1;

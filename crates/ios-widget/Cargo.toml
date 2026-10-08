@@ -1,0 +1,17 @@
+[package]
+name = "hongsi-ios-widget"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "hongsi_widget"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+hongsi-direct = { path = "../direct" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+sha2 = "=0.10.9"

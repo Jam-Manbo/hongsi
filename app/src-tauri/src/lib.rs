@@ -20,7 +20,7 @@ mod credentials;
 
 #[tauri::command]
 async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: String) -> Result<(), String> {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let _operations = shell.operations.read().await;
         if !value.is_empty() {
@@ -28,9 +28,12 @@ async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: Strin
             let account = shell.direct.snapshot().await.and_then(|s| serde_json::to_value(s).ok()).and_then(|v| v["student_id"].as_str().map(str::to_string));
             if owner.is_none() || owner != account { return Err("로그인한 계정의 위젯만 갱신할 수 있어요.".into()); }
         }
+        #[cfg(target_os = "android")]
         return android_external::open(&app, "syncWidget", &value).await;
+        #[cfg(target_os = "ios")]
+        return tauri_plugin_hongsi_ios::call(&app, "syncWidget", &value).await.map(|_| ());
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     { let _ = (app, shell, value); Ok(()) }
 }
 
@@ -39,7 +42,9 @@ async fn set_widget_theme(app: AppHandle, value: String) -> Result<(), String> {
     if !matches!(value.as_str(), "system" | "light" | "dark") { return Err("테마 설정을 확인해 주세요.".into()); }
     #[cfg(target_os = "android")]
     return android_external::open(&app, "setWidgetTheme", &value).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "setWidgetTheme", &value).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     { let _ = (app, value); Ok(()) }
 }
 
@@ -47,7 +52,9 @@ async fn set_widget_theme(app: AppHandle, value: String) -> Result<(), String> {
 async fn widget_intent(app: AppHandle) -> Result<Value, String> {
     #[cfg(target_os = "android")]
     return android_external::take_widget_intent(&app).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "takeWidgetIntent", "").await;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     { let _ = app; Ok(Value::Null) }
 }
 
@@ -488,6 +495,9 @@ async fn submission_status(shell: State<'_, Arc<Shell>>, cmid: i64, job_id: Stri
 }
 
 fn download_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "ios")]
+    let base = app.path().document_dir().map_err(|_| "다운로드 폴더를 찾지 못했어요.".to_string())?;
+    #[cfg(not(target_os = "ios"))]
     let base = app
         .path()
         .download_dir()
@@ -596,7 +606,7 @@ fn checked(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     Ok(file)
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
     std::process::Command::new(program)
         .args(args)
@@ -605,7 +615,7 @@ fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
         .map_err(|_| "파일이나 링크를 열지 못했어요.".to_string())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn open_with_os(target: &std::ffi::OsStr) -> Result<(), String> {
     if cfg!(target_os = "macos") {
         run("open", &[target])
@@ -621,7 +631,9 @@ async fn open_file(app: AppHandle, path: String) -> Result<(), String> {
     let file = checked(&app, &path)?;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "openFile", &file.to_string_lossy()).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "openFile", &file.to_string_lossy()).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     open_with_os(file.as_os_str())
 }
 
@@ -630,7 +642,9 @@ async fn reveal_file(app: AppHandle, path: String) -> Result<(), String> {
     let file = checked(&app, &path)?;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "revealFile", &file.to_string_lossy()).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "revealFile", &file.to_string_lossy()).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if cfg!(target_os = "macos") {
         run("open", &["-R".as_ref(), file.as_os_str()])
     } else if cfg!(target_os = "windows") {
@@ -657,10 +671,20 @@ async fn open_url(app: AppHandle, shell: State<'_, Arc<Shell>>, url: String) -> 
     persist_auth(&shell).await;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "openUrl", &target).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "openUrl", &target).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let _ = app;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     open_with_os(std::ffi::OsStr::new(&target))
+}
+
+#[tauri::command]
+async fn current_location(app: AppHandle) -> Result<Value, String> {
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "currentLocation", "").await;
+    #[cfg(not(target_os = "ios"))]
+    { let _ = app; Err("이 기기에서는 위치를 확인할 수 없어요.".into()) }
 }
 
 const DEV_SERVER: &str = "http://127.0.0.1:8787";
@@ -692,6 +716,8 @@ fn server_base() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run_app() {
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_hongsi_ios::init());
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(android_external::init())
@@ -715,6 +741,7 @@ pub fn run_app() {
             open_file,
             open_url,
             reveal_file,
+            current_location,
             submit_assignment,
             submission_status
         ])

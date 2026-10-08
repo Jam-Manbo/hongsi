@@ -7,6 +7,10 @@ import { defineConfig } from 'vite';
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 function buildCommit(): string {
+  if (process.env.HONGSI_BUILD_COMMIT !== undefined) {
+    const sha = process.env.HONGSI_BUILD_COMMIT.trim();
+    return /^[a-f0-9]{40}$/i.test(sha) ? sha : '';
+  }
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: fileURLToPath(new URL('..', import.meta.url)),

@@ -168,7 +168,6 @@ class WidgetJobService : JobService() {
         val run = Run(kinds.toMutableSet())
         runs.put(params.jobId, run)?.stopped = true
         kinds.forEach(::updateLoading)
-        // Each resource publishes its result without waiting for the other widgets.
         kinds.forEach { kind ->
             WidgetSync.refreshWorker.execute {
                 try { if (!run.stopped) WidgetSync.refresh(applicationContext, kind) }
