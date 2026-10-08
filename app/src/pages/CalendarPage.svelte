@@ -12,7 +12,7 @@
   import { settings } from '../lib/settings.svelte';
   import { displayedTodos, isTodoPending, todoKey } from '../lib/todos.svelte';
   import { focus, toast } from '../lib/ui.svelte';
-  import type { CalendarItem, Todo } from '../lib/types';
+  import type { AcademicTerm, CalendarItem, Todo } from '../lib/types';
   import TodoRow from '../components/TodoRow.svelte';
   import TodoSheet from '../components/TodoSheet.svelte';
   import Sheet from '../components/Sheet.svelte';
@@ -86,7 +86,23 @@
   });
 
   const data = $derived(calendar.data);
-  const items = $derived((data?.items ?? []).filter((i) => !hidden.has(i.courseId)
+  let selectedTerm = $state<string | null>(null);
+  const terms = $derived.by(() => {
+    const available = new Map<string, AcademicTerm | null>();
+    for (const course of data?.courses ?? []) available.set(termKey(course.term), course.term);
+    return [...available].map(([key, term]) => ({ key, label: termLabel(term), term })).sort((a, b) =>
+      (b.term?.year ?? 0) - (a.term?.year ?? 0) || (b.term?.semester ?? 0) - (a.term?.semester ?? 0));
+  });
+  const showTerms = $derived(data?.semesterDisplay === 'all' && terms.length > 0);
+  const activeTerm = $derived.by(() => {
+    if (!showTerms) return 'all';
+    return terms.find((term) => term.key === selectedTerm)?.key
+      ?? terms.find((term) => data?.currentTerm && term.key === termKey(data.currentTerm))?.key
+      ?? terms[0].key;
+  });
+  const termCourses = $derived((data?.courses ?? []).filter((course) => activeTerm === 'all' || termKey(course.term) === activeTerm));
+  const termCourseIds = $derived(new Set([COMMON, ...termCourses.map((course) => course.id)]));
+  const items = $derived((data?.items ?? []).filter((i) => (activeTerm === 'all' || termCourseIds.has(i.courseId)) && !hidden.has(i.courseId)
     && (settings.showUndatedAssignments || i.kind !== 'assignment' || i.due !== null)));
   const colors = $derived(courseColors(data?.courses ?? []));
   const courseName = (id: number) => data?.courses.find((c) => c.id === id)?.name ?? '';
@@ -102,7 +118,7 @@
   );
 
   const dayItems = $derived(visible.filter((i) => i.due !== null && dueKey(i.due) === selected));
-  const courseTodos = $derived(displayedTodos().filter((t) => !hidden.has(t.courseId ?? COMMON)));
+  const courseTodos = $derived(displayedTodos().filter((t) => (activeTerm === 'all' || termCourseIds.has(t.courseId ?? COMMON)) && !hidden.has(t.courseId ?? COMMON)));
   const myTodos = $derived(
     courseTodos.filter((t) => {
       if (filter === 'assignment' || filter === 'vod') return false;
@@ -163,8 +179,49 @@
 
   const courseIds = $derived([COMMON, ...(data?.courses ?? []).map((c) => c.id)]);
   const allCoursesSelected = $derived(courseIds.every((id) => !hidden.has(id)));
+  const termCoursesSelected = $derived([...termCourseIds].every((id) => !hidden.has(id)));
+  const selectedCourseCount = $derived([...termCourseIds].filter((id) => !hidden.has(id)).length);
+  const courseFilterActive = $derived(activeTerm !== 'all' || !allCoursesSelected);
+
+  function termKey(term: AcademicTerm | null): string {
+    return term ? `${term.year}-${term.semester}` : 'other';
+  }
+
+  function termLabel(term: AcademicTerm | null): string {
+    if (!term) return '기타';
+    const labels: Record<number, string> = { 10: '1학기', 11: '여름학기', 20: '2학기', 21: '겨울학기' };
+    return `${term.year}년 ${labels[term.semester] ?? term.semester}`;
+  }
+
+  function selectTerm(key: string, button: HTMLButtonElement) {
+    selectedTerm = key;
+    const row = button.parentElement;
+    if (!row) return;
+    const bounds = row.getBoundingClientRect(), tab = button.getBoundingClientRect();
+    if (tab.left < bounds.left) row.scrollLeft -= bounds.left - tab.left;
+    else if (tab.right > bounds.right) row.scrollLeft += tab.right - bounds.right;
+  }
+
+  function termKeydown(event: KeyboardEvent) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const button = event.currentTarget as HTMLButtonElement;
+    const tabs = [...(button.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])];
+    if (!tabs.length) return;
+    event.preventDefault();
+    const index = tabs.indexOf(button);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus({ preventScroll: true });
+    tabs[next].click();
+  }
+
   function toggleAllCourses() {
-    hidden = allCoursesSelected ? new Set(courseIds) : new Set<number>();
+    const next = new Set(hidden);
+    for (const id of termCourseIds) {
+      if (termCoursesSelected) next.add(id);
+      else next.delete(id);
+    }
+    hidden = next;
   }
 
   const narrow = new MediaQuery('max-width: 767px');
@@ -487,8 +544,8 @@
       <button class="summary-trigger" onclick={() => { stat = 'week'; summaryOpen = true; }} aria-haspopup="dialog">
         <span>7일 내 마감</span><strong>{todos.data ? week.length + weekTodos.length : todos.error ? '—' : '…'}</strong><Icon name="down" size={14} />
       </button>
-      <button class="course-trigger" class:active={!allCoursesSelected} onclick={() => (courseOpen = true)} aria-haspopup="dialog">
-        과목 필터{#if !allCoursesSelected}<span class="count">{courseIds.filter((id) => !hidden.has(id)).length}/{courseIds.length}</span>{/if}<Icon name="down" size={14} />
+      <button class="course-trigger" class:active={courseFilterActive} onclick={() => (courseOpen = true)} aria-haspopup="dialog">
+        과목 필터{#if courseFilterActive}<span class="count">{selectedCourseCount}/{courseIds.length}</span>{/if}<Icon name="down" size={14} />
       </button>
     </div>
   {:else}
@@ -536,31 +593,44 @@
 {/snippet}
 
 {#snippet courseFilters()}
-  <div class="legend" aria-label="과목 필터">
-    <button class="course all-courses" onclick={toggleAllCourses}>
-      <Icon name={allCoursesSelected ? 'close' : 'tick'} size={14} />
-      {allCoursesSelected ? '전체 해제' : '전체 선택'}
-    </button>
-    <button
-      class="course"
-      class:off={hidden.has(COMMON)}
-      style:--c="var(--todo-neutral)"
-      onclick={() => toggleCourse(COMMON)}
-      aria-pressed={!hidden.has(COMMON)}
-    >
-      <span class="dot sq"></span>공통
-    </button>
-    {#each (data?.courses ?? []) as c (c.id)}
+  <div class="course-filters">
+    {#if showTerms}
+      <div class="term-tabs" role="tablist" aria-label="학기 필터">
+        {#each terms as term (term.key)}
+          <button class="term-tab" role="tab" id="course-term-{term.key}" aria-selected={activeTerm === term.key}
+            aria-controls="course-filter-panel" tabindex={activeTerm === term.key ? 0 : -1}
+            onclick={(event) => selectTerm(term.key, event.currentTarget)} onkeydown={termKeydown}>{term.label}</button>
+        {/each}
+      </div>
+    {/if}
+    <div id="course-filter-panel" class="legend" role={showTerms ? 'tabpanel' : 'group'}
+      aria-labelledby={showTerms ? `course-term-${activeTerm}` : undefined} aria-label={showTerms ? undefined : '과목 필터'}>
+
+      <button class="course all-courses" onclick={toggleAllCourses}>
+        <Icon name={termCoursesSelected ? 'close' : 'tick'} size={14} />
+        {termCoursesSelected ? '전체 해제' : '전체 선택'}
+      </button>
       <button
         class="course"
-        class:off={hidden.has(c.id)}
-        style:--c={colors.get(c.id)}
-        onclick={() => toggleCourse(c.id)}
-        aria-pressed={!hidden.has(c.id)}
+        class:off={hidden.has(COMMON)}
+        style:--c="var(--todo-neutral)"
+        onclick={() => toggleCourse(COMMON)}
+        aria-pressed={!hidden.has(COMMON)}
       >
-        <span class="dot"></span>{c.name}
+        <span class="dot sq"></span>공통
       </button>
-    {/each}
+      {#each termCourses as c (c.id)}
+        <button
+          class="course"
+          class:off={hidden.has(c.id)}
+          style:--c={colors.get(c.id)}
+          onclick={() => toggleCourse(c.id)}
+          aria-pressed={!hidden.has(c.id)}
+        >
+          <span class="dot"></span>{c.name}
+        </button>
+      {/each}
+    </div>
   </div>
 {/snippet}
 
@@ -610,8 +680,13 @@
   .list-controls .filters { flex: 1; min-width: 0; }
   .list-controls .refresh { width: 36px; height: 40px; }
   .list-controls .filter { min-height: 40px; padding-inline: 10px; }
-  .course-picker .legend { display: grid; gap: 8px; margin: 0; }
-  .course-picker .course { width: 100%; border-radius: 12px; min-height: 44px; padding: 10px 12px; text-align: left; line-height: 1.5; }
+  .course-filters { min-width: 0; }
+  .term-tabs { display: flex; gap: 4px; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .term-tab { flex: none; min-height: 44px; padding: 10px 12px; border-bottom: 2px solid transparent; color: var(--text-3); font-size: 13px; font-weight: 650; white-space: nowrap; }
+  .term-tab[aria-selected='true'] { color: var(--primary-text); border-bottom-color: var(--primary); }
+  .term-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; border-radius: 6px; }
+  .course-picker .legend { display: grid; gap: 8px; margin: 0; padding: 0; overflow: visible; }
+  .course-picker .course { width: 100%; border-radius: 12px; min-height: 44px; padding: 10px 12px; text-align: left; line-height: 1.5; overflow-wrap: anywhere; min-width: 0; }
   .course-picker .course .dot { flex: none; }
   .course-picker .course.all-courses { justify-content: center; }
   .summary-picker .summary { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 16px; }
