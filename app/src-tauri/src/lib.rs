@@ -16,7 +16,60 @@ use tauri::{AppHandle, Manager, State};
 mod android_external;
 #[cfg(target_os = "android")]
 mod android_update;
+#[cfg(target_os = "android")]
+mod android_student_card;
 mod credentials;
+
+async fn student_card_request(app: AppHandle, shell: &Shell, view_id: String, fresh: bool) -> Result<Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let started = std::time::Instant::now();
+        if view_id.len() != 36 || !view_id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+            return Err("학생증 QR 창을 다시 열어 주세요.".into());
+        }
+        let _operations = shell.operations.read().await;
+        if ensure_login(shell).await.is_err() {
+            return Ok(serde_json::json!({ "state": "authentication_required", "message": "홍시에 다시 로그인한 후 학생증 QR을 열어 주세요." }));
+        }
+        let Some(saved) = saved_login(shell).await? else {
+            return Ok(serde_json::json!({ "state": "credentials_required", "message": "학생증 QR은 자동 로그인이 필요해요. 홍시에 다시 로그인해 주세요." }));
+        };
+        let owner = shell.direct.snapshot().await.and_then(|s| serde_json::to_value(s).ok())
+            .and_then(|v| v["student_id"].as_str().map(str::to_string));
+        if owner.as_deref() != Some(saved.id.as_str()) || saved.password.is_empty() {
+            return Ok(serde_json::json!({ "state": "credentials_required", "message": "현재 계정의 로그인 정보를 확인할 수 없어요. 다시 로그인해 주세요." }));
+        }
+        android_student_card::request(&app, &view_id, &saved.id, &saved.password, fresh, started.elapsed().as_millis() as u64).await
+    }
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, shell, view_id, fresh); Err("Android 앱에서 사용할 수 있어요.".into()) }
+}
+
+#[tauri::command]
+async fn student_card_open(app: AppHandle, shell: State<'_, Arc<Shell>>, view_id: String) -> Result<Value, String> {
+    student_card_request(app, &shell, view_id, true).await
+}
+
+#[tauri::command]
+async fn student_card_refresh(app: AppHandle, shell: State<'_, Arc<Shell>>, view_id: String) -> Result<Value, String> {
+    student_card_request(app, &shell, view_id, false).await
+}
+
+#[tauri::command]
+async fn student_card_close(app: AppHandle, view_id: String) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return android_student_card::close(&app, &view_id).await;
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, view_id); Ok(()) }
+}
+
+#[tauri::command]
+async fn student_card_displayed(app: AppHandle, view_id: String, timing_id: u64, elapsed_ms: u64, remaining_ms: u64) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    return android_student_card::displayed(&app, &view_id, timing_id, elapsed_ms, remaining_ms).await;
+    #[cfg(not(target_os = "android"))]
+    { let _ = (app, view_id, timing_id, elapsed_ms, remaining_ms); Ok(()) }
+}
 
 #[tauri::command]
 async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: String) -> Result<(), String> {
@@ -721,6 +774,7 @@ pub fn run_app() {
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(android_external::init())
+        .plugin(android_student_card::init())
         .plugin(android_update::init());
     builder
         .plugin(tauri_plugin_notifications::init())
@@ -732,6 +786,10 @@ pub fn run_app() {
         .invoke_handler(tauri::generate_handler![
             api,
             app_update,
+            student_card_open,
+            student_card_refresh,
+            student_card_close,
+            student_card_displayed,
             sync_widgets,
             set_widget_theme,
             widget_intent,

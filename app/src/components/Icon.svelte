@@ -64,7 +64,16 @@
   aria-label={label || undefined}
   aria-hidden={label ? undefined : 'true'}
 >
-  <path d={PATHS[name] ?? PATHS.alert} />
+  {#if name === 'qr'}
+    <path d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M3 17v2a2 2 0 0 0 2 2h2M17 21h2a2 2 0 0 0 2-2v-2" stroke-width="2" />
+    <g fill="currentColor" stroke="none">
+      <path fill-rule="evenodd" d="M6.5 5h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v2h2V7h-2ZM14 5h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v2h2V7h-2Z" />
+      <rect x="5" y="13" width="6" height="6" rx="1" />
+      <path d="M13 13h2v2h-2zM17 13h2v4h-2zM15 15h2v2h-2zM13 17h2v2h-2z" />
+    </g>
+  {:else}
+    <path d={PATHS[name] ?? PATHS.alert} />
+  {/if}
 </svg>
 
 <style>

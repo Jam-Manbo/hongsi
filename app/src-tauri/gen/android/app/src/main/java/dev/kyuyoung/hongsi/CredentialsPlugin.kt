@@ -63,6 +63,7 @@ internal class CredentialVault(context: Context, name: String = "auto-login") {
     }
 
     @Synchronized fun clear() {
+        StudentCardSessions.reset()
         file.delete()
         keystore().deleteEntry(alias)
         check(!file.baseFile.exists())
@@ -82,7 +83,14 @@ class CredentialsPlugin(activity: Activity) : Plugin(activity) {
         catch (_: Exception) { invoke.reject("자동 로그인 정보를 읽지 못했어요.") }
     } }
     @Command fun save(invoke: Invoke) { worker.execute {
-        try { vault.save(invoke.parseArgs(SaveCredentialsArgs::class.java).secret); invoke.resolve() }
+        try {
+            val secret = invoke.parseArgs(SaveCredentialsArgs::class.java).secret
+            val previous = runCatching { vault.load()?.let { JSONObject(it) } }.getOrNull()
+            val next = JSONObject(secret)
+            if (previous?.optString("id") != next.optString("id") || previous?.optString("password") != next.optString("password")) StudentCardSessions.reset()
+            vault.save(secret)
+            invoke.resolve()
+        }
         catch (_: Exception) { invoke.reject("자동 로그인 정보를 저장하지 못했어요.") }
     } }
     @Command fun clear(invoke: Invoke) { worker.execute {

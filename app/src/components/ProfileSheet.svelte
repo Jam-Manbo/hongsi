@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { isApp } from '../lib/api';
+  import { isAndroid } from '../lib/env';
   import { APP_COMMIT, APP_VERSION, versionLabel } from '../lib/about';
   import { appUpdater, canUpdateApp } from '../lib/app-update.svelte';
   import {
@@ -23,9 +24,13 @@
   import Icon from './Icon.svelte';
   import Sheet from './Sheet.svelte';
   import Switch from './Switch.svelte';
+  import StudentCardSheet from './StudentCardSheet.svelte';
 
   let { open = $bindable(false), onlogout, onlogoutall }: { open: boolean; onlogout: () => Promise<void>; onlogoutall: () => Promise<void> } = $props();
   let confirmLogoutAll = $state(false);
+  let studentCardOpen = $state(false);
+
+  $effect(() => { if (!open || app.loggingOut || !app.account) studentCardOpen = false; });
 
   $effect(() => { if (!open) confirmLogoutAll = false; else untrack(() => { void refreshAccountPreferences(true); }); });
 
@@ -52,7 +57,7 @@
 <Sheet bind:open title="내 정보 · 설정">
   <div class="me">
     <Avatar size={64} />
-    <div>
+    <div class="me-info">
       <h3>{app.profile?.name || '내 정보'}</h3>
       <p class="muted">{[studentId, app.profile?.department].filter(Boolean).join(' · ')}</p>
       <span class="chip {app.remembered ? 'ok' : ''}">
@@ -60,6 +65,9 @@
         {#if isApp}{app.remembered ? '자동 로그인 켜짐' : '자동 로그인 꺼짐'}{:else}{app.remembered ? '로그인 상태 유지 중' : '로그인 상태 유지 꺼짐'}{/if}
       </span>
     </div>
+    {#if isAndroid}
+      <button class="qr-button" aria-label="학생증 QR 열기" onclick={() => studentCardOpen = true}><Icon name="qr" size={26} /></button>
+    {/if}
   </div>
 
   <h4 class="section-title">설정</h4>
@@ -144,11 +152,12 @@
     </div>
   </div>
 
-
   {#snippet footer()}
     <button class="btn btn-danger btn-block" disabled={app.loggingOut} onclick={onlogout}><Icon name="logout" size={18} />{app.loggingOut ? '로그아웃하는 중…' : '로그아웃'}</button>
   {/snippet}
 </Sheet>
+
+{#if isAndroid}<StudentCardSheet bind:open={studentCardOpen} />{/if}
 
 <Sheet bind:open={confirmLogoutAll} title="모든 기기에서 로그아웃할까요?" confirm>
   <div class="logout-confirm">
@@ -171,11 +180,18 @@
     border-radius: var(--radius);
   }
 
-  .me div {
+  .me-info {
     display: grid;
+    flex: 1;
+    min-width: 0;
     gap: 3px;
     justify-items: start;
   }
+
+  .me-info h3, .me-info p { max-width: 100%; overflow-wrap: anywhere; }
+  .me-info .chip { max-width: 100%; white-space: normal; }
+  .qr-button { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border-radius: 14px; color: var(--primary); background: var(--surface); }
+  .qr-button:active { background: var(--surface-3); }
 
   h3 {
     font-size: 20px;
