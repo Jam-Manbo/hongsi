@@ -112,6 +112,7 @@ enum WidgetStore {
             var data = try readUnlocked("widgets")
             guard !owner.isEmpty, data.text("owner") == owner else { return false }
             var patch = patch
+            discardOlderAttendance(current: data, patch: &patch)
             if patch.object("updatedAt").number("preferences") < data.object("updatedAt").number("preferences") {
                 patch.removeValue(forKey: "preferences")
                 var times = patch.object("updatedAt"); times.removeValue(forKey: "preferences"); patch["updatedAt"] = times
@@ -124,6 +125,15 @@ enum WidgetStore {
                 } else { data[key] = value }
             }
             try writeUnlocked(data, "widgets"); return true
+        }
+    }
+    static func discardOlderAttendance(current: JSON, patch: inout JSON) {
+        guard patch["attendance"] != nil,
+              patch.object("attendance").number("checkedAt") < current.object("attendance").number("checkedAt") else { return }
+        // A slow course-history request must not replace a newer active-list response from the app.
+        patch.removeValue(forKey: "attendance")
+        for key in ["updatedAt", "errors"] {
+            var values = patch.object(key); values.removeValue(forKey: "lectures"); patch[key] = values
         }
     }
     static func state() -> JSON { (try? locked { try readUnlocked("state") }) ?? [:] }

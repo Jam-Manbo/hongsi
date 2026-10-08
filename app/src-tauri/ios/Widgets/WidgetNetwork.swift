@@ -65,6 +65,8 @@ actor WidgetSync {
                 patch["seat"] = response["session"] ?? NSNull()
             } else if resource == "lectures" {
                 let active = try await fetch("/api/attendance/active", owner: owner) as? JSON ?? [:]
+                let checkedAt = Date()
+                patch["updatedAt"] = [resource: HongsiClock.milliseconds(checkedAt)]
                 let pending = before.objects("pendingReceipts").filter { AttendanceSnapshot.valid($0) }
                 var unshared: [JSON] = []
                 for receipt in pending {
@@ -79,7 +81,7 @@ actor WidgetSync {
                     let escaped = code.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
                     if let course = (try? await fetch("/api/attendance/course?code=" + escaped, owner: owner)) as? JSON { courses.append(course) }
                 }
-                var attendance = AttendanceSnapshot.make(slots: before.objects("slots"), active: active.objects("items"), courses: courses, receipts: receipts + pending, previous: before.object("attendance"))
+                var attendance = AttendanceSnapshot.make(slots: before.objects("slots"), active: active.objects("items"), courses: courses, receipts: receipts + pending, previous: before.object("attendance"), now: checkedAt)
                 attendance["timetableLoaded"] = WidgetModel.hasTimetable(before)
                 patch["attendance"] = attendance
             } else {
@@ -95,7 +97,9 @@ actor WidgetSync {
                 patch["deadlines"] = Self.deadlines(calendar: calendar, todos: todos, display: display)
                 patch["semesterDisplay"] = display
             }
-            var times = patch.object("updatedAt"); times[resource] = HongsiClock.milliseconds(); patch["updatedAt"] = times
+            var times = patch.object("updatedAt")
+            if times[resource] == nil { times[resource] = HongsiClock.milliseconds() }
+            patch["updatedAt"] = times
             patch["errors"] = [resource: ""]
         } catch {
             patch["errors"] = [resource: error.localizedDescription]

@@ -27,6 +27,7 @@ dependencies = [
  "cfg-if",
  "cipher 0.4.4",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -702,6 +703,7 @@ checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common 0.1.7",
  "inout 0.1.4",
+ "zeroize",
 ]
 
 [[package]]
@@ -2258,6 +2260,7 @@ dependencies = [
  "base64 0.22.1",
  "dotenvy",
  "hongsi-direct",
+ "hongsi-student-card",
  "jni",
  "keyring",
  "serde",
@@ -2269,6 +2272,7 @@ dependencies = [
  "tauri-plugin-notifications",
  "tokio",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
@@ -2341,6 +2345,26 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "web-push",
+]
+
+[[package]]
+name = "hongsi-student-card"
+version = "0.1.0"
+dependencies = [
+ "aes 0.8.4",
+ "base64 0.22.1",
+ "cbc",
+ "pbkdf2",
+ "png 0.17.16",
+ "qrcode",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zeroize",
 ]
 
 [[package]]
@@ -3777,6 +3801,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest 0.10.7",
+ "hmac",
+]
+
+[[package]]
 name = "pem"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4121,6 +4155,12 @@ dependencies = [
  "idna",
  "psl-types",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-xml"
@@ -6036,6 +6076,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

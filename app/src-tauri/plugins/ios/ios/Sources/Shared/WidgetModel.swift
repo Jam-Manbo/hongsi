@@ -40,10 +40,9 @@ enum AttendanceSnapshot {
         return [(days.indices.contains(day) ? String(days[day]) : "") + number,
                 slot.text("start").isEmpty ? "" : slot.text("start") + " 수업", slot.text("room")].filter { !$0.isEmpty }.joined(separator: " ")
     }
-    static func make(slots: [JSON], active: [JSON], courses: [JSON], receipts: [JSON], previous: JSON, now: Date = Date()) -> JSON {
-        let today = HongsiClock.text(now), ms = HongsiClock.milliseconds(now)
+    static func sessions(slots: [JSON], now: Date) -> [JSON] {
         let midnight = HongsiClock.calendar.startOfDay(for: now).timeIntervalSince1970 * 1000
-        let sessions = slots.filter { $0.integer("weekday") == HongsiClock.weekday(now) }.flatMap { slot -> [JSON] in
+        return slots.filter { $0.integer("weekday") == HongsiClock.weekday(now) }.flatMap { slot -> [JSON] in
             let periods = slot["periods"] as? [Int] ?? [1]
             return periods.enumerated().map { index, period in
                 var value = slot; let start = HongsiClock.minutes(slot.text("start")) + (period - (periods.first ?? period)) * 60
@@ -51,6 +50,10 @@ enum AttendanceSnapshot {
                 value["round"] = index + 1; value["periods"] = [period]; return value
             }
         }.sorted { $0.number("at") < $1.number("at") }
+    }
+    static func make(slots: [JSON], active: [JSON], courses: [JSON], receipts: [JSON], previous: JSON, now: Date = Date()) -> JSON {
+        let today = HongsiClock.text(now), ms = HongsiClock.milliseconds(now)
+        let sessions = sessions(slots: slots, now: now)
         func reference(_ lecture: JSON, at: Double) -> JSON {
             let time = clock(lecture.text("time"))
             let matches = sessions.filter { sameCourse($0, lecture) && (time != nil ? $0.text("start") == time! : at >= $0.number("at") - 180_000 && at <= $0.number("at") + 600_000) }
@@ -98,6 +101,47 @@ struct AttendanceStatus {
 }
 
 enum WidgetModel {
+    // Match the app and Android display cache; submission still rechecks with the school.
+    static let attendanceMaxAge: TimeInterval = 10 * 60
+    private static let attended = Set(["present", "late", "excused"])
+
+    static func attendanceReloadDate(_ data: JSON, now: Date) -> Date {
+        let normal = now.addingTimeInterval(15 * 60)
+        guard !data.text("owner").isEmpty else { return normal }
+        let snapshot = data.object("attendance"), ms = HongsiClock.milliseconds(now)
+        let sameDay = snapshot.text("date") == HongsiClock.text(now)
+        let age = ms - snapshot.number("checkedAt")
+        let soon = now.addingTimeInterval(5 * 60)
+        if sameDay && age >= 0 && age < attendanceMaxAge * 1000 && snapshot.objects("active").contains(where: {
+            !attended.contains($0.object("mark").text("kind"))
+        }) { return soon }
+        let saved = sameDay ? snapshot.objects("sessions") : []
+        let unfinished = AttendanceSnapshot.sessions(slots: data.objects("slots"), now: now).filter { session in
+            let mark = saved.first { AttendanceSnapshot.sameCourse($0, session) && $0.number("at") == session.number("at") }?.object("mark") ?? [:]
+            return !attended.contains(mark.text("kind"))
+        }
+        if unfinished.contains(where: { ms >= $0.number("at") - 180_000 && ms < $0.number("at") + 3_600_000 }) { return soon }
+        if let next = unfinished.first(where: { $0.number("at") - 180_000 > ms }) {
+            let watchStart = Date(timeIntervalSince1970: next.number("at") / 1000 - 180)
+            return min(normal, max(soon, watchStart))
+        }
+        return normal
+    }
+
+    static func attendanceTimelineDates(_ data: JSON, state: JSON, now: Date) -> [Date] {
+        var dates = [now]
+        for step in 1...12 { dates.append(now.addingTimeInterval(Double(step * 5 * 60))) }
+        let snapshot = data.object("attendance")
+        if snapshot.text("date") == HongsiClock.text(now) && !snapshot.objects("active").isEmpty {
+            let expiry = Date(timeIntervalSince1970: snapshot.number("checkedAt") / 1000 + attendanceMaxAge)
+            if expiry > now { dates.append(expiry) }
+        }
+        for (key, duration) in [("inputAt", 600.0), ("pendingAt", 45.0)] {
+            let expiry = Date(timeIntervalSince1970: state.number(key) / 1000 + duration)
+            if expiry > now { dates.append(expiry) }
+        }
+        return Array(Set(dates)).sorted()
+    }
     static func hasTimetable(_ data: JSON) -> Bool { data.flag("timetableLoaded") || data.object("updatedAt").number("timetable") > 0 || !data.objects("slots").isEmpty }
     static func today(_ data: JSON, now: Date) -> [JSON] {
         data.objects("slots").filter { $0.integer("weekday") == HongsiClock.weekday(now) }.sorted { $0.text("start") < $1.text("start") }
@@ -128,10 +172,12 @@ enum WidgetModel {
         if data.isEmpty { return AttendanceStatus(message: "로그인이 필요해요.", detail: "앱에서 로그인해 주세요.") }
         let snapshot = data.object("attendance"), ms = HongsiClock.milliseconds(now)
         if snapshot.isEmpty { return AttendanceStatus(message: "출석 정보를 확인해 주세요.", detail: "앱을 한 번 열어 주세요.") }
-        let sessions = snapshot.text("date") == HongsiClock.text(now) ? snapshot.objects("sessions") : []
+        let sameDay = snapshot.text("date") == HongsiClock.text(now)
+        let age = ms - snapshot.number("checkedAt")
+        let sessions = sameDay ? snapshot.objects("sessions") : []
         let current = sessions.first { ms >= $0.number("at") - 180_000 && ms <= $0.number("at") + 600_000 }
-        let fresh = snapshot.text("error").isEmpty && snapshot.text("date") == HongsiClock.text(now) && ms - snapshot.number("checkedAt") >= 0 && ms - snapshot.number("checkedAt") <= 20_000
-        let active = fresh ? snapshot.objects("active") : []
+        let fresh = snapshot.text("error").isEmpty && sameDay && age >= 0 && age <= 20_000
+        let active = sameDay && age >= 0 && age < attendanceMaxAge * 1000 ? snapshot.objects("active") : []
         func success(_ value: AttendanceStatus) -> AttendanceStatus {
             let receipt = state.object("localReceipt")
             guard receipt.text("identity") == value.identity, !value.identity.isEmpty, receipt.text("date") == HongsiClock.text(now) else { return value }
@@ -144,7 +190,7 @@ enum WidgetModel {
             return AttendanceStatus(title: item.text("name"), message: kind == "present" ? "출석 완료" : mark.text("label") + " 처리됨",
                 detail: AttendanceSnapshot.schedule(item, sessions: sessions, now: now), tone: ["present", "excused"].contains(kind) ? "success" : kind == "absent" ? "error" : kind == "late" ? "warn" : "muted", identity: item.text("identity"), kind: kind)
         }
-        if let opened = active.first(where: { !["present", "late", "excused"].contains($0.object("mark").text("kind")) }) {
+        if let opened = active.first(where: { !attended.contains($0.object("mark").text("kind")) }) {
             return success(AttendanceStatus(title: opened.text("name"), message: "출석할 수 있어요.", detail: AttendanceSnapshot.schedule(opened, sessions: sessions, now: now), available: true, tone: "primary", identity: opened.text("identity"), kind: "available"))
         }
         if let current {

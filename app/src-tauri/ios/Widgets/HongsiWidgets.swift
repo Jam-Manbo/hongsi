@@ -20,17 +20,15 @@ struct HongsiProvider: TimelineProvider {
             await WidgetSync.shared.refresh(kind)
             let value = entry(), now = value.date
             var dates = [now]
-            for minute in 1...60 { dates.append(Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / 60) * 60 + Double(minute * 60))) }
+            var reload = now.addingTimeInterval(15 * 60)
             if kind == "ATTENDANCE" {
-                let stale = Date(timeIntervalSince1970: value.data.object("attendance").number("checkedAt") / 1000 + 21)
-                if stale > now { dates.append(stale) }
-                let inputExpiry = Date(timeIntervalSince1970: value.state.number("inputAt") / 1000 + 600)
-                if inputExpiry > now { dates.append(inputExpiry) }
-                let pendingExpiry = Date(timeIntervalSince1970: value.state.number("pendingAt") / 1000 + 45)
-                if pendingExpiry > now { dates.append(pendingExpiry) }
+                dates = WidgetModel.attendanceTimelineDates(value.data, state: value.state, now: now)
+                reload = WidgetModel.attendanceReloadDate(value.data, now: now)
+            } else {
+                for minute in 1...60 { dates.append(Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / 60) * 60 + Double(minute * 60))) }
             }
             let entries = dates.sorted().map { HongsiEntry(date: $0, data: value.data, state: value.state, theme: value.theme) }
-            completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(15 * 60))))
+            completion(Timeline(entries: entries, policy: .after(reload)))
         }
     }
     private func entry() -> HongsiEntry { HongsiEntry(date: Date(), data: WidgetStore.read(), state: WidgetStore.state(), theme: WidgetStore.theme) }
