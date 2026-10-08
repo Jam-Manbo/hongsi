@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
 use base64::Engine;
 use futures::future::join_all;
+use futures::{stream, StreamExt, TryStreamExt};
 use regex::Regex;
 use reqwest::header::{LOCATION, USER_AGENT};
 use scraper::Html;
@@ -455,7 +456,7 @@ impl SchoolSession {
         }
         let course_id = cm["course"].as_i64().filter(|id| *id > 0).ok_or_else(not_found)?;
         let api = self.ws("mod_assign_get_assignments", &[("courseids[0]".into(), course_id.to_string())]).await?;
-        parse_assignments(&api, &HashMap::new()).into_iter()
+        parse_assignments(&api).into_iter()
             .find(|a| a.cmid == cmid && a.course_id == course_id && a.id > 0)
             .ok_or_else(not_found)
     }
@@ -466,22 +467,15 @@ impl SchoolSession {
         }
         let params: Vec<(String, String)> =
             courses.iter().enumerate().map(|(i, c)| (format!("courseids[{i}]"), c.id.to_string())).collect();
-        let (api, states) = futures::join!(self.ws("mod_assign_get_assignments", &params), self.submission_states(courses));
-        let (api, states) = (api?, states?);
-        Ok(parse_assignments(&api, &states))
-    }
-
-    async fn submission_states(&self, courses: &[Course]) -> Result<HashMap<i64, SubmissionState>> {
-        let pages = join_all(courses.iter().map(|c| async move {
-            let url = format!("{CN2}/mod/assign/index.php?id={}", c.id);
-            self.moodle_page(&url).await
-        }))
-        .await;
-        let mut states = HashMap::new();
-        for page in pages {
-            states.extend(parse_submission_states(&page?));
-        }
-        Ok(states)
+        let api = self.ws("mod_assign_get_assignments", &params).await?;
+        stream::iter(parse_assignments(&api))
+            .map(|mut assignment| async move {
+                assignment.submission = self.submission_info(assignment.id).await?.status;
+                Ok(assignment)
+            })
+            .buffered(8)
+            .try_collect()
+            .await
     }
 
     pub async fn vods(&self, courses: &[Course]) -> Result<Vec<Vod>> {
@@ -514,7 +508,7 @@ impl SchoolSession {
     }
 }
 
-fn parse_assignments(api: &Value, states: &HashMap<i64, SubmissionState>) -> Vec<Assignment> {
+fn parse_assignments(api: &Value) -> Vec<Assignment> {
     let mut out = Vec::new();
     for course in api["courses"].as_array().into_iter().flatten() {
         let course_id = course["id"].as_i64().unwrap_or_default();
@@ -543,7 +537,7 @@ fn parse_assignments(api: &Value, states: &HashMap<i64, SubmissionState>) -> Vec
                         url: f["fileurl"].as_str().unwrap_or("").to_string(),
                     })
                     .collect(),
-                submission: states.get(&cmid).copied().unwrap_or(SubmissionState::Unknown),
+                submission: SubmissionState::Unknown,
             });
         }
     }
@@ -701,37 +695,6 @@ fn submit_config(a: &Value) -> SubmitConfig {
         drafts: a["submissiondrafts"].as_i64() == Some(1),
         statement: a["requiresubmissionstatement"].as_i64() == Some(1),
     }
-}
-
-fn submission_state(text: &str) -> SubmissionState {
-    let low = text.to_lowercase();
-    if text.contains("초안") || text.contains("임시저장") || text.contains("임시 저장") || low.contains("draft")
-        || text.contains("미제출") || text.contains("제출 안 함") || low.contains("no submission")
-        || low.contains("no attempt") || low.contains("not submitted")
-    {
-        SubmissionState::NotSubmitted
-    } else if text.contains("제출 완료") || low.contains("submitted") {
-        SubmissionState::Submitted
-    } else {
-        SubmissionState::Unknown
-    }
-}
-
-fn parse_submission_states(body: &str) -> Vec<(i64, SubmissionState)> {
-    let doc = Html::parse_document(body);
-    let id_re = Regex::new(r"[?&]id=(\d+)").expect("정규식");
-    let mut out = Vec::new();
-    for tr in doc.select(&sel("table tr")) {
-        let Some(link) = tr.select(&sel("a[href*='/mod/assign/view.php']")).next() else { continue };
-        let cells: Vec<String> = tr.select(&sel("td")).map(text_of).collect();
-        let Some(cmid) = link.value().attr("href").and_then(|h| id_re.captures(h)).and_then(|c| c[1].parse().ok()) else {
-            continue;
-        };
-        if cells.len() >= 4 {
-            out.push((cmid, submission_state(&cells[3])));
-        }
-    }
-    out
 }
 
 struct VodPeriod {
