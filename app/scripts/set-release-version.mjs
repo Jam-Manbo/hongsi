@@ -1,4 +1,5 @@
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { androidVersionCode, assetStem, releaseVersion, stableVersion } from './release-version.mjs';
@@ -31,11 +32,16 @@ if (!/\[workspace\.package\]\s*\nversion = "[^"]+"/.test(source)) throw new Erro
 await writeFile(cargo, source.replace(/(\[workspace\.package\]\s*\nversion = ")[^"]+"/, `$1${version}"`));
 const lockPath = resolve(root, 'Cargo.lock');
 const lock = await readFile(lockPath, 'utf8');
-const packages = new Set(['hongsi-app', 'hongsi-core', 'hongsi-direct', 'hongsi-server']);
-const updatedLock = lock.replace(/(\[\[package\]\]\nname = "([^"]+)"\nversion = ")[^"]+"/g, (entry, prefix, name) => {
-  if (!packages.delete(name)) return entry;
-  return `${prefix}${version}"`;
-});
-if (packages.size) throw new Error('Workspace package missing from Cargo.lock.');
+const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: root, encoding: 'utf8' }));
+const members = new Set(metadata.workspace_members);
+const packages = new Map(metadata.packages.filter(pkg => members.has(pkg.id)).map(pkg => [pkg.name, pkg.version]));
+const updatedLock = lock.split('\n[[package]]\n').map(entry => {
+  const name = /^name = "([^"]+)"$/m.exec(entry)?.[1];
+  if (!packages.has(name) || /^source = /m.test(entry)) return entry;
+  const packageVersion = packages.get(name);
+  packages.delete(name);
+  return entry.replace(/^version = "[^"]+"$/m, `version = "${packageVersion}"`);
+}).join('\n[[package]]\n');
+if (packages.size) throw new Error(`Workspace package missing from Cargo.lock: ${[...packages.keys()].join(', ')}`);
 await writeFile(lockPath, updatedLock);
 console.log(`Release: ${tag}`);
