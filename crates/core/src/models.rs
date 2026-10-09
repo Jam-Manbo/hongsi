@@ -56,6 +56,10 @@ pub struct AttendanceSubmission {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttendanceMark {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period: Option<String>,
     pub date: String,
     pub mark: String,
     pub kind: MarkKind,
@@ -82,6 +86,8 @@ pub struct AttendanceSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttendanceCourse {
+    #[serde(default)]
+    pub cyber: bool,
     pub code: String,
     pub name: String,
     pub published: bool,

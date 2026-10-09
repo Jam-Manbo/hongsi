@@ -487,6 +487,16 @@ impl SchoolSession {
         Ok(out)
     }
 
+    pub(crate) async fn cyber_attendance(&self, course: &Course) -> Result<crate::models::AttendanceCourse> {
+        let course_url = format!("{CN2}/course/view.php?id={}", course.id);
+        let report_url = format!("{CN2}/report/ubcompletion/progress.php?id={}", course.id);
+        let (page, progress) = futures::try_join!(
+            self.moodle_page(&course_url),
+            self.moodle_page_with_user_agent(&report_url, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"),
+        )?;
+        crate::attendance::cyber::parse(course, &progress, &parse_vod_periods(&page), chrono::Utc::now().timestamp())
+    }
+
     async fn course_vods(&self, course_id: i64) -> Result<Vec<Vod>> {
         let page = self.moodle_page(&format!("{CN2}/course/view.php?id={course_id}")).await?;
         let periods = parse_vod_periods(&page);
@@ -697,12 +707,13 @@ fn submit_config(a: &Value) -> SubmitConfig {
     }
 }
 
-struct VodPeriod {
-    cmid: Option<i64>,
-    name: String,
-    start: i64,
-    end: i64,
-    late_until: Option<i64>,
+pub(crate) struct VodPeriod {
+    pub cmid: Option<i64>,
+    pub week: Option<u32>,
+    pub name: String,
+    pub start: i64,
+    pub end: i64,
+    pub late_until: Option<i64>,
 }
 
 fn parse_vod_periods(body: &str) -> Vec<VodPeriod> {
@@ -719,7 +730,9 @@ fn parse_vod_periods(body: &str) -> Vec<VodPeriod> {
         let Some(cap) = period.captures(&text) else { continue };
         let (Some(start), Some(end)) = (parse_kst(&cap[1]), parse_kst(&cap[2])) else { continue };
         let cmid = li.value().attr("id").and_then(|id| id.strip_prefix("module-")).and_then(|n| n.parse().ok());
-        out.push(VodPeriod { cmid, name, start, end, late_until: cap.get(3).and_then(|m| parse_kst(m.as_str())) });
+        let week = li.ancestors().filter_map(scraper::ElementRef::wrap)
+            .find_map(|el| el.value().attr("id").and_then(|id| id.strip_prefix("section-")).and_then(|n| n.parse().ok()));
+        out.push(VodPeriod { cmid, week, name, start, end, late_until: cap.get(3).and_then(|m| parse_kst(m.as_str())) });
     }
     out
 }

@@ -71,8 +71,8 @@ const schoolAuthError = (e: unknown): e is ApiError => e instanceof ApiError && 
   && (e.code === 'session_expired' || e.code === 'classroom_token_expired');
 
 async function recoverSchoolAuth(e: ApiError, path: string, check: () => void) {
-  const kind = path.startsWith('/api/attendance/') ? 'attendance' : path.startsWith('/api/timetable') ? 'timetable'
-    : e.code === 'classroom_token_expired' ? 'classroom_token' : 'classroom';
+  const kind = e.code === 'classroom_token_expired' ? 'classroom_token'
+    : path.startsWith('/api/attendance/') ? 'attendance' : path.startsWith('/api/timetable') ? 'timetable' : 'classroom';
   const key = `${sessionVersion()}:${kind}`;
   let pending = recoveryJobs.get(key);
   if (!pending) {

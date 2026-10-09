@@ -25,7 +25,7 @@ export type Timetable = { slots: ClassSlot[] };
 export type MarkKind = 'present' | 'late' | 'absent' | 'excused' | 'none' | 'planned' | 'other';
 export type AttendanceReceipt = { lecture: ActiveLecture; date: string; kind: 'present' | 'late' | 'excused'; confirmedAt: number };
 export type AttendanceSubmission = { message: string; receipt: AttendanceReceipt | null; synced: boolean };
-export type AttendanceMark = { date: string; mark: string; kind: MarkKind };
+export type AttendanceMark = { title?: string; period?: string; date: string; mark: string; kind: MarkKind };
 export type AttendanceWeek = { week: number; sessions: AttendanceMark[] };
 export type AttendanceSummary = {
   present: number;
@@ -36,6 +36,7 @@ export type AttendanceSummary = {
   planned: number;
 };
 export type AttendanceCourse = {
+  cyber?: boolean;
   code: string;
   name: string;
   published: boolean;

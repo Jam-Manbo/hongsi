@@ -80,7 +80,7 @@ export const isAttended = (m: Mark | null): m is AttendedMark => !!m && ATTENDED
 export const markTitle = (m: Mark) => m.kind === 'present' ? '출석 완료' : `${m.label} 처리됨`;
 
 function schoolMark(c: CourseRef, course: AttendanceCourse): Mark | null {
-  if (!course.published || c.at === undefined || dayKey(c.at) !== todayKey()) return null;
+  if (course.cyber || !course.published || c.at === undefined || dayKey(c.at) !== todayKey()) return null;
   const sessions = todaySessions(timetable.data?.slots ?? []).filter((s) => sameCourse(s, c));
   const index = sessions.findIndex((s) => s.at === c.at);
   const k = new Date(c.at + KST);

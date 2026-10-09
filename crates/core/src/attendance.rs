@@ -1,10 +1,12 @@
+pub(crate) mod cyber;
+
 use regex::Regex;
 use reqwest::header::{ORIGIN, REFERER};
 use scraper::Html;
 
 use crate::models::{
     ActiveLecture, ActiveLectures, AttendanceCourse, AttendanceMark, AttendanceReceipt, AttendanceSubmission, AttendanceSummary,
-    AttendanceWeek, MarkKind,
+    AttendanceWeek, Course, MarkKind,
 };
 use crate::util::{form_inputs, looks_like_login, sel, squash, text_of};
 use crate::{CoreError, Result, SchoolSession};
@@ -142,45 +144,57 @@ impl SchoolSession {
 
     pub async fn attendance_status(&self) -> Result<Vec<AttendanceCourse>> {
         let _ = self.ensure_attendance().await?;
-        let forms = self.fetch_attendance_forms().await?;
+        let (forms, enrolled) = futures::try_join!(self.fetch_attendance_forms(), self.enrolled_courses())?;
+        let classroom = if enrolled.iter().any(|c| c.cyber) { self.all_courses().await? } else { vec![] };
         let mut courses = Vec::new();
         for data in forms {
-            let body = self
-                .post_form_text(
-                    &format!("{AT}stud05.jsp"),
-                    &data,
-                    Some(&format!("{AT}stud04.jsp")),
-                )
-                .await?;
-            if looks_like_login(&body) {
-                return Err(CoreError::SessionExpired);
+            let code = format!("{}-{}", field(&data, "haksu"), field(&data, "bunban"));
+            if let Some(course) = enrolled.iter().find(|c| c.code == code && c.cyber) {
+                courses.push(self.cyber_course_status(&data, course, &classroom).await?);
+            } else {
+                courses.push(self.offline_course_status(&data).await?);
             }
-            courses.push(parse_course_status(&body, &data));
         }
         Ok(courses)
     }
 
     pub async fn attendance_course(&self, code: &str) -> Result<AttendanceCourse> {
         let _ = self.ensure_attendance().await?;
-        let forms = self
-            .attendance_forms
-            .get_or_try_init(|| self.fetch_attendance_forms())
-            .await?;
-        let data = forms
-            .iter()
+        let (forms, enrolled) = futures::try_join!(
+            self.attendance_forms.get_or_try_init(|| self.fetch_attendance_forms()),
+            self.enrolled_courses(),
+        )?;
+        let data = forms.iter()
             .find(|f| format!("{}-{}", field(f, "haksu"), field(f, "bunban")) == code)
             .ok_or_else(|| CoreError::NotFound("이번 학기 수강 과목이 아니에요.".into()))?;
-        let body = self
-            .post_form_text(
-                &format!("{AT}stud05.jsp"),
-                data,
-                Some(&format!("{AT}stud04.jsp")),
-            )
-            .await?;
-        if looks_like_login(&body) {
-            return Err(CoreError::SessionExpired);
+        if let Some(course) = enrolled.iter().find(|c| c.code == code && c.cyber) {
+            return self.cyber_course_status(data, course, &self.all_courses().await?).await;
         }
+        self.offline_course_status(data).await
+    }
+
+    async fn offline_course_status(&self, data: &[(String, String)]) -> Result<AttendanceCourse> {
+        let body = self.post_form_text(&format!("{AT}stud05.jsp"), data, Some(&format!("{AT}stud04.jsp"))).await?;
+        if looks_like_login(&body) { return Err(CoreError::SessionExpired); }
         Ok(parse_course_status(&body, data))
+    }
+
+    async fn cyber_course_status(&self, data: &[(String, String)], enrolled: &crate::timetable::EnrolledCourse, courses: &[Course]) -> Result<AttendanceCourse> {
+        let year = field(data, "yy").parse::<i32>().ok();
+        let semester = field(data, "hakgi").parse::<i32>().ok().map(|n| if n < 10 { n * 10 } else { n });
+        let course = courses.iter().find(|c| c.code.as_deref() == Some(enrolled.code.as_str())
+            && c.term.is_some_and(|t| Some(t.year) == year && Some(t.semester) == semester));
+        if let Some(course) = course {
+            match self.cyber_attendance(course).await {
+                Ok(attendance) => return Ok(attendance),
+                Err(error @ (CoreError::SessionExpired | CoreError::ClassroomTokenExpired)) => return Err(error),
+                Err(error) => tracing::warn!(error = %error, "사이버 출석부 조회 실패"),
+            }
+        }
+        Ok(AttendanceCourse {
+            cyber: true, code: enrolled.code.clone(), name: enrolled.name.clone(), published: false,
+            notice: Some("사이버 출석부를 불러오지 못했어요.".into()), weeks: vec![], summary: AttendanceSummary::default(),
+        })
     }
 
     async fn fetch_attendance_forms(&self) -> Result<Vec<Vec<(String, String)>>> {
@@ -238,6 +252,7 @@ fn parse_course_status(body: &str, data: &[(String, String)]) -> AttendanceCours
     let code = format!("{}-{}", field(data, "haksu"), field(data, "bunban"));
     if let Some(notice) = doc.select(&sel(".alert-warning")).next() {
         return AttendanceCourse {
+            cyber: false,
             code,
             name,
             published: false,
@@ -268,6 +283,8 @@ fn parse_course_status(body: &str, data: &[(String, String)]) -> AttendanceCours
                     MarkKind::Other => {}
                 }
                 AttendanceMark {
+                    title: None,
+                    period: None,
                     date: short_date(&pair[0]),
                     mark: pair[1].clone(),
                     kind,
@@ -277,6 +294,7 @@ fn parse_course_status(body: &str, data: &[(String, String)]) -> AttendanceCours
         weeks.push(AttendanceWeek { week, sessions });
     }
     AttendanceCourse {
+        cyber: false,
         code,
         name,
         published: true,

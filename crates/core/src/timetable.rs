@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use scraper::{ElementRef, Html};
@@ -12,21 +12,38 @@ const LIST: &str = "https://cn.hongik.ac.kr/stud/C/02000/02030.jsp";
 const MAIN: &str = "https://cn.hongik.ac.kr/stud/include/main.jsp";
 const WEEKDAYS: [char; 7] = ['월', '화', '수', '목', '금', '토', '일'];
 
+#[derive(Clone)]
+pub(crate) struct EnrolledCourse {
+    pub code: String,
+    pub name: String,
+    pub cyber: bool,
+}
+
 impl SchoolSession {
+    pub(crate) async fn enrolled_courses(&self) -> Result<Vec<EnrolledCourse>> {
+        let mut cache = self.enrolled_courses.lock().await;
+        if let Some((_, courses)) = cache.as_ref().filter(|(at, _)| at.elapsed() < Duration::from_secs(300)) {
+            return Ok(courses.clone());
+        }
+        let body = self.post_form_text(LIST, &[], Some(GRID)).await?;
+        if needs_login(&body) { return Err(CoreError::SessionExpired); }
+        let courses = parse_enrolled_courses(&body)?;
+        *cache = Some((Instant::now(), courses.clone()));
+        Ok(courses)
+    }
+
     pub async fn timetable(&self) -> Result<Timetable> {
         let grid = self.get_text(GRID, Some(MAIN)).await?;
         if needs_login(&grid) {
             return Err(CoreError::SessionExpired);
         }
         let mut slots = parse_grid(&grid)?;
-        match self.post_form_text(LIST, &[], Some(GRID)).await {
-            Ok(list) if !needs_login(&list) => {
-                let codes = parse_codes(&list);
+        match self.enrolled_courses().await {
+            Ok(courses) => {
                 for slot in &mut slots {
-                    slot.code = codes.get(&slot.name).cloned();
+                    slot.code = courses.iter().find(|c| c.name == slot.name).map(|c| c.code.clone());
                 }
             }
-            Ok(_) => tracing::warn!("시간표 목록(학수번호)이 로그인 화면으로 넘어감"),
             Err(e) => tracing::warn!(error = %e, "시간표 목록(학수번호)을 읽지 못함"),
         }
         Ok(Timetable { slots })
@@ -97,10 +114,13 @@ fn parse_cell(td: ElementRef<'_>) -> Option<(String, Option<String>)> {
     Some((name, room))
 }
 
-fn parse_codes(body: &str) -> HashMap<String, String> {
+fn parse_enrolled_courses(body: &str) -> Result<Vec<EnrolledCourse>> {
     let doc = Html::parse_document(body);
     let code_re = Regex::new(r"^\d{5,7}-\d{1,3}$").expect("정규식");
-    let mut codes = HashMap::new();
+    if !doc.select(&sel("th")).any(|h| text_of(h) == "학수번호") {
+        return Err(CoreError::Parse("수강 과목 목록".into()));
+    }
+    let mut courses = Vec::new();
     for tr in doc.select(&sel("tr")) {
         let tds: Vec<ElementRef> = tr.select(&sel("td")).collect();
         let (Some(code_td), Some(name_td)) = (tds.first(), tds.get(1)) else { continue };
@@ -112,8 +132,9 @@ fn parse_codes(body: &str) -> HashMap<String, String> {
             a.children().filter_map(|n| n.value().as_text().map(|t| squash(t))).find(|t| !t.is_empty())
         });
         if let Some(name) = name {
-            codes.insert(name, code);
+            let cyber = name_td.descendants().filter_map(|n| n.value().as_text()).any(|text| text.trim() == "(C)");
+            courses.push(EnrolledCourse { code, name, cyber });
         }
     }
-    codes
+    Ok(courses)
 }

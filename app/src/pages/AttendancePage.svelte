@@ -228,7 +228,7 @@
           <header>
             <div>
               <h3>{c.name}</h3>
-              <span class="muted small">{c.code}</span>
+              <span class="course-meta muted small">{c.code}{#if c.cyber}<span class="cyber-label">사이버</span>{/if}</span>
             </div>
             {#if c.published}
               <div class="counts">
@@ -256,6 +256,8 @@
                   <span class="marks" aria-hidden="true">
                     {#each w.sessions as s, i (i)}
                       <i class="mark {MARK[s.kind].cls}"></i>
+                    {:else}
+                      <span class="empty-week">—</span>
                     {/each}
                   </span>
                 </button>
@@ -300,6 +302,10 @@
 
 
 <style>
+  .course-meta { display: inline-flex; align-items: center; gap: 8px; }
+  .cyber-label { padding: 1px 6px; border-radius: 5px; background: var(--surface-2); font-size: 11px; }
+  .empty-week { color: var(--muted); font-size: 11px; line-height: 12px; }
+
   .week-actions { display: flex; align-items: center; gap: 8px; }
 
   .today {
