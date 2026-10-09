@@ -1,10 +1,11 @@
-import { isApp } from '../../platform/env';
+import { isAndroid, isIOS } from '../../platform/env';
 
-export const canUpdateApp = isApp && /Android/i.test(navigator.userAgent);
+export const canUpdateApp = isAndroid || isIOS;
 export type AppRelease = { version: string | null; versionCode: number; size: number | null; notes: string };
-type Info = { source: 'direct' | 'play'; currentVersion: string; currentCode: number; canInstall: boolean; installError: string | null };
+type UpdateSource = 'direct' | 'play' | 'appstore';
+type Info = { source: UpdateSource; currentVersion: string; currentCode: number; canInstall: boolean; installError: string | null };
 type Check = Info & { configured: boolean; release: AppRelease | null };
-type Install = { state: 'permission-required' | 'installer-opened' | 'play-completed' | 'cancelled' };
+type Install = { state: 'permission-required' | 'installer-opened' | 'play-completed' | 'store-opened' | 'cancelled' };
 type Driver = <T>(action: string, versionCode?: number) => Promise<T>;
 const problem = (error: unknown) => error instanceof Error ? error.message : String(error);
 const saved = (key: string) => { try { return localStorage.getItem(`hc:pref:update-${key}`); } catch { return null; } };
@@ -16,7 +17,7 @@ class AppUpdater {
   installing = $state(false);
   permissionsNeeded = $state(false);
   installerOpened = $state(false);
-  source = $state<'direct' | 'play'>('direct');
+  source = $state<UpdateSource>(isIOS ? 'appstore' : 'direct');
   currentVersion = $state('');
   currentCode = $state(0);
   release = $state<AppRelease | null>(null);
@@ -37,22 +38,22 @@ class AppUpdater {
   async check(manual = false) {
     if (manual) this.open = true;
     if (this.checking || this.installing) return;
-    await this.status();
-    if (this.checking || this.installing) return;
     this.checking = true; this.error = ''; this.installerOpened = false;
     try {
+      await this.status();
       const result = await this.driver<Check>('check');
       this.source = result.source;
       this.currentVersion = result.currentVersion; this.currentCode = result.currentCode;
       this.release = result.release; this.configured = result.configured;
       this.permissionsNeeded = !result.canInstall;
       this.checked = true;
-      if (manual || (result.release && saved(`dismissed-${this.source}`) !== String(result.release.versionCode))) this.open = true;
+      if (manual || (result.release && saved(`dismissed-${this.source}`) !== this.releaseKey())) this.open = true;
     } catch (e) { this.release = null; this.checked = false; this.error = problem(e); }
     finally { this.checking = false; }
   }
+  private releaseKey() { return this.source === 'appstore' ? this.release?.version ?? '' : String(this.release?.versionCode); }
   dismiss() {
-    if (this.release) save(`dismissed-${this.source}`, String(this.release.versionCode));
+    if (this.release) save(`dismissed-${this.source}`, this.releaseKey());
     this.open = false;
   }
   async permissions() {
@@ -65,6 +66,7 @@ class AppUpdater {
       const result = await this.driver<Install>('install', this.release.versionCode);
       this.permissionsNeeded = result.state === 'permission-required';
       this.installerOpened = result.state === 'installer-opened';
+      if (result.state === 'store-opened') this.open = false;
       if (result.state === 'play-completed') { this.release = null; this.open = false; }
     } catch (e) { this.error = problem(e); }
     finally { this.installing = false; }

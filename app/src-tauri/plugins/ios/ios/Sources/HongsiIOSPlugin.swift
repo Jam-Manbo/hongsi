@@ -12,6 +12,7 @@ final class HongsiIOSPlugin: Plugin, QLPreviewControllerDataSource, QLPreviewCon
     private var previewURL: URL?
     private var scopedPreviewURL: URL?
     private var location: HongsiLocation?
+    private var updater: HongsiAppUpdate?
     private weak var studentCardWebView: WKWebView?
 
     @objc override func load(webview: WKWebView) {
@@ -90,6 +91,15 @@ final class HongsiIOSPlugin: Plugin, QLPreviewControllerDataSource, QLPreviewCon
                 let result = try await location!.locate(requestPermission: true)
                 invoke.resolve(["latitude": result.coordinate.latitude, "longitude": result.coordinate.longitude, "accuracy": result.horizontalAccuracy])
             } catch { invoke.reject(error.localizedDescription) }
+        }
+    }
+    @objc func appUpdate(_ invoke: Invoke) {
+        Task { @MainActor in
+            do {
+                let action = try invoke.parseArgs(ValueArgs.self).value
+                if updater == nil { updater = HongsiAppUpdate() }
+                invoke.resolve(try await updater!.perform(action))
+            } catch { invoke.reject((error as? WidgetFailure)?.localizedDescription ?? "업데이트 정보를 확인하지 못했어요.") }
         }
     }
     private func checkedFile(_ path: String) throws -> URL {

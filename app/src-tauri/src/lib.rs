@@ -97,10 +97,15 @@ async fn app_update(
 ) -> Result<Value, String> {
     #[cfg(target_os = "android")]
     return android_update::call(&app, &action, version_code).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    {
+        let _ = version_code;
+        return tauri_plugin_hongsi_ios::call(&app, "appUpdate", &action).await;
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let _ = (app, action, version_code);
-        Err("Android 앱에서 사용할 수 있어요.".into())
+        Err("모바일 앱에서 사용할 수 있어요.".into())
     }
 }
 

@@ -30,6 +30,7 @@
     'eye-off': 'M3 3l18 18M9.5 5.9a10 10 0 0 1 2.5-.4c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-3.3 3.9M6 7.2A20 20 0 0 0 2.5 12s3.5 6.5 9.5 6.5a10.5 10.5 0 0 0 4.1-.9M9.9 9.9a3 3 0 0 0 4.2 4.2',
     inbox: 'M7 4.5h10a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3zM4 13h3.5a1.5 1.5 0 0 1 1.4 1l.4 1a1.5 1.5 0 0 0 1.4 1h2.6a1.5 1.5 0 0 0 1.4-1l.4-1a1.5 1.5 0 0 1 1.4-1H20M12 7v4M9.8 9 12 11.2 14.2 9',
     download: 'M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14',
+    'app-store': 'M9 4l9 16M15 4 8.5 15.5M6.9 18.3 6 20M3.5 15.5H14M18.5 15.5h2',
     folder: 'M3.5 7A1.5 1.5 0 0 1 5 5.5h4.2l2 2.2H19A1.5 1.5 0 0 1 20.5 9.2V18a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18z',
     link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
     megaphone: 'M4 10v4a1 1 0 0 0 1 1h2.5L14 19V5L7.5 9H5a1 1 0 0 0-1 1zM17.5 9.2a3.5 3.5 0 0 1 0 5.6M8 15l1.2 4.5',
@@ -64,7 +65,10 @@
   aria-label={label || undefined}
   aria-hidden={label ? undefined : 'true'}
 >
-  {#if name === 'qr'}
+  {#if name === 'app-store'}
+    <rect x="2" y="2" width="20" height="20" rx="4.5" fill="#0A84FF" stroke="none" />
+    <path d={PATHS['app-store']} transform="translate(2.4 2.4) scale(.8)" stroke="#fff" stroke-width="2.2" />
+  {:else if name === 'qr'}
     <path d="M7 3H5a2 2 0 0 0-2 2v2M17 3h2a2 2 0 0 1 2 2v2M3 17v2a2 2 0 0 0 2 2h2M17 21h2a2 2 0 0 0 2-2v-2" stroke-width="2" />
     <g fill="currentColor" stroke="none">
       <path fill-rule="evenodd" d="M6.5 5h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v2h2V7h-2ZM14 5h4a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 2v2h2V7h-2Z" />
