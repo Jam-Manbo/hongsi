@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { api, isApp } from '../lib/api';
-  import { APP_VERSION_LABEL, REPO_URL } from '../lib/about';
-  import { sentenceLines } from '../lib/format';
-  import { errorText } from '../lib/net.svelte';
-  import { app, pref, setPref, startSession, waitForLogout } from '../lib/store.svelte';
-  import Icon from '../components/Icon.svelte';
-  import Sheet from '../components/Sheet.svelte';
+  import { api, isApp } from '../shared/api/api';
+  import { APP_VERSION_LABEL, REPO_URL } from '../features/settings/about';
+  import { sentenceLines } from '../shared/utils/format';
+  import { errorText } from '../shared/api/net.svelte';
+  import { app, startSession, waitForLogout } from '../features/auth/auth-state.svelte';
+  import { pref, setPref } from '../shared/state/preferences';
+  import Icon from '../shared/ui/Icon.svelte';
+  import Sheet from '../shared/ui/Sheet.svelte';
 
   let id = $state(pref('last-id', '').toUpperCase());
   let password = $state('');

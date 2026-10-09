@@ -1,46 +1,39 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { clock, watchClock } from './lib/clock.svelte';
-  import { watchCalendarState } from './lib/calendar-sync.svelte';
-  import { watchAppUpdates } from './lib/app-update.svelte';
-  import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './lib/widgets';
-  import AppUpdate from './components/AppUpdate.svelte';
-  import NotificationPermission from './components/NotificationPermission.svelte';
-  import DoneConfirm from './components/DoneConfirm.svelte';
+  import { clock, watchClock } from './shared/state/clock.svelte';
+  import { watchCalendarState } from './features/calendar/calendar-sync.svelte';
+  import { watchAppUpdates } from './features/updates/app-update.svelte';
+  import { publishWidgetTheme, publishWidgets, widgetSnapshot, openWidgetIntent } from './platform/widgets';
+  import AppUpdate from './features/updates/AppUpdate.svelte';
+  import NotificationPermission from './features/notifications/NotificationPermission.svelte';
+  import DoneConfirm from './features/calendar/DoneConfirm.svelte';
   import DownloadPage from './pages/DownloadPage.svelte';
-  import { ApiError, api, isApp, native } from './lib/api';
-  import { dayKey, dueKey } from './lib/format';
-  import { displayedTodos } from './lib/todos.svelte';
-  import { errorText } from './lib/net.svelte';
-  import { syncSeatReminders } from './lib/seat.svelte';
-  import { syncDueReminders } from './lib/reminders';
-  import { initNotifications, notificationState, refreshNotifications, showFirstNotificationPermission, takeNotificationIntent } from './lib/notify';
-  import { enableBackgroundByDefault, refreshBackground, syncBackgroundPreferences } from './lib/background.svelte';
-  import { openNotification } from './lib/notification-navigation';
-  import { seatPrefs } from './lib/seat.svelte';
-  import { refreshState, refreshTab } from './lib/refresh.svelte';
-  import { settings, accountPreferences, watchAccountPreferences } from './lib/settings.svelte';
-  import {
-    app,
-    calendar,
-    endSession,
-    logoutSession,
-    startSession,
-    lectures,
-    seatSession,
-    todos,
-    timetable,
-    refreshTimetableForTerm,
-  } from './lib/store.svelte';
-  import { TABS, go, openSeats, route, toast } from './lib/ui.svelte';
-  import Avatar from './components/Avatar.svelte';
-  import ConnBanner from './components/ConnBanner.svelte';
-  import Icon from './components/Icon.svelte';
-  import Downloads from './components/Downloads.svelte';
-  import Notices from './components/Notices.svelte';
-  import ProfileSheet from './components/ProfileSheet.svelte';
-  import PullRefresh from './components/PullRefresh.svelte';
-  import Toasts from './components/Toasts.svelte';
+  import { ApiError, api, isApp, native } from './shared/api/api';
+  import { dayKey, dueKey } from './shared/utils/format';
+  import { displayedTodos } from './features/calendar/todos.svelte';
+  import { errorText } from './shared/api/net.svelte';
+  import { syncSeatReminders } from './features/seats/seat.svelte';
+  import { syncDueReminders } from './features/notifications/reminders';
+  import { initNotifications, notificationState, refreshNotifications, showFirstNotificationPermission, takeNotificationIntent } from './features/notifications/notify';
+  import { enableBackgroundByDefault, refreshBackground, syncBackgroundPreferences } from './features/notifications/background.svelte';
+  import { openNotification } from './features/notifications/notification-navigation';
+  import { seatPrefs } from './features/seats/seat.svelte';
+  import { refreshState, refreshTab } from './shared/state/refresh.svelte';
+  import { settings, accountPreferences, watchAccountPreferences } from './features/settings/settings.svelte';
+  import { app, endSession, logoutSession, startSession } from './features/auth/auth-state.svelte';
+  import { calendar } from './features/calendar/calendar-resources.svelte';
+  import { lectures, timetable, refreshTimetableForTerm } from './features/attendance/attendance-resources.svelte';
+  import { seatSession } from './features/seats/seat-resources.svelte';
+  import { todos } from './features/calendar/todo-resource.svelte';
+  import { TABS, go, openSeats, route, toast } from './shared/state/ui.svelte';
+  import Avatar from './shared/ui/Avatar.svelte';
+  import ConnBanner from './shared/ui/ConnBanner.svelte';
+  import Icon from './shared/ui/Icon.svelte';
+  import Downloads from './features/files/Downloads.svelte';
+  import Notices from './features/classroom/Notices.svelte';
+  import ProfileSheet from './features/settings/ProfileSheet.svelte';
+  import PullRefresh from './shared/ui/PullRefresh.svelte';
+  import Toasts from './shared/ui/Toasts.svelte';
   import AttendancePage from './pages/AttendancePage.svelte';
   import CalendarPage from './pages/CalendarPage.svelte';
   import Home from './pages/Home.svelte';

@@ -1,4 +1,5 @@
 mod api;
+mod routes;
 mod auth;
 mod attendance;
 mod background;

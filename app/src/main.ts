@@ -1,8 +1,9 @@
+import './shared/state/resource-lifecycle';
 import { mount } from 'svelte';
 import './app.css';
 import App from './App.svelte';
-import { applyTheme } from './lib/settings.svelte';
-import { isApp } from './lib/env';
+import { applyTheme } from './features/settings/settings.svelte';
+import { isApp } from './platform/env';
 
 document.documentElement.dataset.platform = isApp ? 'app' : 'web';
 applyTheme();

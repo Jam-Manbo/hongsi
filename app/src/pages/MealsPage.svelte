@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { hourNow, todayKey } from '../lib/format';
-  import { isNowMeal, placePrice, sortedPlaces } from '../lib/meals';
-  import { meals } from '../lib/store.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
-  import Icon from '../components/Icon.svelte';
-  import LoadError from '../components/LoadError.svelte';
-  import Skeleton from '../components/Skeleton.svelte';
+  import { hourNow, todayKey } from '../shared/utils/format';
+  import { isNowMeal, placePrice, sortedPlaces } from '../features/meals/meals';
+  import { meals } from '../features/meals/meal-resource.svelte';
+  import EmptyState from '../shared/ui/EmptyState.svelte';
+  import Icon from '../shared/ui/Icon.svelte';
+  import LoadError from '../shared/ui/LoadError.svelte';
+  import Skeleton from '../shared/ui/Skeleton.svelte';
 
   let picked = $state('');
 
