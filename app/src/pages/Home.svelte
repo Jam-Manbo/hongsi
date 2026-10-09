@@ -1,27 +1,31 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { isApp } from '../lib/api';
-  import { toggleDone } from '../lib/actions.svelte';
-  import { classWatch } from '../lib/classwatch.svelte';
-  import { currentMealIndex, isNowMeal, placePrice, sortedPlaces } from '../lib/meals';
-  import { courseColors } from '../lib/colors';
-  import { dayKey, dueDateTime, hourNow, todayKey } from '../lib/format';
-  import { homeAgenda, type HomeEntry } from '../lib/home-agenda';
-  import { settings } from '../lib/settings.svelte';
-  import { displayedTodos } from '../lib/todos.svelte';
-  import { calendar, meals, seatSession, seats, timetable, todos } from '../lib/store.svelte';
-  import { go, openSeats } from '../lib/ui.svelte';
-  import type { CalendarItem, Todo } from '../lib/types';
-  import AgendaItem from '../components/AgendaItem.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
-  import Icon from '../components/Icon.svelte';
-  import ItemSheet from '../components/ItemSheet.svelte';
-  import LoadError from '../components/LoadError.svelte';
-  import MySeat from '../components/MySeat.svelte';
-  import CurrentAttendance from '../components/CurrentAttendance.svelte';
-  import Skeleton from '../components/Skeleton.svelte';
-  import TodoRow from '../components/TodoRow.svelte';
-  import TodoSheet from '../components/TodoSheet.svelte';
+  import { isApp } from '../shared/api/api';
+  import { toggleDone } from '../features/calendar/actions.svelte';
+  import { classWatch } from '../features/attendance/classwatch.svelte';
+  import { currentMealIndex, isNowMeal, placePrice, sortedPlaces } from '../features/meals/meals';
+  import { courseColors } from '../features/calendar/colors';
+  import { dayKey, dueDateTime, hourNow, todayKey } from '../shared/utils/format';
+  import { homeAgenda, type HomeEntry } from '../features/calendar/home-agenda';
+  import { settings } from '../features/settings/settings.svelte';
+  import { displayedTodos } from '../features/calendar/todos.svelte';
+  import { calendar } from '../features/calendar/calendar-resources.svelte';
+  import { meals } from '../features/meals/meal-resource.svelte';
+  import { seatSession, seats } from '../features/seats/seat-resources.svelte';
+  import { timetable } from '../features/attendance/attendance-resources.svelte';
+  import { todos } from '../features/calendar/todo-resource.svelte';
+  import { go, openSeats } from '../shared/state/ui.svelte';
+  import type { CalendarItem, Todo } from '../shared/types';
+  import AgendaItem from '../features/calendar/AgendaItem.svelte';
+  import EmptyState from '../shared/ui/EmptyState.svelte';
+  import Icon from '../shared/ui/Icon.svelte';
+  import ItemSheet from '../features/classroom/ItemSheet.svelte';
+  import LoadError from '../shared/ui/LoadError.svelte';
+  import MySeat from '../features/seats/MySeat.svelte';
+  import CurrentAttendance from '../features/attendance/CurrentAttendance.svelte';
+  import Skeleton from '../shared/ui/Skeleton.svelte';
+  import TodoRow from '../features/calendar/TodoRow.svelte';
+  import TodoSheet from '../features/calendar/TodoSheet.svelte';
 
   let detailKey = $state<string | null>(null);
   const detail = $derived(calendar.data?.items.find((i) => i.key === detailKey) ?? null);
@@ -42,7 +46,6 @@
   const agendaComplete = $derived(calendar.data !== null && todos.data !== null);
   const groups = $derived([
     { id: 'today', title: '오늘 마감', entries: agenda.today, limit: 6 },
-    { id: 'overdue', title: '기한 지남 · 확인 필요', entries: agenda.overdue, limit: 4 },
     { id: 'upcoming', title: '다가오는 일정', entries: agenda.upcoming, limit: 4 },
     { id: 'undated', title: '날짜 미정', entries: agenda.undated, limit: 3 },
   ]);
@@ -97,7 +100,7 @@
     {#each groups as group (group.id)}
       {#if agendaLoading ? group.id === 'today' || group.id === 'upcoming' : group.entries.length || ((group.id === 'today' || group.id === 'upcoming') && agendaComplete)}
         <div class="agenda-group" data-group={group.id} aria-busy={agendaLoading}>
-          <h3 class="agenda-label" class:urgent={group.id === 'overdue'}>{group.title}{#if !agendaLoading}<span>{group.entries.length}</span>{/if}</h3>
+          <h3 class="agenda-label">{group.title}{#if !agendaLoading}<span>{group.entries.length}</span>{/if}</h3>
           {#if agendaLoading}
             <Skeleton rows={group.id === 'today' ? 1 : 2} height={82} />
           {:else if !group.entries.length}
@@ -192,7 +195,7 @@
   {:else}
     <div>
       <AgendaItem item={entry.value} showDate color={colors.get(entry.value.courseId) ?? 'var(--text-3)'} course={courseName(entry.value.courseId)} onopen={(i) => detailKey = i.key} ontoggle={toggleDone} />
-      {#if entry.value.kind === 'assignment' && entry.due !== null && entry.due * 1000 <= classWatch.now}
+      {#if !entry.done && entry.value.kind === 'assignment' && entry.due !== null && entry.due * 1000 <= classWatch.now && (entry.value.lateUntil === null || entry.value.lateUntil * 1000 > classWatch.now)}
         <p class="late-hint">{entry.value.lateUntil ? `지각 제출 마감 ${dueDateTime(entry.value.lateUntil)} · 상세에서 확인` : '지각 제출 가능 여부를 상세에서 확인해 주세요.'}</p>
       {/if}
     </div>
@@ -215,7 +218,6 @@
   .agenda-group { margin-bottom: 18px; }
   .agenda-label { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); margin: 0 3px 8px; }
   .agenda-label span { color: var(--text-3); font-variant-numeric: tabular-nums; }
-  .agenda-label.urgent { color: var(--warn); }
   .show-more { width: 100%; padding: 10px; color: var(--primary-text); font-size: 13px; font-weight: 650; }
   .late-hint { margin: 5px 6px 2px; color: var(--text-3); font-size: 12px; }
   .seat-fold { overflow: hidden; }

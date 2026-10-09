@@ -16,11 +16,42 @@ use tauri::{AppHandle, Manager, State};
 mod android_external;
 #[cfg(target_os = "android")]
 mod android_update;
+mod student_card;
 mod credentials;
+
+async fn student_card_request(app: AppHandle, shell: &Shell, view_id: String, fresh: bool) -> Result<Value, String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    return serde_json::to_value(student_card::request(&app, shell, &view_id, fresh).await)
+        .map_err(|_| "학생증 QR을 불러오지 못했어요.".to_string());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    { let _ = (app, shell, view_id, fresh); Err("모바일 앱에서 사용할 수 있어요.".into()) }
+}
+
+#[tauri::command]
+async fn student_card_open(app: AppHandle, shell: State<'_, Arc<Shell>>, view_id: String) -> Result<Value, String> {
+    student_card_request(app, &shell, view_id, true).await
+}
+
+#[tauri::command]
+async fn student_card_refresh(app: AppHandle, shell: State<'_, Arc<Shell>>, view_id: String) -> Result<Value, String> {
+    student_card_request(app, &shell, view_id, false).await
+}
+
+#[tauri::command]
+async fn student_card_close(shell: State<'_, Arc<Shell>>, view_id: String) -> Result<(), String> {
+    shell.student_cards.close(&view_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn student_card_displayed(shell: State<'_, Arc<Shell>>, view_id: String, timing_id: u64, elapsed_ms: u64, remaining_ms: u64) -> Result<(), String> {
+    shell.student_cards.displayed(&view_id, timing_id, elapsed_ms, remaining_ms);
+    Ok(())
+}
 
 #[tauri::command]
 async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: String) -> Result<(), String> {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         let _operations = shell.operations.read().await;
         if !value.is_empty() {
@@ -28,9 +59,12 @@ async fn sync_widgets(app: AppHandle, shell: State<'_, Arc<Shell>>, value: Strin
             let account = shell.direct.snapshot().await.and_then(|s| serde_json::to_value(s).ok()).and_then(|v| v["student_id"].as_str().map(str::to_string));
             if owner.is_none() || owner != account { return Err("로그인한 계정의 위젯만 갱신할 수 있어요.".into()); }
         }
+        #[cfg(target_os = "android")]
         return android_external::open(&app, "syncWidget", &value).await;
+        #[cfg(target_os = "ios")]
+        return tauri_plugin_hongsi_ios::call(&app, "syncWidget", &value).await.map(|_| ());
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     { let _ = (app, shell, value); Ok(()) }
 }
 
@@ -39,7 +73,9 @@ async fn set_widget_theme(app: AppHandle, value: String) -> Result<(), String> {
     if !matches!(value.as_str(), "system" | "light" | "dark") { return Err("테마 설정을 확인해 주세요.".into()); }
     #[cfg(target_os = "android")]
     return android_external::open(&app, "setWidgetTheme", &value).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "setWidgetTheme", &value).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     { let _ = (app, value); Ok(()) }
 }
 
@@ -47,7 +83,9 @@ async fn set_widget_theme(app: AppHandle, value: String) -> Result<(), String> {
 async fn widget_intent(app: AppHandle) -> Result<Value, String> {
     #[cfg(target_os = "android")]
     return android_external::take_widget_intent(&app).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "takeWidgetIntent", "").await;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     { let _ = app; Ok(Value::Null) }
 }
 
@@ -59,15 +97,21 @@ async fn app_update(
 ) -> Result<Value, String> {
     #[cfg(target_os = "android")]
     return android_update::call(&app, &action, version_code).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    {
+        let _ = version_code;
+        return tauri_plugin_hongsi_ios::call(&app, "appUpdate", &action).await;
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let _ = (app, action, version_code);
-        Err("Android 앱에서 사용할 수 있어요.".into())
+        Err("모바일 앱에서 사용할 수 있어요.".into())
     }
 }
 
 struct Shell {
     direct: Direct,
+    student_cards: hongsi_student_card::StudentCards,
     credentials: credentials::Store,
     login_lock: Mutex<()>,
     saved: Mutex<CredentialState>,
@@ -79,6 +123,7 @@ static SHARED_SHELL: OnceLock<Arc<Shell>> = OnceLock::new();
 fn shared_shell(credentials: credentials::Store) -> Arc<Shell> {
     SHARED_SHELL.get_or_init(|| Arc::new(Shell {
         direct: Direct::new(server_base()), credentials,
+        student_cards: hongsi_student_card::StudentCards::default(),
         login_lock: Mutex::new(()), saved: Mutex::new(CredentialState::default()),
         operations: Arc::new(tokio::sync::RwLock::new(())), revoked: AtomicBool::new(false),
     })).clone()
@@ -132,6 +177,9 @@ async fn saved_login(shell: &Shell) -> Result<Option<Saved>, String> {
 
 async fn save_credentials(shell: &Shell, saved: Option<Saved>) -> Result<(), String> {
     let mut cached = shell.saved.lock().await;
+    if saved.is_none() || cached.value.as_ref().map(|value| (&value.id, &value.password)) != saved.as_ref().map(|value| (&value.id, &value.password)) {
+        shell.student_cards.reset();
+    }
     if let Some(saved) = &saved {
         let encoded = serde_json::to_string(saved).map_err(|_| credentials::SAVE_ERROR.to_string())?;
         shell.credentials.save(&encoded).await?;
@@ -205,7 +253,7 @@ async fn relogin(shell: &Shell, seen: u64) -> Result<(), Reply> {
         .await
         .map_err(|e| Reply::error(503, "credentials_unavailable", e))?
     else {
-        return Err(need_login());
+        return Err(Reply::error(401, "session_expired", "로그인이 만료됐어요."));
     };
     let reply = shell.direct.login(&saved.id, &saved.password, true).await;
     match reply.status {
@@ -344,6 +392,7 @@ async fn api(
     }
 
     if path == "/api/auth/logout" || path == "/api/auth/logout-all" {
+        shell.student_cards.reset();
         let _operations = shell.operations.write().await;
         let _guard = shell.login_lock.lock().await;
         if !shell.direct.logged_in().await {
@@ -368,6 +417,7 @@ async fn api(
     }
 
     if path == "/api/auth/login" {
+        shell.student_cards.reset();
         let _operations = shell.operations.write().await;
         let body = body.unwrap_or(Value::Null);
         let id = body["id"].as_str().unwrap_or("").to_string();
@@ -488,6 +538,9 @@ async fn submission_status(shell: State<'_, Arc<Shell>>, cmid: i64, job_id: Stri
 }
 
 fn download_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    #[cfg(target_os = "ios")]
+    let base = app.path().document_dir().map_err(|_| "다운로드 폴더를 찾지 못했어요.".to_string())?;
+    #[cfg(not(target_os = "ios"))]
     let base = app
         .path()
         .download_dir()
@@ -596,7 +649,7 @@ fn checked(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
     Ok(file)
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
     std::process::Command::new(program)
         .args(args)
@@ -605,7 +658,7 @@ fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
         .map_err(|_| "파일이나 링크를 열지 못했어요.".to_string())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn open_with_os(target: &std::ffi::OsStr) -> Result<(), String> {
     if cfg!(target_os = "macos") {
         run("open", &[target])
@@ -621,7 +674,9 @@ async fn open_file(app: AppHandle, path: String) -> Result<(), String> {
     let file = checked(&app, &path)?;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "openFile", &file.to_string_lossy()).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "openFile", &file.to_string_lossy()).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     open_with_os(file.as_os_str())
 }
 
@@ -630,7 +685,9 @@ async fn reveal_file(app: AppHandle, path: String) -> Result<(), String> {
     let file = checked(&app, &path)?;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "revealFile", &file.to_string_lossy()).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "revealFile", &file.to_string_lossy()).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if cfg!(target_os = "macos") {
         run("open", &["-R".as_ref(), file.as_os_str()])
     } else if cfg!(target_os = "windows") {
@@ -657,10 +714,20 @@ async fn open_url(app: AppHandle, shell: State<'_, Arc<Shell>>, url: String) -> 
     persist_auth(&shell).await;
     #[cfg(target_os = "android")]
     return android_external::open(&app, "openUrl", &target).await;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "openUrl", &target).await.map(|_| ());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let _ = app;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     open_with_os(std::ffi::OsStr::new(&target))
+}
+
+#[tauri::command]
+async fn current_location(app: AppHandle) -> Result<Value, String> {
+    #[cfg(target_os = "ios")]
+    return tauri_plugin_hongsi_ios::call(&app, "currentLocation", "").await;
+    #[cfg(not(target_os = "ios"))]
+    { let _ = app; Err("이 기기에서는 위치를 확인할 수 없어요.".into()) }
 }
 
 const DEV_SERVER: &str = "http://127.0.0.1:8787";
@@ -692,11 +759,14 @@ fn server_base() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run_app() {
     let builder = tauri::Builder::default();
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(tauri_plugin_hongsi_ios::init());
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(android_external::init())
         .plugin(android_update::init());
     builder
+        .plugin(student_card::init())
         .plugin(tauri_plugin_notifications::init())
         .plugin(credentials::init())
         .setup(move |app| {
@@ -706,6 +776,10 @@ pub fn run_app() {
         .invoke_handler(tauri::generate_handler![
             api,
             app_update,
+            student_card_open,
+            student_card_refresh,
+            student_card_close,
+            student_card_displayed,
             sync_widgets,
             set_widget_theme,
             widget_intent,
@@ -715,6 +789,7 @@ pub fn run_app() {
             open_file,
             open_url,
             reveal_file,
+            current_location,
             submit_assignment,
             submission_status
         ])

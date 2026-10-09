@@ -10,6 +10,9 @@ publish.workspace = true
 name = "hongsi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "=2.7.0", features = [] }
 dotenvy = "=0.15.7"
@@ -18,13 +21,18 @@ dotenvy = "=0.15.7"
 tauri = { version = "=2.12.0", features = [] }
 tauri-plugin-notifications = { version = "=0.4.6", features = ["push-notifications"] }
 hongsi-direct = { path = "../../crates/direct" }
+hongsi-student-card = { path = "../../crates/student-card" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 base64 = "=0.22.1"
+zeroize = "=1.9.0"
 keyring = { version = "=3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "=0.21.1"
 sha2 = "=0.10.9"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri-plugin-hongsi-ios = { path = "plugins/ios" }

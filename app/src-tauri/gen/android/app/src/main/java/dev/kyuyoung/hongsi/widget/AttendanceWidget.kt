@@ -22,6 +22,7 @@ internal enum class WidgetKind(val title: String, val height: Int, val receiver:
     TODAY_LARGE("오늘 수업 크게", 396, TodayLargeWidgetReceiver::class.java),
     WEEK("주간 시간표", 396, WeekWidgetReceiver::class.java);
     val today get() = this == TODAY || this == TODAY_LARGE
+    val savedTimetable get() = today || this == WEEK
     val attendance get() = this == ATTENDANCE
     val deadlines get() = this == DEADLINES || this == DEADLINES_LARGE
 
@@ -46,6 +47,7 @@ open class HongsiWidgetProvider : AppWidgetProvider() {
             Widgets.act(context, id, kind, operation)
         } else if (intent.action == Widgets.TICK) {
             Widgets.ids(context, kind).forEach { Widgets.update(context, it, kind) }
+            if (kind.attendance && Widgets.ids(context, kind).isNotEmpty()) WidgetSync.refreshAttendanceIfNeeded(context)
         } else super.onReceive(context, intent)
     }
 }
@@ -95,7 +97,7 @@ internal object Widgets {
         val alarm = context.getSystemService(android.app.AlarmManager::class.java)
         val pending = PendingIntent.getBroadcast(context, 0, Intent(context, kind.receiver).setAction(TICK), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val active = when {
-            kind == WidgetKind.SEAT -> ids.isNotEmpty() && WidgetData.seat(context) != null
+            kind == WidgetKind.SEAT -> ids.isNotEmpty() && (WidgetData.seat(context)?.optLong("expiresAt") ?: 0) > nowSeconds()
             kind.attendance || kind.today || kind.deadlines || kind == WidgetKind.WEEK -> ids.isNotEmpty()
             else -> false
         }

@@ -62,7 +62,7 @@ internal object WidgetViews {
         val state = WidgetData.state(context, id)
         val data = WidgetData.read(context)
         val resource = if (kind.deadlines) "calendar" else if (kind == WidgetKind.SEAT) "seats" else "timetable"
-        val failed = WidgetData.error(context, resource).isNotBlank()
+        val failed = !kind.savedTimetable && WidgetData.error(context, resource).isNotBlank()
         val mode = state.text("mode", "ready")
         val options = if (id > 0) AppWidgetManager.getInstance(context).getAppWidgetOptions(id) else android.os.Bundle()
         val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, kind.height)
@@ -95,6 +95,12 @@ internal object WidgetViews {
             }
             if (weekOnly) return weekStatus(context, id, kind, title)
             view.addView(R.id.widget_body, empty(context, title))
+            return view
+        }
+        if (kind.savedTimetable && !WidgetData.hasTimetable(data)) {
+            val message = "앱에서 시간표를 한 번 불러와 주세요."
+            if (weekOnly) return weekStatus(context, id, kind, message)
+            view.addView(R.id.widget_body, empty(context, message))
             return view
         }
         when (kind) {
@@ -281,11 +287,12 @@ internal object WidgetViews {
         val view = layout(context, R.layout.widget_seat)
         view.page(context, id, kind, R.id.widget_root)
         val seconds = max(0L, seat.optLong("expiresAt") - nowSeconds())
+        val expired = seconds == 0L
         val left = (seconds / 60.0).roundToInt()
         val hours = left / 60
         val minutes = left % 60
         val duration = if (hours == 0) "${minutes}분" else if (minutes == 0) "${hours}시간" else "${hours}시간 ${minutes}분"
-        val remaining = "$duration 남음"
+        val remaining = if (expired) "만료" else "$duration 남음"
         val building = seat.text("buildingName")
         val code = seat.text("building").ifBlank { mapOf("제4공학관" to "T", "학생회관" to "G", "홍문관" to "R")[building].orEmpty() }
         val caption = if (code.isBlank()) building else "$building (${code}동)"
@@ -300,8 +307,9 @@ internal object WidgetViews {
         view.text(R.id.seat_room, seat.text("roomName").replace(Regex("제\\s*(\\d+)"), "제 $1"))
         view.text(R.id.seat_number, "${seat.text("seatNo")}${if (seat.text("seatNo").all(Char::isDigit)) "번" else ""}")
         view.setTextViewText(R.id.seat_remaining, SpannableString(remaining).apply {
-            setSpan(RelativeSizeSpan(.8f), remaining.length - 2, remaining.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (!expired) setSpan(RelativeSizeSpan(.8f), remaining.length - 2, remaining.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         })
+        view.themeText(context, R.id.seat_remaining, if (expired) R.color.widget_error else R.color.widget_text)
         refresh(context, id, kind, view)
         val extending = SeatExtensionJob.pending(context)
         view.text(R.id.seat_extend, if (extending) "연장 중…" else "연장")

@@ -7,6 +7,7 @@ keystore.properties
 *.keystore
 *.p8
 *.p12
+*.pfx
 *.mobileprovision
 .DS_Store
 
@@ -14,6 +15,7 @@ target/
 node_modules/
 app/dist/
 releases/
+artifacts/
 *.apk
 *.aab
 *.jks.base64
@@ -26,3 +28,11 @@ GoogleService-Info.plist
 *-service-account.json
 
 .backups/
+
+.build/
+.tauri/
+*.xcarchive/
+*.ipa
+*.dSYM/
+xcuserdata/
+*.xcuserstate

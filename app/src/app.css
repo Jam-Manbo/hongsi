@@ -65,7 +65,10 @@
   --shadow-lg: 0 12px 40px rgb(14 26 43 / 16%);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --tabbar-h: 72px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
 }
 
 :root[data-theme='dark'] {

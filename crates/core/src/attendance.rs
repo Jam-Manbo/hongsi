@@ -20,10 +20,13 @@ impl SchoolSession {
                 let origin = reqwest::Url::parse(AT).expect("출결 주소");
                 let has_session = self.cookie_jar.cookies(&origin).and_then(|header| header.to_str().ok().map(|value| value.contains("JSESSIONID="))).unwrap_or(false);
                 if has_session {
-                    let body = self.get_text(&format!("{AT}index.jsp"), None).await?;
-                    if !looks_like_login(&body) && Html::parse_document(&body).select(&sel("table")).next().is_some() {
-                        initial_body = Some(body);
-                        return Ok(());
+                    match self.get_text(&format!("{AT}index.jsp"), None).await {
+                        Ok(body) if Html::parse_document(&body).select(&sel("table")).next().is_some() => {
+                            initial_body = Some(body);
+                            return Ok(());
+                        }
+                        Ok(_) | Err(CoreError::SessionExpired) => {}
+                        Err(error) => return Err(error),
                     }
                 }
                 self.client
@@ -114,17 +117,15 @@ impl SchoolSession {
         form.push(("latitude".into(), latitude.to_string()));
         form.push(("longitude".into(), longitude.to_string()));
         let submitted_at = chrono::Utc::now();
-        let body = self
+        let response = self
             .client
             .post(format!("{AT}stud02_proc.jsp"))
             .header(ORIGIN, "https://at.hongik.ac.kr")
             .header(REFERER, format!("{AT}stud02.jsp"))
             .form(&form)
             .send()
-            .await?
-            .error_for_status()?
-            .text()
             .await?;
+        let body = crate::session::school_text(response).await?;
         if looks_like_login(&body) {
             return Err(CoreError::SessionExpired);
         }

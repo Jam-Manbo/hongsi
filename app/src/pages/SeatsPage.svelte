@@ -1,20 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, isApp } from '../lib/api';
-  import { ago, time } from '../lib/format';
-  import { errorText, writeBlocked } from '../lib/net.svelte';
-    import { PERIODS, seatLabel, seatPrefs, setPeriod, syncSeatReminders } from '../lib/seat.svelte';
-  import { handleAuthError, seatSession, seats } from '../lib/store.svelte';
-  import { isCurrentSession, sessionVersion } from '../lib/session';
-  import { focus, toast, toastOnce } from '../lib/ui.svelte';
-  import type { RecentSeat, Room, SeatCell } from '../lib/types';
-  import Icon from '../components/Icon.svelte';
-  import LoadError from '../components/LoadError.svelte';
-  import MySeat from '../components/MySeat.svelte';
-  import SeatMap from '../components/SeatMap.svelte';
-  import SeatLegend from '../components/SeatLegend.svelte';
-  import Sheet from '../components/Sheet.svelte';
-  import Skeleton from '../components/Skeleton.svelte';
+  import { api, isApp } from '../shared/api/api';
+  import { ago, time } from '../shared/utils/format';
+  import { errorText, writeBlocked } from '../shared/api/net.svelte';
+    import { PERIODS, seatLabel, seatPrefs, setPeriod, syncSeatReminders } from '../features/seats/seat.svelte';
+  import { handleAuthError } from '../features/auth/auth-state.svelte';
+  import { seatSession, seats } from '../features/seats/seat-resources.svelte';
+  import { isCurrentSession, sessionVersion } from '../shared/state/session';
+  import { focus, toast, toastOnce } from '../shared/state/ui.svelte';
+  import type { RecentSeat, Room, SeatCell } from '../shared/types';
+  import Icon from '../shared/ui/Icon.svelte';
+  import LoadError from '../shared/ui/LoadError.svelte';
+  import MySeat from '../features/seats/MySeat.svelte';
+  import SeatMap from '../features/seats/SeatMap.svelte';
+  import SeatLegend from '../features/seats/SeatLegend.svelte';
+  import Sheet from '../shared/ui/Sheet.svelte';
+  import Skeleton from '../shared/ui/Skeleton.svelte';
 
   let building = $state('T');
   $effect(() => {

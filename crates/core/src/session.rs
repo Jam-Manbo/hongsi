@@ -12,6 +12,7 @@ use tokio::sync::OnceCell;
 
 use crate::{CoreError, Result};
 use crate::models::AcademicTerm;
+use crate::util::looks_like_login;
 
 pub(crate) const UA: &str = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) \
                              Chrome/128.0.0.0 Mobile Safari/537.36";
@@ -25,6 +26,20 @@ fn clients() -> Result<(Arc<Jar>, Client, Client)> {
     let client = builder().build()?;
     let no_redirect = builder().redirect(Policy::none()).build()?;
     Ok((jar, client, no_redirect))
+}
+
+pub(crate) async fn school_text(response: reqwest::Response) -> Result<String> {
+    let response = response.error_for_status()?;
+    let url = response.url();
+    let school_host = url.domain().is_some_and(|host| host == "hongik.ac.kr" || host.ends_with(".hongik.ac.kr"));
+    if school_host && matches!(url.path(), "/login.jsp" | "/login.do" | "/my/login.do" | "/login/login.jsp") {
+        return Err(CoreError::SessionExpired);
+    }
+    let body = response.text().await?;
+    if looks_like_login(&body) {
+        return Err(CoreError::SessionExpired);
+    }
+    Ok(body)
 }
 
 fn add_sso_cookies(jar: &Jar, cookies: &[(String, String)]) {
@@ -202,7 +217,7 @@ impl SchoolSession {
         if let Some(referer) = referer {
             req = req.header(REFERER, referer);
         }
-        Ok(req.send().await?.text().await?)
+        school_text(req.send().await?).await
     }
 
     pub(crate) async fn post_form_text(
@@ -215,6 +230,6 @@ impl SchoolSession {
         if let Some(referer) = referer {
             req = req.header(REFERER, referer);
         }
-        Ok(req.send().await?.text().await?)
+        school_text(req.send().await?).await
     }
 }

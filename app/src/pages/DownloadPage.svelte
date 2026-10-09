@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { sentenceLines } from '../lib/format';
-  import Icon from '../components/Icon.svelte';
+  import { sentenceLines } from '../shared/utils/format';
+  import Icon from '../shared/ui/Icon.svelte';
   type Release = { version: string; versionCode: number; url: string; size: number; notes: string; sha256: string };
   type ReleaseSummary = { id: string; tag: string; version: string; publishedAt: string | null; url: string; size: number; notesUrl: string; prerelease: boolean; isLatest: boolean };
   const versionsPage = location.pathname.replace(/\/$/, '') === '/download/versions';

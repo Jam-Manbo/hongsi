@@ -1,6 +1,8 @@
 package dev.kyuyoung.hongsi.widget
 
 import android.content.Context
+import android.icu.text.Collator
+import android.icu.text.RuleBasedCollator
 import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,7 +20,7 @@ internal fun JSONObject.array(key: String) = optJSONArray(key).objects()
 internal fun nowSeconds() = System.currentTimeMillis() / 1000
 internal val korea: TimeZone get() = TimeZone.getTimeZone("Asia/Seoul")
 internal fun dateText(seconds: Long = nowSeconds(), pattern: String = "yyyy-MM-dd"): String = SimpleDateFormat(pattern, Locale.KOREAN).apply { timeZone = korea }.format(Date(seconds * 1000))
-internal fun weekday(): Int = (Calendar.getInstance(korea).get(Calendar.DAY_OF_WEEK) + 5) % 7
+internal fun weekday(seconds: Long = nowSeconds()): Int = (Calendar.getInstance(korea).apply { timeInMillis = seconds * 1000 }.get(Calendar.DAY_OF_WEEK) + 5) % 7
 internal fun minuteOfDay(): Int = Calendar.getInstance(korea).let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 internal fun minutes(value: String): Int = value.split(':').let { (it.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (it.getOrNull(1)?.toIntOrNull() ?: 0) }
 internal fun hm(value: Int) = "%02d:%02d".format(value / 60, value % 60)
@@ -52,6 +54,7 @@ object WidgetData {
                 val matchingSemester = field != "deadlines" || current.text("semesterDisplay") == display
                 if (matchingSemester && (oldTimes.optLong(resource) > times.optLong(resource) || (field == "deadlines" && next.text("semesterDisplay") != display))) {
                     if (current.has(field)) next.put(field, current.get(field))
+                    if (field == "slots") next.put("timetableLoaded", hasTimetable(current))
                     if (field == "deadlines") next.put("semesterDisplay", current.text("semesterDisplay"))
                     times.put(resource, oldTimes.optLong(resource))
                 }
@@ -65,6 +68,7 @@ object WidgetData {
     @Synchronized fun merge(context: Context, owner: String, patch: JSONObject): Boolean {
         val next = read(context)
         if (owner.isBlank() || next.text("owner") != owner) return false
+        discardOlderAttendance(next, patch)
         val incomingPreferencesAt = patch.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
         val preferencesAt = next.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
         val display = next.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current"
@@ -86,6 +90,15 @@ object WidgetData {
         write(context, next)
         return true
     }
+    internal fun discardOlderAttendance(current: JSONObject, patch: JSONObject) {
+        val incoming = patch.optJSONObject("attendance") ?: return
+        val saved = current.optJSONObject("attendance") ?: return
+        if (incoming.optLong("checkedAt") >= saved.optLong("checkedAt")) return
+        // Course-history requests may finish after a newer foreground active-list response.
+        patch.remove("attendance")
+        patch.optJSONObject("updatedAt")?.remove("lectures")
+        patch.optJSONObject("errors")?.remove("lectures")
+    }
     @Synchronized private fun write(context: Context, next: JSONObject) {
         val store = file(context)
         val stream = store.startWrite()
@@ -98,6 +111,9 @@ object WidgetData {
     }.getOrElse { JSONObject() }
     fun save(context: Context, id: Int, state: JSONObject) { context.getSharedPreferences("widgets-state", Context.MODE_PRIVATE).edit().putString("$id", state.toString()).apply() }
     fun delete(context: Context, id: Int) { context.getSharedPreferences("widgets-state", Context.MODE_PRIVATE).edit().remove("$id").apply() }
+    fun hasTimetable(data: JSONObject) = data.optBoolean("timetableLoaded")
+        || (data.optJSONObject("updatedAt")?.optLong("timetable") ?: 0) > 0
+        || data.array("slots").isNotEmpty()
     fun slots(context: Context) = read(context).array("slots")
     fun today(context: Context): List<JSONObject> = slots(context).filter { it.optInt("weekday") == weekday() }.sortedBy { it.text("start") }
     private fun previousMidnight(context: Context, due: Long) = read(context).optJSONObject("preferences")?.text("midnight", "prev") != "same" && dateText(due, "HH:mm") == "00:00"
@@ -119,11 +135,25 @@ object WidgetData {
     fun deadlines(context: Context): List<JSONObject> {
         val data = read(context)
         if (data.text("semesterDisplay") != (data.optJSONObject("preferences")?.text("semesterDisplay", "current") ?: "current")) return emptyList()
-        val showUndated = data.optJSONObject("preferences")?.optBoolean("showUndated") == true
-        return data.array("deadlines").filter {
-            !it.optBoolean("done") && (if (it.isNull("due")) showUndated else it.optLong("due") > nowSeconds()) && (it.text("kind") != "vod" || it.isNull("start") || it.optLong("start") <= nowSeconds())
-        }.sortedBy { if (it.isNull("due")) Long.MAX_VALUE else it.optLong("due") }
+        val now = nowSeconds()
+        val titles = (Collator.getInstance(Locale.KOREAN) as RuleBasedCollator).apply { numericCollation = true }
+        val items = data.array("deadlines").filter {
+            !it.optBoolean("done") && !it.isNull("due") && it.optLong("due") > now
+        }
+        val midnight = data.optJSONObject("preferences")?.text("midnight", "prev") ?: "prev"
+        val days = items.associateWith {
+            val due = it.optLong("due")
+            val previous = midnight != "same" && dateText(due, "HH:mm") == "00:00"
+            Math.floorDiv(due + 32400 - if (previous) 60 else 0, 86400)
+        }
+        return items.sortedWith { a, b ->
+            compareValues(days.getValue(a), days.getValue(b)).takeIf { it != 0 }
+                ?: compareValues(a.optBoolean("allDay"), b.optBoolean("allDay")).takeIf { it != 0 }
+                ?: compareValues(a.optLong("due"), b.optLong("due")).takeIf { it != 0 }
+                ?: titles.compare(a.text("title"), b.text("title")).takeIf { it != 0 }
+                ?: a.text("key").compareTo(b.text("key"))
+        }
     }
-    fun seat(context: Context): JSONObject? = read(context).optJSONObject("seat")?.takeIf { it.isNull("endedAt") && it.optLong("expiresAt") > nowSeconds() }
+    fun seat(context: Context): JSONObject? = read(context).optJSONObject("seat")?.takeIf { it.isNull("endedAt") }
     fun error(context: Context, resource: String) = read(context).optJSONObject("errors")?.text(resource).orEmpty()
 }

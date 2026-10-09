@@ -12,6 +12,10 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
+    "ios:build": "bash scripts/ios-build.sh simulator",
+    "ios:device": "bash scripts/ios-build.sh device",
+    "ios:personal": "bash scripts/ios-build.sh personal",
+    "ios:archive": "bash scripts/ios-build.sh archive",
     "icons": "tauri icon src-tauri/icon-manifest.json --output src-tauri/icons"
   },
   "dependencies": {

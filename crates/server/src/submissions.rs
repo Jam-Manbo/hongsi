@@ -8,7 +8,7 @@ use hongsi_core::calendar::{check_submission, SubmitRejection};
 use hongsi_core::submission::{Job, Progress, Snapshot, Stage, Status, JOB_TIMEOUT};
 use serde::Deserialize;
 
-use crate::{api, auth::CurrentUser, db, error::ApiError, state::Shared};
+use crate::{routes::classroom, auth::CurrentUser, db, error::ApiError, state::Shared};
 
 struct Upload {
     keep: Vec<String>,
@@ -70,7 +70,7 @@ pub async fn start(
 
 async fn submit(st: &Shared, user: &CurrentUser, cmid: i64, upload: Upload, job: &Arc<Job>) -> Result<(), ApiError> {
     let school = user.session.school()?;
-    let assignment = api::find_assignment(user, cmid).await?;
+    let assignment = classroom::find_assignment(user, cmid).await?;
     let before = school.submission_info(assignment.id).await?;
     let sizes: Vec<_> = upload.files.iter().map(|(name, bytes)| (name.clone(), bytes.len())).collect();
     check_submission(&assignment, &before, chrono::Utc::now().timestamp(), &upload.keep, &sizes, upload.late, upload.statement)
@@ -95,7 +95,7 @@ async fn submit(st: &Shared, user: &CurrentUser, cmid: i64, upload: Upload, job:
         return Err(ApiError::new(StatusCode::BAD_GATEWAY, "submission_unconfirmed", "제출 상태와 파일 목록이 아직 확인되지 않았어요."));
     }
     complete(st, user, cmid).await;
-    job.complete(api::submission_view(&assignment, &info));
+    job.complete(classroom::submission_view(&assignment, &info));
     Ok(())
 }
 
@@ -121,11 +121,11 @@ pub async fn status(
     let job = st.submissions.get(&user.session.user_id.to_string(), cmid, &id)
         .ok_or_else(|| ApiError::not_found("제출 진행 기록을 찾지 못했어요. 클래스룸에서 제출 상태를 확인해 주세요."))?;
     if query.verify && job.snapshot().status == Status::Uncertain {
-        let assignment = api::find_assignment(&user, cmid).await?;
+        let assignment = classroom::find_assignment(&user, cmid).await?;
         let info = user.session.school()?.submission_info(assignment.id).await?;
         if job.matches(&info) {
             complete(&st, &user, cmid).await;
-            job.complete(api::submission_view(&assignment, &info));
+            job.complete(classroom::submission_view(&assignment, &info));
         }
     }
     Ok(Json(job.snapshot()))

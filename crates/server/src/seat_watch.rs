@@ -64,10 +64,6 @@ async fn record(
             }
         }
     }
-    let events = changes.iter().filter(|c| c.from.is_some()).count();
-    if events > 0 {
-        tracing::info!(events, "좌석 상태 변화 기록");
-    }
     db::record_seat_changes(&state.db, &changes, now).await?;
     Ok(current)
 }

@@ -36,23 +36,33 @@ internal fun JSONObject.body(): Any {
 
 internal object WidgetSync {
     val worker = Executors.newFixedThreadPool(2)
+    val refreshWorker = Executors.newFixedThreadPool(3)
     val main = Handler(Looper.getMainLooper())
     val locks = ConcurrentHashMap<String, ReentrantLock>()
     private const val PERIODIC = 7400
     fun installed(context: Context) = WidgetKind.entries.filter { Widgets.ids(context, it).isNotEmpty() }
+    private fun networkKinds(context: Context) = installed(context).filterNot { it.savedTimetable }
     fun schedule(context: Context) {
         val scheduler = context.getSystemService(JobScheduler::class.java)
-        if (installed(context).isEmpty()) { (PERIODIC..PERIODIC + 7).forEach(scheduler::cancel); return }
+        WidgetKind.entries.filter { it.savedTimetable }.forEach { scheduler.cancel(PERIODIC + 1 + it.ordinal) }
+        if (networkKinds(context).isEmpty()) { (PERIODIC..PERIODIC + 7).forEach(scheduler::cancel); return }
         if (scheduler.getPendingJob(PERIODIC) == null) scheduler.schedule(JobInfo.Builder(PERIODIC, ComponentName(context, WidgetJobService::class.java))
             .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPeriodic(15 * 60_000L).setPersisted(true).build())
     }
     fun enqueue(context: Context, kind: WidgetKind) {
         schedule(context)
+        if (kind.savedTimetable) { Widgets.loading(context, kind, false); return }
         val extras = PersistableBundle().apply { putString("kind", kind.name) }
         context.getSystemService(JobScheduler::class.java).schedule(JobInfo.Builder(PERIODIC + 1 + kind.ordinal, ComponentName(context, WidgetJobService::class.java))
             .setExtras(extras).setOverrideDeadline(0).build())
     }
+    fun refreshAttendanceIfNeeded(context: Context) {
+        if (!Widgets.refreshing(WidgetKind.ATTENDANCE) && AttendanceState.needsRefresh(WidgetData.read(context))) {
+            enqueue(context, WidgetKind.ATTENDANCE)
+        }
+    }
     fun refresh(context: Context, kind: WidgetKind) {
+        if (kind.savedTimetable) return
         val resource = when { kind.attendance -> "lectures"; kind.deadlines -> "calendar"; kind == WidgetKind.SEAT -> "seats"; else -> "timetable" }
         val lock = locks.getOrPut(resource) { ReentrantLock() }
         if (!lock.tryLock()) return
@@ -69,7 +79,7 @@ internal object WidgetSync {
         try {
             var preferences = before.optJSONObject("preferences") ?: JSONObject()
             var preferencesAt = before.optJSONObject("updatedAt")?.optLong("preferences") ?: 0
-            if (resource in listOf("calendar", "timetable")) {
+            if (resource == "calendar") {
                 runCatching { get("/api/preferences") as JSONObject }.onSuccess { saved ->
                     if (saved.optLong("updatedAt") > preferencesAt) {
                         preferences = saved
@@ -83,9 +93,10 @@ internal object WidgetSync {
             }
             when (resource) {
                 "lectures" -> {
-                    val slots = (get("/api/timetable") as JSONObject).array("slots")
-                    patch.put("slots", JSONArray(colorSlots(slots, before.array("slots"))))
+                    val slots = before.array("slots")
                     val active = (get("/api/attendance/active") as JSONObject).array("items")
+                    val checkedAt = System.currentTimeMillis()
+                    updated.put(resource, checkedAt)
                     val pending = before.array("pendingReceipts").filter { it.text("date") == dateText() }
                     val unshared = pending.filter { receipt -> runCatching { WidgetNative.api(context, "/api/attendance/receipts", "PUT", JSONObject().put("receipt", receipt), owner).body(); false }.getOrDefault(true) }
                     patch.put("pendingReceipts", JSONArray(unshared))
@@ -93,7 +104,8 @@ internal object WidgetSync {
                     val courses = slots.filter { it.optInt("weekday") == weekday() }.map { it.text("code") }.filter(String::isNotBlank).distinct().mapNotNull { code ->
                         runCatching { get("/api/attendance/course?code=" + android.net.Uri.encode(code)) as JSONObject }.getOrNull()
                     }
-                    patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance")))
+                    patch.put("attendance", WidgetAttendanceSnapshot.make(slots, active, courses, receipts, before.optJSONObject("attendance"), checkedAt)
+                        .put("timetableLoaded", WidgetData.hasTimetable(before)))
                 }
                 "calendar" -> {
                     val display = patch.getJSONObject("preferences").text("semesterDisplay")
@@ -124,12 +136,10 @@ internal object WidgetSync {
                     }
                     patch.put("deadlines", JSONArray(items))
                     patch.put("semesterDisplay", display)
-                    patch.put("slots", JSONArray(before.array("slots").map { slot -> slot.put("color", colors[courses.firstOrNull { sameCourse(it, slot) }?.optLong("id")] ?: slot.text("color", "#3b82f6")) }))
                 }
                 "seats" -> patch.put("seat", (get("/api/seats/session") as JSONObject).opt("session") ?: JSONObject.NULL)
-                else -> patch.put("slots", JSONArray(colorSlots((get("/api/timetable?refresh=1") as JSONObject).array("slots"), before.array("slots"))))
             }
-            updated.put(resource, System.currentTimeMillis())
+            if (!updated.has(resource)) updated.put(resource, System.currentTimeMillis())
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, ""))
         } catch (e: Exception) {
@@ -140,28 +150,55 @@ internal object WidgetSync {
             patch.put("updatedAt", updated)
             patch.put("errors", JSONObject().put(resource, message))
             if (resource == "lectures") patch.put("attendance", (before.optJSONObject("attendance") ?: JSONObject()).put("error", message))
-        } finally { lock.unlock() }
-        WidgetData.merge(context, owner, patch)
+        } finally {
+            try { WidgetData.merge(context, owner, patch) }
+            finally { lock.unlock() }
+        }
     }
-    private fun colorSlots(slots: List<JSONObject>, previous: List<JSONObject>) = slots.map { slot -> slot.put("color", previous.firstOrNull { sameCourse(it, slot) }?.text("color") ?: "#3b82f6") }
 }
 
 class WidgetJobService : JobService() {
-    private val stopped = ConcurrentHashMap.newKeySet<Int>()
+    private class Run(val pending: MutableSet<WidgetKind>) {
+        @Volatile var stopped = false
+    }
+    private val runs = mutableMapOf<Int, Run>()
+
+    private fun updateLoading(kind: WidgetKind) {
+        val related = WidgetKind.entries.filter { it == kind || (it.deadlines && kind.deadlines) }
+        val active = runs.values.any { run -> run.pending.any { it in related } }
+        related.forEach { Widgets.loading(this, it, active) }
+    }
+
     override fun onStartJob(params: JobParameters): Boolean {
-        stopped.remove(params.jobId)
         val requested = WidgetKind.entries.find { it.name == params.extras.getString("kind") }
-        val kinds = if (requested == null) WidgetSync.installed(this).distinctBy { when { it.today || it == WidgetKind.WEEK -> "timetable"; it.deadlines -> "calendar"; else -> it.name } } else listOf(requested)
-        kinds.forEach { Widgets.loading(this, it, true) }
-        WidgetSync.worker.execute {
-            try { for (kind in kinds) { if (stopped.contains(params.jobId)) break; WidgetSync.refresh(applicationContext, kind) } }
-            finally { WidgetSync.main.post { kinds.forEach { Widgets.loading(this, it, false) }; Widgets.updateAll(this, preserveInput = true); if (!stopped.remove(params.jobId)) jobFinished(params, false) } }
+        val kinds = (if (requested == null) WidgetSync.installed(this) else listOf(requested))
+            .filterNot { it.savedTimetable }.distinctBy { if (it.deadlines) "calendar" else it.name }
+        if (kinds.isEmpty()) { Widgets.updateAll(this, preserveInput = true); WidgetSync.schedule(this); return false }
+        val run = Run(kinds.toMutableSet())
+        runs.put(params.jobId, run)?.stopped = true
+        kinds.forEach(::updateLoading)
+        kinds.forEach { kind ->
+            WidgetSync.refreshWorker.execute {
+                try { if (!run.stopped) WidgetSync.refresh(applicationContext, kind) }
+                finally { WidgetSync.main.post {
+                    if (runs[params.jobId] === run) {
+                        run.pending.remove(kind)
+                        updateLoading(kind)
+                        Widgets.updateAll(this, preserveInput = true)
+                        if (run.pending.isEmpty()) {
+                            runs.remove(params.jobId)
+                            jobFinished(params, false)
+                        }
+                    }
+                } }
+            }
         }
         return true
     }
     override fun onStopJob(params: JobParameters): Boolean {
-        stopped.add(params.jobId)
-        WidgetKind.entries.forEach { Widgets.loading(this, it, false) }
+        val run = runs.remove(params.jobId) ?: return true
+        run.stopped = true
+        run.pending.forEach(::updateLoading)
         return true
     }
 }

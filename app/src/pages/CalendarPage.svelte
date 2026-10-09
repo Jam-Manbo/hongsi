@@ -1,28 +1,35 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount } from 'svelte';
+  import CourseFilters from '../features/calendar/CourseFilters.svelte';
+  import CalendarSummary from '../features/calendar/CalendarSummary.svelte';
+  import { createCalendarCollapse } from '../features/calendar/collapse.svelte';
+  import type { CalendarStat } from '../features/calendar/summary';
   import { MediaQuery } from 'svelte/reactivity';
-  import { isApp } from '../lib/api';
-  import { agendaEntries, type AgendaEntry } from '../lib/agenda';
-  import { toggleDone } from '../lib/actions.svelte';
-  import { courseColors, isOverdue, isPending } from '../lib/colors';
-  import { ago, dueKey, dueTime, longDay, todayKey } from '../lib/format';
-  import { calendar, pref, setPref, todos } from '../lib/store.svelte';
-  import { refreshState, refreshTab } from '../lib/refresh.svelte';
-  import { settings } from '../lib/settings.svelte';
-  import { displayedTodos, isTodoPending, todoKey } from '../lib/todos.svelte';
-  import { focus, toast } from '../lib/ui.svelte';
-  import type { CalendarItem, Todo } from '../lib/types';
-  import TodoRow from '../components/TodoRow.svelte';
-  import TodoSheet from '../components/TodoSheet.svelte';
-  import Sheet from '../components/Sheet.svelte';
-  import AgendaItem from '../components/AgendaItem.svelte';
-  import Icon from '../components/Icon.svelte';
-  import ItemSheet from '../components/ItemSheet.svelte';
-  import LoadError from '../components/LoadError.svelte';
-  import MonthCalendar from '../components/MonthCalendar.svelte';
-  import Popover from '../components/Popover.svelte';
-  import Skeleton from '../components/Skeleton.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
+  import { isApp } from '../shared/api/api';
+  import { agendaEntries, type AgendaEntry } from '../features/calendar/agenda';
+  import { clock } from '../shared/state/clock.svelte';
+  import { toggleDone } from '../features/calendar/actions.svelte';
+  import { courseColors, isOverdue, isPending } from '../features/calendar/colors';
+  import { ago, dueKey, dueTime, longDay, todayKey } from '../shared/utils/format';
+  import { calendar } from '../features/calendar/calendar-resources.svelte';
+  import { pref, setPref } from '../shared/state/preferences';
+  import { todos } from '../features/calendar/todo-resource.svelte';
+  import { refreshState, refreshTab } from '../shared/state/refresh.svelte';
+  import { settings } from '../features/settings/settings.svelte';
+  import { displayedTodos, isTodoPending, todoKey } from '../features/calendar/todos.svelte';
+  import { focus, toast } from '../shared/state/ui.svelte';
+  import type { AcademicTerm, CalendarItem, Todo } from '../shared/types';
+  import TodoRow from '../features/calendar/TodoRow.svelte';
+  import TodoSheet from '../features/calendar/TodoSheet.svelte';
+  import Sheet from '../shared/ui/Sheet.svelte';
+  import AgendaItem from '../features/calendar/AgendaItem.svelte';
+  import Icon from '../shared/ui/Icon.svelte';
+  import ItemSheet from '../features/classroom/ItemSheet.svelte';
+  import LoadError from '../shared/ui/LoadError.svelte';
+  import MonthCalendar from '../features/calendar/MonthCalendar.svelte';
+  import Popover from '../shared/ui/Popover.svelte';
+  import Skeleton from '../shared/ui/Skeleton.svelte';
+  import EmptyState from '../shared/ui/EmptyState.svelte';
 
   type Filter = 'all' | 'assignment' | 'vod' | 'pending' | 'todo';
   const FILTERS: { id: Filter; label: string }[] = [
@@ -40,8 +47,7 @@
   let selected = $state(todayKey());
   let filter = $state<Filter>('all');
   let hidden = $state(new Set<number>());
-  type Stat = 'all' | 'week' | 'assign' | 'vod' | 'todo' | 'missed';
-  let stat = $state<Stat | null>(null);
+  let stat = $state<CalendarStat | null>(null);
   let detailKey = $state<string | null>(null);
   const detail = $derived(calendar.data?.items.find((i) => i.key === detailKey) ?? null);
 
@@ -85,7 +91,23 @@
   });
 
   const data = $derived(calendar.data);
-  const items = $derived((data?.items ?? []).filter((i) => !hidden.has(i.courseId)
+  let selectedTerm = $state<string | null>(null);
+  const terms = $derived.by(() => {
+    const available = new Map<string, AcademicTerm | null>();
+    for (const course of data?.courses ?? []) available.set(termKey(course.term), course.term);
+    return [...available].map(([key, term]) => ({ key, label: termLabel(term), term })).sort((a, b) =>
+      (b.term?.year ?? 0) - (a.term?.year ?? 0) || (b.term?.semester ?? 0) - (a.term?.semester ?? 0));
+  });
+  const showTerms = $derived(data?.semesterDisplay === 'all' && terms.length > 0);
+  const activeTerm = $derived.by(() => {
+    if (!showTerms) return 'all';
+    return terms.find((term) => term.key === selectedTerm)?.key
+      ?? terms.find((term) => data?.currentTerm && term.key === termKey(data.currentTerm))?.key
+      ?? terms[0].key;
+  });
+  const termCourses = $derived((data?.courses ?? []).filter((course) => activeTerm === 'all' || termKey(course.term) === activeTerm));
+  const termCourseIds = $derived(new Set([COMMON, ...termCourses.map((course) => course.id)]));
+  const items = $derived((data?.items ?? []).filter((i) => (activeTerm === 'all' || termCourseIds.has(i.courseId)) && !hidden.has(i.courseId)
     && (settings.showUndatedAssignments || i.kind !== 'assignment' || i.due !== null)));
   const colors = $derived(courseColors(data?.courses ?? []));
   const courseName = (id: number) => data?.courses.find((c) => c.id === id)?.name ?? '';
@@ -101,7 +123,7 @@
   );
 
   const dayItems = $derived(visible.filter((i) => i.due !== null && dueKey(i.due) === selected));
-  const courseTodos = $derived(displayedTodos().filter((t) => !hidden.has(t.courseId ?? COMMON)));
+  const courseTodos = $derived(displayedTodos().filter((t) => (activeTerm === 'all' || termCourseIds.has(t.courseId ?? COMMON)) && !hidden.has(t.courseId ?? COMMON)));
   const myTodos = $derived(
     courseTodos.filter((t) => {
       if (filter === 'assignment' || filter === 'vod') return false;
@@ -116,13 +138,8 @@
     const now = Date.now() / 1000;
     return remainingTodos.filter((t) => isTodoPending(t, now) && t.due !== null && t.due - now < 7 * 86400);
   });
-  const upcomingTodos = $derived(
-    myTodos
-      .filter((t) => {
-        const key = todoKey(t);
-        return isTodoPending(t) && (key === null || (key > todayKey() && key !== selected));
-      }),
-  );
+  const upcomingTodos = $derived(myTodos.filter((t) =>
+    t.doneAt === null && t.due !== null && t.due * 1000 > clock.now));
   const todoColor = (t: Todo) => (t.courseId === null ? 'var(--todo-neutral)' : (colors.get(t.courseId) ?? 'var(--todo-neutral)'));
   const todoCourse = (t: Todo) => (t.courseId === null ? '공통' : courseName(t.courseId));
   const names = $derived(new Map((data?.courses ?? []).map((c) => [c.id, c.name])));
@@ -130,15 +147,9 @@
     const now = Date.now() / 1000;
     return items.filter((i) => isPending(i, now) && i.due !== null && i.due - now < 7 * 86400);
   });
-  const upcoming = $derived(
-    visible
-      .filter((i) => {
-        if (i.due === null || !isPending(i)) return false;
-        const key = dueKey(i.due);
-        return key > todayKey() && key !== selected;
-      }),
-  );
-  const upcomingEntries = $derived(agendaEntries(upcoming, upcomingTodos).slice(0, 8));
+  const upcoming = $derived(visible.filter((i) =>
+    !i.done && i.due !== null && i.due * 1000 > clock.now));
+  const upcomingEntries = $derived(agendaEntries(upcoming, upcomingTodos));
   const undatedEntries = $derived(agendaEntries(visible.filter((i) => i.due === null), []));
 
   const statItems = $derived.by(() => {
@@ -164,24 +175,35 @@
   const statEntries = $derived(agendaEntries(statItems, statTodos));
   const statHasItems = $derived(statEntries.length > 0);
 
-  function toggleCourse(id: number) {
-    const next = new Set(hidden);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    hidden = next;
-  }
-
   const courseIds = $derived([COMMON, ...(data?.courses ?? []).map((c) => c.id)]);
   const allCoursesSelected = $derived(courseIds.every((id) => !hidden.has(id)));
-  function toggleAllCourses() {
-    hidden = allCoursesSelected ? new Set(courseIds) : new Set<number>();
+  const selectedCourseCount = $derived([...termCourseIds].filter((id) => !hidden.has(id)).length);
+  const courseFilterActive = $derived(activeTerm !== 'all' || !allCoursesSelected);
+
+  function termKey(term: AcademicTerm | null): string {
+    return term ? `${term.year}-${term.semester}` : 'other';
+  }
+
+  function termLabel(term: AcademicTerm | null): string {
+    if (!term) return '기타';
+    const labels: Record<number, string> = { 10: '1학기', 11: '여름학기', 20: '2학기', 21: '겨울학기' };
+    return `${term.year}년 ${labels[term.semester] ?? term.semester}`;
   }
 
   const narrow = new MediaQuery('max-width: 767px');
   let courseOpen = $state(false);
   let summaryOpen = $state(false);
 
-  function selectStat(next: Stat) {
+  const summaryCounts = $derived({
+    all: todos.data ? items.length + courseTodos.length : todos.error ? '—' : '…',
+    week: todos.data ? week.length + weekTodos.length : todos.error ? '—' : '…',
+    assign: items.filter((i) => i.kind === 'assignment' && isPending(i)).length,
+    vod: items.filter((i) => i.kind === 'vod' && isPending(i)).length,
+    todo: todos.data ? remainingTodos.length : todos.error ? '—' : '…',
+    missed: items.filter((i) => isOverdue(i)).length,
+  });
+
+  function selectStat(next: CalendarStat) {
     stat = !narrow.current && stat === next ? null : next;
   }
 
@@ -219,65 +241,7 @@
     else openItem(entry.value);
   }
 
-  let calWrap: HTMLDivElement | undefined = $state();
-  let calSpace: HTMLDivElement | undefined = $state();
-  let monthView: HTMLDivElement | undefined = $state();
-  let weekView: HTMLDivElement | undefined = $state();
-  let dayTitle: HTMLHeadingElement | undefined = $state();
-  let monthH = $state(0);
-  let stripH = $state(0);
-  let collapse = $state(0);
-  const stripOn = $derived(collapse >= 0.999);
-  const reducedMotion = new MediaQuery('(prefers-reduced-motion: reduce)');
-  const compactInteractive = $derived(collapse >= (reducedMotion.current ? 0.999 : 0.85));
-
-  $effect(() => {
-    if (!narrow.current || !calWrap || !calSpace || !monthView || !weekView) {
-      collapse = 0;
-      return;
-    }
-    const space = calSpace, full = monthView, compact = weekView;
-    const scroller = calWrap.closest('.scroller');
-    if (!scroller) return;
-    let raf = 0;
-    let previousHeight = 0;
-    const check = () => {
-      raf = 0;
-      const bar = document.querySelector('.topbar');
-      const edge = (bar ?? scroller).getBoundingClientRect()[bar ? 'bottom' : 'top'];
-      collapse = Math.max(0, Math.min(1, (edge - space.getBoundingClientRect().top) / Math.max(1, monthH - stripH)));
-    };
-    const onScroll = () => {
-      if (!raf) raf = requestAnimationFrame(check);
-    };
-    const measure = () => {
-      const height = full.offsetHeight;
-      const adjustment = previousHeight && stripOn ? height - previousHeight : 0;
-      previousHeight = height;
-      monthH = height;
-      stripH = compact.offsetHeight;
-      if (adjustment) scroller.scrollTop += adjustment;
-      onScroll();
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(full);
-    observer.observe(compact);
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    untrack(measure);
-    return () => {
-      observer.disconnect();
-      scroller.removeEventListener('scroll', onScroll);
-      cancelAnimationFrame(raf);
-    };
-  });
-
-  function afterStripPick() {
-    requestAnimationFrame(() => dayTitle?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
-  }
-
-  function expand() {
-    (calSpace ?? calWrap)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }
+  const dock = createCalendarCollapse(() => narrow.current);
 
 </script>
 
@@ -326,15 +290,15 @@
     {@render summaryControls()}
     {#if !narrow.current}
       {@render statResults()}
-      {@render courseFilters()}
+      <CourseFilters {terms} {showTerms} {activeTerm} {termCourses} {termCourseIds} {colors} bind:hidden bind:selectedTerm />
     {/if}
 
     <div class="board calendar-board" data-layout={side ? 'side' : 'wide'}>
-      <div class="cal-wrap" bind:this={calWrap} style:--collapse={collapse} style:--calendar-height="{monthH - (monthH - stripH) * collapse}px">
+      <div class="cal-wrap" bind:this={dock.calWrap} style:--collapse={dock.collapse} style:--calendar-height="{dock.monthH - (dock.monthH - dock.stripH) * dock.collapse}px">
         <div class="calendar-dock">
-          <div class="month-view" bind:this={monthView} inert={narrow.current && compactInteractive}>
+          <div class="month-view" bind:this={dock.monthView} inert={narrow.current && dock.compactInteractive}>
             <MonthCalendar
-              {collapse}
+              collapse={dock.collapse}
               bind:year
               bind:month
               bind:selected
@@ -346,7 +310,7 @@
             />
           </div>
           {#if narrow.current}
-            <div class="strip" class:on={stripOn} inert={!compactInteractive} bind:this={weekView}>
+            <div class="strip" class:on={dock.stripOn} inert={!dock.compactInteractive} bind:this={dock.weekView}>
               <MonthCalendar
                 week
                 bind:year
@@ -356,16 +320,16 @@
                 {colors}
                 {names}
                 todos={myTodos}
-                onpick={afterStripPick}
-                onexpand={expand}
+                onpick={dock.afterStripPick}
+                onexpand={dock.expand}
               />
             </div>
           {/if}
         </div>
       </div>
-      {#if narrow.current}<div class="calendar-space" bind:this={calSpace} style:height="{monthH}px" aria-hidden="true"></div>{/if}
+      {#if narrow.current}<div class="calendar-space" bind:this={dock.calSpace} style:height="{dock.monthH}px" aria-hidden="true"></div>{/if}
 
-      <div class="lists" style:--strip-h="{narrow.current ? stripH : 0}px">
+      <div class="lists" style:--strip-h="{narrow.current ? dock.stripH : 0}px">
         {#if narrow.current}
           <div class="list-controls">
             <div class="filters" role="toolbar" aria-label="일정 필터">
@@ -377,13 +341,15 @@
           </div>
         {/if}
         <section class="agenda">
-          <h2 class="day-title" bind:this={dayTitle}>
+          <h2 class="day-title" bind:this={dock.dayTitle}>
             {longDay(selected)}
             {#if selected === todayKey()}<span class="chip primary">오늘</span>{/if}
             <button class="add" onclick={() => addTodo()}><Icon name="plus" size={16} stroke={2.4} />할 일</button>
           </h2>
           {#if dayEntries.length}
-            {@render entryList(dayEntries)}
+            <div class="list">
+              {#each dayEntries as entry (entry.key)}{@render agendaRow(entry)}{/each}
+            </div>
           {:else}
             <EmptyState message="이날 마감인 일정이 없어요." />
           {/if}
@@ -495,39 +461,16 @@
       <button class="summary-trigger" onclick={() => { stat = 'week'; summaryOpen = true; }} aria-haspopup="dialog">
         <span>7일 내 마감</span><strong>{todos.data ? week.length + weekTodos.length : todos.error ? '—' : '…'}</strong><Icon name="down" size={14} />
       </button>
-      <button class="course-trigger" class:active={!allCoursesSelected} onclick={() => (courseOpen = true)} aria-haspopup="dialog">
-        과목 필터{#if !allCoursesSelected}<span class="count">{courseIds.filter((id) => !hidden.has(id)).length}/{courseIds.length}</span>{/if}<Icon name="down" size={14} />
+      <button class="course-trigger" class:active={courseFilterActive} onclick={() => (courseOpen = true)} aria-haspopup="dialog">
+        과목 필터{#if courseFilterActive}<span class="count">{selectedCourseCount}/{courseIds.length}</span>{/if}<Icon name="down" size={14} />
       </button>
     </div>
   {:else}
-    {@render stats()}
+    <CalendarSummary narrow={narrow.current} {stat} counts={summaryCounts} onselect={selectStat} />
   {/if}
 {/snippet}
 
-{#snippet stats()}
-  <div class="summary">
-    {#if narrow.current}
-      <button class="stat" class:on={stat === 'all'} onclick={() => selectStat('all')} aria-expanded={stat === 'all'}>
-        <strong>{todos.data ? items.length + courseTodos.length : todos.error ? '—' : '…'}</strong><span>전체</span>
-      </button>
-    {/if}
-    <button class="stat" class:on={stat === 'week'} onclick={() => selectStat('week')} aria-expanded={stat === 'week'}>
-      <strong>{todos.data ? week.length + weekTodos.length : todos.error ? '—' : '…'}</strong><span>7일 내 마감</span>
-    </button>
-    <button class="stat" class:on={stat === 'assign'} onclick={() => selectStat('assign')} aria-expanded={stat === 'assign'}>
-      <strong>{items.filter((i) => i.kind === 'assignment' && isPending(i)).length}</strong><span>남은 과제</span>
-    </button>
-    <button class="stat" class:on={stat === 'vod'} onclick={() => selectStat('vod')} aria-expanded={stat === 'vod'}>
-      <strong>{items.filter((i) => i.kind === 'vod' && isPending(i)).length}</strong><span>남은 강의</span>
-    </button>
-    <button class="stat" class:on={stat === 'todo'} onclick={() => selectStat('todo')} aria-expanded={stat === 'todo'}>
-      <strong>{todos.data ? remainingTodos.length : todos.error ? '—' : '…'}</strong><span>남은 할 일</span>
-    </button>
-    <button class="stat danger" class:on={stat === 'missed'} onclick={() => selectStat('missed')} aria-expanded={stat === 'missed'}>
-      <strong>{items.filter((i) => isOverdue(i)).length}</strong><span>놓친 항목</span>
-    </button>
-  </div>
-{/snippet}
+
 
 {#snippet statResults()}
   {#if stat}
@@ -543,42 +486,15 @@
   {/if}
 {/snippet}
 
-{#snippet courseFilters()}
-  <div class="legend" aria-label="과목 필터">
-    <button class="course all-courses" onclick={toggleAllCourses}>
-      <Icon name={allCoursesSelected ? 'close' : 'tick'} size={14} />
-      {allCoursesSelected ? '전체 해제' : '전체 선택'}
-    </button>
-    <button
-      class="course"
-      class:off={hidden.has(COMMON)}
-      style:--c="var(--todo-neutral)"
-      onclick={() => toggleCourse(COMMON)}
-      aria-pressed={!hidden.has(COMMON)}
-    >
-      <span class="dot sq"></span>공통
-    </button>
-    {#each (data?.courses ?? []) as c (c.id)}
-      <button
-        class="course"
-        class:off={hidden.has(c.id)}
-        style:--c={colors.get(c.id)}
-        onclick={() => toggleCourse(c.id)}
-        aria-pressed={!hidden.has(c.id)}
-      >
-        <span class="dot"></span>{c.name}
-      </button>
-    {/each}
-  </div>
-{/snippet}
+
 
 {#if narrow.current}
   <Sheet bind:open={courseOpen} title="과목 필터">
-    <div class="course-picker">{@render courseFilters()}</div>
+    <CourseFilters {terms} {showTerms} {activeTerm} {termCourses} {termCourseIds} {colors} bind:hidden bind:selectedTerm picker />
     {#snippet footer()}<button class="btn btn-primary w1" onclick={() => (courseOpen = false)}>확인</button>{/snippet}
   </Sheet>
   <Sheet bind:open={summaryOpen} title="일정 요약">
-    <div class="summary-picker">{@render stats()}{@render statResults()}</div>
+    <div class="summary-picker"><CalendarSummary narrow={narrow.current} {stat} counts={summaryCounts} onselect={selectStat} />{@render statResults()}</div>
   </Sheet>
 {/if}
 
@@ -618,135 +534,34 @@
   .list-controls .filters { flex: 1; min-width: 0; }
   .list-controls .refresh { width: 36px; height: 40px; }
   .list-controls .filter { min-height: 40px; padding-inline: 10px; }
-  .course-picker .legend { display: grid; gap: 8px; margin: 0; }
-  .course-picker .course { width: 100%; border-radius: 12px; min-height: 44px; padding: 10px 12px; text-align: left; line-height: 1.5; }
-  .course-picker .course .dot { flex: none; }
-  .course-picker .course.all-courses { justify-content: center; }
-  .summary-picker .summary { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 16px; }
-  .summary-picker .stat { padding-inline: 8px; }
   .summary-picker .stat-list.card { padding: 0; border: 0; background: transparent; box-shadow: none; }
-
   .toolbar {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 14px;
   }
-
   .toolbar .filters {
     flex: 1;
   }
-
   .refresh {
     flex: none;
   }
-
   .layout-seg {
     flex: none;
   }
-
   .layout-seg button {
     display: inline-flex;
     align-items: center;
     gap: 5px;
     padding: 0 12px 0 10px;
   }
-
-  .summary {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0;
-    margin-bottom: 16px;
-    padding: 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .stat {
-    display: grid;
-    gap: 2px;
-    padding: 10px 8px;
-    border-radius: 12px;
-    background: transparent;
-    border: 1px solid transparent;
-  }
-
-  .stat strong {
-    font-size: 24px;
-    font-weight: 750;
-    letter-spacing: -0.03em;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .stat span {
-    font-size: 12px;
-    color: var(--text-3);
-    font-weight: 600;
-  }
-
-  .stat.danger strong {
-    color: var(--danger);
-  }
-
-  .stat {
-    text-align: left;
-    transition:
-      border-color 0.15s,
-      box-shadow 0.15s;
-  }
-
-  .stat:hover {
-    border-color: var(--border-strong);
-  }
-
-  .stat.on {
-    border-color: transparent;
-    background: var(--primary-weak);
-    color: var(--primary-text);
-  }
-
   .stat-list {
     margin-bottom: 12px;
     display: grid;
     gap: 8px;
   }
-
   .stat-list.card { padding: 12px; }
-
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-
-  .course {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 36px;
-    padding: 0 11px;
-    border-radius: 999px;
-    font-size: 12.5px;
-    font-weight: 650;
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    transition: opacity 0.15s;
-  }
-
-  .course .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--c);
-  }
-
-  .course .dot.sq {
-    border-radius: 2px;
-  }
-
   .add {
     margin-left: auto;
     display: inline-flex;
@@ -760,39 +575,23 @@
     font-size: 13px;
     font-weight: 700;
   }
-
-  .course.off {
-    opacity: 0.4;
-    text-decoration: line-through;
-  }
-
-  .course.all-courses {
-    color: var(--primary-text);
-    background: var(--primary-weak);
-    border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
-  }
-
   .board, .cal-wrap, .lists { min-width: 0; }
-
   .board[data-layout='wide'] { display: flex; flex-direction: column; width: 100%; }
   .board[data-layout='wide'] > .cal-wrap,
   .board[data-layout='wide'] > .lists { width: 100%; }
-
   .cal-wrap {
     scroll-margin-top: calc(var(--topbar-h, 64px) + 8px);
   }
-
   .calendar-space { flex: none; scroll-margin-top: calc(var(--topbar-h, 64px) + 8px); overflow-anchor: none; }
-
   @media (max-width: 767px) {
-    .cal-wrap {
+  .cal-wrap {
       position: sticky;
       top: var(--topbar-h, 64px);
       z-index: 15;
       height: 0;
       pointer-events: none;
     }
-    .calendar-dock {
+  .calendar-dock {
       position: absolute;
       top: 0;
       left: 0;
@@ -804,8 +603,8 @@
       pointer-events: auto;
       overflow-anchor: none;
     }
-    .month-view { opacity: min(1, max(0, calc((1 - var(--collapse)) / .15))); }
-    .strip {
+  .month-view { opacity: min(1, max(0, calc((1 - var(--collapse)) / .15))); }
+  .strip {
       position: absolute;
       top: 0;
       left: 0;
@@ -814,25 +613,21 @@
       transform: translate3d(0, calc((1 - var(--collapse)) * 20px), 0);
     }
   }
-
   @media (prefers-reduced-motion: reduce) {
-    .month-view { opacity: 1; }
-    .strip { transform: none; opacity: 0; }
-    .strip.on { opacity: 1; }
+  .month-view { opacity: 1; }
+  .strip { transform: none; opacity: 0; }
+  .strip.on { opacity: 1; }
   }
-
   .lists {
     display: grid;
     align-content: start;
     margin-top: 16px;
   }
-
   @media (max-width: 767px) {
-    .lists {
+  .lists {
       min-height: calc(100dvh - var(--topbar-h, 64px) - var(--tabbar-h));
     }
   }
-
   .day-title {
     display: flex;
     align-items: center;
@@ -843,19 +638,16 @@
     margin: 4px 4px 10px;
     scroll-margin-top: calc(var(--topbar-h, 64px) + var(--strip-h, 0px) + 8px);
   }
-
   .list {
     display: grid;
     gap: 8px;
   }
-
   .pop-day {
     width: 280px;
     max-width: calc(100vw - 48px);
     display: grid;
     gap: 8px;
   }
-
   .pop-day header {
     display: flex;
     align-items: center;
@@ -864,12 +656,10 @@
     margin: -4px -6px 0 2px;
     font-size: 14.5px;
   }
-
   .pop-close {
     width: 32px;
     height: 32px;
   }
-
   .pop-day ul {
     list-style: none;
     margin: 0;
@@ -879,7 +669,6 @@
     max-height: 300px;
     overflow-y: auto;
   }
-
   .pop-row {
     width: 100%;
     display: flex;
@@ -890,11 +679,9 @@
     text-align: left;
     transition: background 0.12s;
   }
-
   .pop-row:hover {
     background: var(--surface-2);
   }
-
   .shape {
     flex: none;
     width: 9px;
@@ -902,16 +689,13 @@
     border-radius: 999px;
     background: var(--c);
   }
-
   .shape.vod {
     background: transparent;
     box-shadow: inset 0 0 0 2px var(--c);
   }
-
   .shape.todo {
     border-radius: 2px;
   }
-
   .pt {
     flex: 1;
     min-width: 0;
@@ -921,7 +705,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
   .ptime {
     flex: none;
     font-size: 12px;
@@ -929,60 +712,23 @@
     color: var(--text-3);
     font-variant-numeric: tabular-nums;
   }
-
   .pop-row.finished .pt {
     color: var(--text-3);
     text-decoration: line-through;
   }
-
   .pop-add {
     min-height: 38px;
     font-size: 13.5px;
   }
-
-  @media (max-width: 639px) {
-    .stat {
-      padding: 10px 2px;
-      text-align: center;
-    }
-
-    .stat strong {
-      font-size: 19px;
-    }
-
-    .stat span {
-      font-size: 11px;
-      line-height: 1.3;
-    }
-
-    .legend {
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      scrollbar-width: none;
-      margin: 0 -16px 12px;
-      padding: 0 16px;
-    }
-
-    .legend::-webkit-scrollbar {
-      display: none;
-    }
-
-    .course {
-      flex: none;
-    }
-  }
-
   @media (min-width: 1024px) {
-    .lists {
+  .lists {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 0 24px;
       align-items: start;
       margin-top: 20px;
     }
-
-    .undated { grid-column: 1 / -1; }
-
-    .up-title {
+  .undated { grid-column: 1 / -1; }
+  .up-title {
       margin: 4px 4px 10px;
       min-height: 32px;
       font-size: 16px;
@@ -990,25 +736,21 @@
       color: var(--text);
       letter-spacing: -0.02em;
     }
-
-    .day-title {
+  .day-title {
       min-height: 32px;
     }
   }
-
   .board[data-layout='side'] {
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(320px, 32%, 380px);
     gap: 24px;
     align-items: start;
   }
-
   .board[data-layout='side'] .lists {
     grid-template-columns: minmax(0, 1fr);
     gap: 22px;
     margin-top: 0;
   }
-
   .board[data-layout='side'] .day-title {
     margin-top: 2px;
   }

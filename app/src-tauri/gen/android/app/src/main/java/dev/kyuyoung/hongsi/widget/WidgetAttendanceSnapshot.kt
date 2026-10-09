@@ -12,16 +12,19 @@ internal object WidgetAttendanceSnapshot {
     private val labels = mapOf("present" to "출석", "late" to "지각", "excused" to "공결", "absent" to "결석")
     fun valid(receipt: JSONObject) = receipt.text("date") == dateText() && receipt.text("kind") in listOf("present", "late", "excused") && receipt.optJSONObject("lecture")?.text("key")?.isNotBlank() == true && dateText(receipt.optLong("confirmedAt") / 1000) == dateText()
     private fun identity(item: JSONObject) = "${dateText()}|${item.text("code").ifBlank { item.text("name").replace(Regex("\\(\\*\\)|\\s"), "") }}|${if (item.has("at")) item.optLong("at").toString() else item.text("key", "course") }"
-    fun make(slots: List<JSONObject>, active: List<JSONObject>, courses: List<JSONObject>, receipts: List<JSONObject>, previous: JSONObject?): JSONObject {
-        val now = System.currentTimeMillis()
+    fun sessions(slots: List<JSONObject>, now: Long): List<JSONObject> {
         val midnight = Math.floorDiv(now + 32400_000, 86400_000) * 86400_000 - 32400_000
-        val sessions = slots.filter { it.optInt("weekday") == weekday() }.flatMap { slot ->
+        return slots.filter { it.optInt("weekday") == weekday(now / 1000) }.flatMap { slot ->
             val periods = slot.optJSONArray("periods") ?: JSONArray().put(1)
             (0 until periods.length()).map { i ->
                 val start = minutes(slot.text("start")) + (periods.optInt(i) - periods.optInt(0)) * 60
                 JSONObject(slot.toString()).put("start", hm(start)).put("at", midnight + start * 60_000L).put("round", i + 1).put("periods", JSONArray().put(periods.optInt(i)))
             }
         }.sortedBy { it.optLong("at") }
+    }
+    fun make(slots: List<JSONObject>, active: List<JSONObject>, courses: List<JSONObject>, receipts: List<JSONObject>, previous: JSONObject?, checkedAt: Long = System.currentTimeMillis()): JSONObject {
+        val now = checkedAt
+        val sessions = sessions(slots, now)
         fun ref(lecture: JSONObject, at: Long = now): JSONObject {
             val time = Regex("(?:^|\\D)(\\d{1,2}):(\\d{2})").find(lecture.text("time"))?.let { "${it.groupValues[1].padStart(2, '0')}:${it.groupValues[2]}" }
             val matches = sessions.filter { sameCourse(it, lecture) && if (time != null) it.text("start") == time else at in (it.optLong("at") - 180_000)..(it.optLong("at") + 600_000) }

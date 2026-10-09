@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { isApp } from '../lib/api';
+  import { isApp } from '../shared/api/api';
   import {
     classWatch,
     classSessions,
@@ -9,20 +9,22 @@
     periodLabel,
     sessionState,
     todayClasses,
-  } from '../lib/classwatch.svelte';
-  import { ago, WEEKDAYS } from '../lib/format';
-  import { courseColors } from '../lib/colors';
-  import { attendance, calendar, pref, setPref, timetable } from '../lib/store.svelte';
-  import { focus } from '../lib/ui.svelte';
-  import type { AttendanceMark, AttendanceWeek, MarkKind } from '../lib/types';
-  import Icon from '../components/Icon.svelte';
-  import LoadError from '../components/LoadError.svelte';
-  import Popover from '../components/Popover.svelte';
-  import CurrentAttendance from '../components/CurrentAttendance.svelte';
-  import Sheet from '../components/Sheet.svelte';
-  import Skeleton from '../components/Skeleton.svelte';
-  import EmptyState from '../components/EmptyState.svelte';
-  import WeekTimetable from '../components/WeekTimetable.svelte';
+  } from '../features/attendance/classwatch.svelte';
+  import { ago, WEEKDAYS } from '../shared/utils/format';
+  import { courseColors } from '../features/calendar/colors';
+  import { attendance, timetable } from '../features/attendance/attendance-resources.svelte';
+  import { calendar } from '../features/calendar/calendar-resources.svelte';
+  import { pref, setPref } from '../shared/state/preferences';
+  import { focus, toast } from '../shared/state/ui.svelte';
+  import type { AttendanceMark, AttendanceWeek, MarkKind } from '../shared/types';
+  import Icon from '../shared/ui/Icon.svelte';
+  import LoadError from '../shared/ui/LoadError.svelte';
+  import Popover from '../shared/ui/Popover.svelte';
+  import CurrentAttendance from '../features/attendance/CurrentAttendance.svelte';
+  import Sheet from '../shared/ui/Sheet.svelte';
+  import Skeleton from '../shared/ui/Skeleton.svelte';
+  import EmptyState from '../shared/ui/EmptyState.svelte';
+  import WeekTimetable from '../features/attendance/WeekTimetable.svelte';
 
   const phone = new MediaQuery('max-width: 639px');
   const desktop = new MediaQuery('min-width: 1024px');
@@ -30,6 +32,12 @@
   let weekOpen = $state(false);
   const showToday = $derived(desktop.current || phone.current || view === 'today');
   const weekInline = $derived(desktop.current || (!phone.current && view === 'week'));
+
+  async function refreshTimetable() {
+    await timetable.refresh();
+    if (timetable.error) toast('시간표를 새로고침하지 못했어요. 저장된 정보는 유지됩니다.', 'error');
+    else if (timetable.data) toast('시간표를 새로고침했어요.', 'success');
+  }
 
   function setView(v: 'today' | 'week') {
     view = v;
@@ -175,13 +183,14 @@
 
   {#if weekInline}
     <section class="week-wrap">
-      {#if !desktop.current}
-        <h2 class="section-title">
-          <span class="title-text">주간 시간표</span>
-          {@render viewSwitch()}
-        </h2>
-      {/if}
-      {#if !showToday}<LoadError resource={timetable} what="시간표를" stale={false} />{/if}
+      <h2 class="section-title">
+        <span class="title-text">주간 시간표</span>
+        <span class="week-actions">
+          {#if !desktop.current}{@render viewSwitch()}{/if}
+          {@render timetableRefresh()}
+        </span>
+      </h2>
+      <LoadError resource={timetable} what="시간표를" />
       {#if timetable.data}
         <div class="card tt-card">
           <WeekTimetable slots={timetable.data.slots} colors={colorByCode} now={classWatch.now} />
@@ -274,16 +283,25 @@
   {/if}
 </Popover>
 
-<Sheet bind:open={weekOpen} title="주간 시간표" wide>
+{#snippet timetableRefresh()}
+  <button class="icon-btn" aria-label="시간표 새로고침" title="시간표 새로고침" disabled={timetable.loading} onclick={refreshTimetable}>
+    <span class:spin={timetable.loading}><Icon name="refresh" size={18} /></span>
+  </button>
+{/snippet}
+
+<Sheet bind:open={weekOpen} title="주간 시간표" headerActions={timetableRefresh} wide>
+  <LoadError resource={timetable} what="시간표를" />
   {#if timetable.data}
     <WeekTimetable slots={timetable.data.slots} colors={colorByCode} now={classWatch.now} compact />
-  {:else}
+  {:else if !timetable.error}
     <Skeleton rows={4} height={60} />
   {/if}
 </Sheet>
 
 
 <style>
+  .week-actions { display: flex; align-items: center; gap: 8px; }
+
   .today {
     list-style: none;
     margin: 0;
